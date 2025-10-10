@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eidolon Dashboard - Claude.ai Project Manager</title>
+</head>
+<body>
+  <div id="app" class="dashboard-container">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="header-left">
+        <img src="/icon-48.png" alt="Eidolon" class="header-logo">
+        <h1>Eidolon Dashboard</h1>
+      </div>
+      <div class="header-right">
+        <div class="search-bar">
+          <input
+            type="text"
+            id="global-search"
+            placeholder="Search projects, files, conversations..."
+            class="global-search-input"
+          >
+          <button id="search-btn" class="search-btn">🔍</button>
+        </div>
+        <button id="refresh-all-btn" class="icon-btn" title="Refresh All">↻</button>
+        <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="dashboard-nav">
+      <button class="nav-tab active" data-tab="projects">Projects</button>
+      <button class="nav-tab" data-tab="files">Files</button>
+      <button class="nav-tab" data-tab="conversations">Conversations</button>
+      <button class="nav-tab" data-tab="analytics">Analytics</button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="dashboard-main">
+
+      <!-- Projects Tab -->
+      <section id="projects-tab" class="tab-content active">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>Projects</h2>
+            <span id="projects-count" class="count-badge">0</span>
+          </div>
+          <div class="tab-actions">
+            <select id="sort-projects" class="sort-select">
+              <option value="name">Sort by Name</option>
+              <option value="date">Sort by Date</option>
+              <option value="files">Sort by Files</option>
+            </select>
+            <button id="view-grid" class="view-btn active" title="Grid View">⊞</button>
+            <button id="view-list" class="view-btn" title="List View">☰</button>
+            <button id="select-all-projects" class="action-btn">Select All</button>
+            <button id="bulk-actions-projects" class="action-btn">Bulk Actions ▾</button>
+            <button id="new-project" class="primary-btn">+ New Project</button>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <button class="filter-chip active" data-filter="all">All</button>
+          <button class="filter-chip" data-filter="active">Active</button>
+          <button class="filter-chip" data-filter="archived">Archived</button>
+          <button class="filter-chip" data-filter="favorites">⭐ Favorites</button>
+        </div>
+
+        <div id="projects-grid" class="projects-grid">
+          <!-- Projects will be rendered here -->
+        </div>
+
+        <div id="bulk-actions-menu" class="bulk-menu hidden">
+          <button class="bulk-menu-item" data-action="archive">Archive Selected</button>
+          <button class="bulk-menu-item" data-action="export">Export Selected</button>
+          <button class="bulk-menu-item" data-action="tag">Add Tags</button>
+          <button class="bulk-menu-item danger" data-action="delete">Delete Selected</button>
+        </div>
+      </section>
+
+      <!-- Files Tab -->
+      <section id="files-tab" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>All Files</h2>
+            <span id="files-count" class="count-badge">0</span>
+          </div>
+          <div class="tab-actions">
+            <select id="sort-files" class="sort-select">
+              <option value="name">Sort by Name</option>
+              <option value="date">Sort by Date</option>
+              <option value="size">Sort by Size</option>
+              <option value="project">Sort by Project</option>
+            </select>
+            <button id="select-all-files" class="action-btn">Select All</button>
+            <button id="bulk-actions-files" class="action-btn">Bulk Actions ▾</button>
+          </div>
+        </div>
+
+        <div id="files-list" class="files-list">
+          <!-- Files will be rendered here -->
+        </div>
+
+        <div id="bulk-actions-menu-files" class="bulk-menu hidden">
+          <button class="bulk-menu-item-files" data-action="export">Export Selected</button>
+          <button class="bulk-menu-item-files" data-action="tag">Add Tags</button>
+          <button class="bulk-menu-item-files danger" data-action="delete">Delete Selected</button>
+        </div>
+      </section>
+
+      <!-- Conversations Tab -->
+      <section id="conversations-tab" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>Conversations</h2>
+            <span id="conversations-count" class="count-badge">0</span>
+          </div>
+          <div class="tab-actions">
+            <select id="sort-conversations" class="sort-select">
+              <option value="recent">Most Recent</option>
+              <option value="name">By Name</option>
+              <option value="project">By Project</option>
+            </select>
+            <button id="select-all-conversations" class="action-btn">Select All</button>
+            <button id="bulk-actions-conversations" class="action-btn">Bulk Actions ▾</button>
+            <button id="new-conversation" class="primary-btn">+ New Chat</button>
+          </div>
+        </div>
+
+        <div id="conversations-list" class="conversations-list">
+          <!-- Conversations will be rendered here -->
+        </div>
+      </section>
+
+      <!-- Analytics Tab -->
+      <section id="analytics-tab" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>Usage Analytics</h2>
+          </div>
+          <div class="tab-actions">
+            <button id="export-all-data" class="primary-btn">📥 Export All Data</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📁</div>
+            <div class="stat-value" id="total-projects">0</div>
+            <div class="stat-label">Total Projects</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">📄</div>
+            <div class="stat-value" id="total-files">0</div>
+            <div class="stat-label">Total Files</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">💬</div>
+            <div class="stat-value" id="total-conversations">0</div>
+            <div class="stat-label">Total Conversations</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">💾</div>
+            <div class="stat-value" id="total-storage">0 MB</div>
+            <div class="stat-label">Storage Used</div>
+          </div>
+        </div>
+
+        <div class="analytics-section">
+          <h3>Activity Timeline</h3>
+          <div id="activity-timeline" class="timeline">
+            <!-- Activity items will be rendered here -->
+          </div>
+        </div>
+
+        <div class="analytics-section">
+          <h3>Most Active Projects</h3>
+          <div id="active-projects-chart" class="chart-container">
+            <!-- Chart will be rendered here -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Connection Status Bar -->
+    <div id="status-bar" class="status-bar">
+      <span id="status-text">Connecting...</span>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div id="modal-content" class="modal-content">
+        <!-- Modal content will be injected here -->
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

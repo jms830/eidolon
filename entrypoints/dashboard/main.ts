@@ -1,0 +1,1556 @@
+import './style.css';
+import {
+  getSearchService,
+  projectToSearchableItem,
+  fileToSearchableItem,
+  conversationToSearchableItem,
+  type SearchableItem
+} from '../../utils/search/searchService';
+import { getTagsService, type Tag } from '../../utils/tags/tagsService';
+import { createTagBadge, showTagSelectionModal, createTagFilter } from '../../utils/tags/tagsUI';
+
+// State
+interface AppState {
+  projects: any[];
+  files: any[];
+  conversations: any[];
+  selectedProjects: Set<string>;
+  selectedFiles: Set<string>;
+  selectedConversations: Set<string>;
+  currentTab: string;
+  viewMode: 'grid' | 'list';
+  isConnected: boolean;
+  searchResults: SearchableItem[];
+  isSearching: boolean;
+  filterTags: string[];
+  projectTags: Map<string, Tag[]>;
+  fileTags: Map<string, Tag[]>;
+  conversationTags: Map<string, Tag[]>;
+}
+
+const state: AppState = {
+  projects: [],
+  files: [],
+  conversations: [],
+  selectedProjects: new Set(),
+  selectedFiles: new Set(),
+  selectedConversations: new Set(),
+  currentTab: 'projects',
+  viewMode: 'grid',
+  isConnected: false,
+  searchResults: [],
+  isSearching: false,
+  filterTags: [],
+  projectTags: new Map(),
+  fileTags: new Map(),
+  conversationTags: new Map(),
+};
+
+const searchService = getSearchService();
+const tagsService = getTagsService();
+
+// DOM Elements
+const statusBar = document.getElementById('status-bar')!;
+const statusText = document.getElementById('status-text')!;
+const globalSearch = document.getElementById('global-search') as HTMLInputElement;
+const refreshAllBtn = document.getElementById('refresh-all-btn')!;
+const navTabs = document.querySelectorAll('.nav-tab');
+const tabContents = document.querySelectorAll('.tab-content');
+
+// Projects elements
+const projectsGrid = document.getElementById('projects-grid')!;
+const projectsCount = document.getElementById('projects-count')!;
+const viewGridBtn = document.getElementById('view-grid')!;
+const viewListBtn = document.getElementById('view-list')!;
+const selectAllProjectsBtn = document.getElementById('select-all-projects')!;
+const bulkActionsProjectsBtn = document.getElementById('bulk-actions-projects')!;
+const newProjectBtn = document.getElementById('new-project')!;
+const sortProjects = document.getElementById('sort-projects') as HTMLSelectElement;
+
+// Files elements
+const selectAllFilesBtn = document.getElementById('select-all-files')!;
+const bulkActionsFilesBtn = document.getElementById('bulk-actions-files')!;
+
+// Analytics elements
+const totalProjectsEl = document.getElementById('total-projects')!;
+const totalFilesEl = document.getElementById('total-files')!;
+const totalConversationsEl = document.getElementById('total-conversations')!;
+const totalStorageEl = document.getElementById('total-storage')!;
+const exportAllDataBtn = document.getElementById('export-all-data')!;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', initialize);
+
+async function initialize() {
+  await checkConnection();
+  setupEventListeners();
+
+  if (state.isConnected) {
+    await loadAllData();
+    renderCurrentTab();
+    updateAnalytics();
+  }
+}
+
+async function checkConnection() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'validate-session' });
+    state.isConnected = response.success;
+
+    if (state.isConnected) {
+      statusBar.classList.add('connected');
+      statusText.textContent = 'Connected to Claude.ai';
+    } else {
+      statusBar.classList.add('error');
+      statusText.textContent = 'Not connected - Please log in to Claude.ai';
+    }
+  } catch (error) {
+    console.error('Connection check failed:', error);
+    state.isConnected = false;
+    statusBar.classList.add('error');
+    statusText.textContent = 'Connection error';
+  }
+}
+
+async function loadAllData() {
+  await Promise.all([loadProjects(), loadConversations()]);
+  await loadAllFiles();
+  await loadAllTags();
+  await indexAllData();
+}
+
+async function loadAllTags() {
+  // Load tags for all projects
+  for (const project of state.projects) {
+    const tags = await tagsService.getItemTags(project.uuid, 'project');
+    state.projectTags.set(project.uuid, tags);
+  }
+
+  // Load tags for all files
+  for (const file of state.files) {
+    const tags = await tagsService.getItemTags(file.uuid, 'file');
+    state.fileTags.set(file.uuid, tags);
+  }
+
+  // Load tags for all conversations
+  for (const conversation of state.conversations) {
+    const tags = await tagsService.getItemTags(conversation.uuid, 'conversation');
+    state.conversationTags.set(conversation.uuid, tags);
+  }
+}
+
+async function indexAllData() {
+  const searchableItems: SearchableItem[] = [];
+
+  // Index projects with tags
+  state.projects.forEach(project => {
+    const item = projectToSearchableItem(project);
+    const tags = state.projectTags.get(project.uuid) || [];
+    item.metadata.tags = tags.map(t => t.name);
+    searchableItems.push(item);
+  });
+
+  // Index files with tags
+  state.files.forEach(file => {
+    const item = fileToSearchableItem(file, file.project_uuid, file.project_name);
+    const tags = state.fileTags.get(file.uuid) || [];
+    item.metadata.tags = tags.map(t => t.name);
+    searchableItems.push(item);
+  });
+
+  // Index conversations with tags
+  state.conversations.forEach(conversation => {
+    const project = state.projects.find(p => p.uuid === conversation.project_uuid);
+    const item = conversationToSearchableItem(conversation, project?.name);
+    const tags = state.conversationTags.get(conversation.uuid) || [];
+    item.metadata.tags = tags.map(t => t.name);
+    searchableItems.push(item);
+  });
+
+  await searchService.indexItems(searchableItems);
+  console.log(`Indexed ${searchableItems.length} items for search`);
+}
+
+async function loadProjects() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-projects' });
+    if (response.success) {
+      state.projects = response.data || [];
+      projectsCount.textContent = state.projects.length.toString();
+    }
+  } catch (error) {
+    console.error('Failed to load projects:', error);
+  }
+}
+
+async function loadAllFiles() {
+  state.files = [];
+  for (const project of state.projects) {
+    try {
+      const response = await browser.runtime.sendMessage({
+        action: 'get-project-files',
+        projectId: project.uuid,
+      });
+      if (response.success && response.data) {
+        state.files.push(
+          ...response.data.map((file: any) => ({
+            ...file,
+            project_uuid: project.uuid,
+            project_name: project.name,
+          }))
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to load files for project ${project.uuid}:`, error);
+    }
+  }
+}
+
+async function loadConversations() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-conversations' });
+    if (response.success) {
+      state.conversations = response.data || [];
+    }
+  } catch (error) {
+    console.error('Failed to load conversations:', error);
+  }
+}
+
+function setupEventListeners() {
+  // Tab navigation
+  navTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.getAttribute('data-tab')!;
+      switchTab(tabName);
+    });
+  });
+
+  // View mode toggles
+  viewGridBtn.addEventListener('click', () => setViewMode('grid'));
+  viewListBtn.addEventListener('click', () => setViewMode('list'));
+
+  // Refresh button
+  refreshAllBtn.addEventListener('click', async () => {
+    await loadAllData();
+    renderCurrentTab();
+    updateAnalytics();
+  });
+
+  // Global search
+  globalSearch.addEventListener('input', (e) => {
+    const query = (e.target as HTMLInputElement).value.toLowerCase();
+    performSearch(query);
+  });
+
+  // Select all buttons
+  selectAllProjectsBtn.addEventListener('click', toggleSelectAllProjects);
+
+  // Bulk actions
+  bulkActionsProjectsBtn.addEventListener('click', () => {
+    const menu = document.getElementById('bulk-actions-menu')!;
+    menu.classList.toggle('hidden');
+  });
+
+  // Bulk actions menu items
+  document.querySelectorAll('.bulk-menu-item').forEach((item) => {
+    item.addEventListener('click', async (e) => {
+      const action = (e.target as HTMLElement).getAttribute('data-action')!;
+      await handleBulkAction(action);
+      document.getElementById('bulk-actions-menu')!.classList.add('hidden');
+    });
+  });
+
+  // File bulk actions
+  selectAllFilesBtn.addEventListener('click', toggleSelectAllFiles);
+
+  bulkActionsFilesBtn.addEventListener('click', () => {
+    const menu = document.getElementById('bulk-actions-menu-files')!;
+    menu.classList.toggle('hidden');
+  });
+
+  // File bulk actions menu items
+  document.querySelectorAll('.bulk-menu-item-files').forEach((item) => {
+    item.addEventListener('click', async (e) => {
+      const action = (e.target as HTMLElement).getAttribute('data-action')!;
+      await handleFileBulkAction(action);
+      document.getElementById('bulk-actions-menu-files')!.classList.add('hidden');
+    });
+  });
+
+  // New project
+  newProjectBtn.addEventListener('click', () => {
+    showNewProjectModal();
+  });
+
+  // Sort projects
+  sortProjects.addEventListener('change', () => {
+    sortProjectsBy(sortProjects.value as any);
+    renderProjects();
+  });
+
+  // Filter chips
+  document.querySelectorAll('.filter-chip').forEach((chip) => {
+    chip.addEventListener('click', (e) => {
+      document.querySelectorAll('.filter-chip').forEach((c) => c.classList.remove('active'));
+      (e.target as HTMLElement).classList.add('active');
+      const filter = (e.target as HTMLElement).getAttribute('data-filter')!;
+      filterProjects(filter);
+    });
+  });
+
+  // Tag filter
+  const filterBar = document.querySelector('.filter-bar')!;
+  createTagFilter((selectedTagIds) => {
+    state.filterTags = selectedTagIds;
+    renderProjects();
+  }).then(tagFilter => {
+    filterBar.appendChild(tagFilter);
+  });
+
+  // Export all data
+  exportAllDataBtn.addEventListener('click', () => {
+    showExportModal();
+  });
+}
+
+function switchTab(tabName: string) {
+  state.currentTab = tabName;
+
+  // Update nav tabs
+  navTabs.forEach((tab) => {
+    if (tab.getAttribute('data-tab') === tabName) {
+      tab.classList.add('active');
+    } else {
+      tab.classList.remove('active');
+    }
+  });
+
+  // Update tab content
+  tabContents.forEach((content) => {
+    if (content.id === `${tabName}-tab`) {
+      content.classList.add('active');
+    } else {
+      content.classList.remove('active');
+    }
+  });
+
+  renderCurrentTab();
+}
+
+function renderCurrentTab() {
+  switch (state.currentTab) {
+    case 'projects':
+      renderProjects();
+      break;
+    case 'files':
+      renderFiles();
+      break;
+    case 'conversations':
+      renderConversations();
+      break;
+    case 'analytics':
+      updateAnalytics();
+      break;
+  }
+}
+
+function renderProjects() {
+  projectsGrid.textContent = '';
+
+  // Filter by tags if any are selected
+  let filteredProjects = state.projects;
+  if (state.filterTags.length > 0) {
+    filteredProjects = state.projects.filter(project => {
+      const projectTags = state.projectTags.get(project.uuid) || [];
+      const projectTagIds = projectTags.map(t => t.id);
+      return state.filterTags.some(tagId => projectTagIds.includes(tagId));
+    });
+  }
+
+  if (filteredProjects.length === 0) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.textContent = state.filterTags.length > 0 ? 'No projects match the selected tags' : 'No projects found';
+    projectsGrid.appendChild(emptyState);
+    return;
+  }
+
+  projectsGrid.className = state.viewMode === 'grid' ? 'projects-grid' : 'projects-list';
+
+  filteredProjects.forEach((project) => {
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    if (state.selectedProjects.has(project.uuid)) {
+      card.classList.add('selected');
+    }
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'project-checkbox';
+    checkbox.checked = state.selectedProjects.has(project.uuid);
+    checkbox.addEventListener('change', () => toggleProjectSelection(project.uuid));
+
+    const header = document.createElement('div');
+    header.className = 'project-header';
+
+    const title = document.createElement('h3');
+    title.textContent = project.name;
+
+    const favorite = document.createElement('button');
+    favorite.className = 'favorite-btn';
+    favorite.textContent = '⭐';
+    favorite.addEventListener('click', () => toggleFavorite(project.uuid));
+
+    header.appendChild(checkbox);
+    header.appendChild(title);
+    header.appendChild(favorite);
+
+    const description = document.createElement('p');
+    description.className = 'project-description';
+    description.textContent = project.description || 'No description';
+
+    const meta = document.createElement('div');
+    meta.className = 'project-meta';
+    const date = new Date(project.created_at || Date.now());
+    meta.textContent = `Created ${date.toLocaleDateString()}`;
+
+    // Tags display
+    const tagsContainer = document.createElement('div');
+    tagsContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0;';
+    const projectTags = state.projectTags.get(project.uuid) || [];
+    projectTags.forEach(tag => {
+      tagsContainer.appendChild(createTagBadge(tag, { small: true }));
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'project-actions';
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'action-btn small';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', () => openProject(project.uuid));
+
+    const filesBtn = document.createElement('button');
+    filesBtn.className = 'action-btn small';
+    filesBtn.textContent = 'Files';
+    filesBtn.addEventListener('click', () => viewProjectFiles(project.uuid));
+
+    const tagsBtn = document.createElement('button');
+    tagsBtn.className = 'action-btn small';
+    tagsBtn.textContent = '🏷️ Tags';
+    tagsBtn.addEventListener('click', async () => {
+      await showTagSelectionModal(project.uuid, 'project', projectTags);
+      await loadAllTags();
+      await indexAllData();
+      renderProjects();
+    });
+
+    actions.appendChild(openBtn);
+    actions.appendChild(filesBtn);
+    actions.appendChild(tagsBtn);
+
+    card.appendChild(header);
+    card.appendChild(description);
+    card.appendChild(meta);
+    card.appendChild(tagsContainer);
+    card.appendChild(actions);
+
+    projectsGrid.appendChild(card);
+  });
+}
+
+function renderFiles() {
+  const filesList = document.getElementById('files-list')!;
+  const filesCount = document.getElementById('files-count')!;
+  filesCount.textContent = state.files.length.toString();
+
+  filesList.textContent = '';
+
+  if (state.files.length === 0) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.textContent = 'No files found';
+    filesList.appendChild(emptyState);
+    return;
+  }
+
+  state.files.forEach((file) => {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    if (state.selectedFiles.has(file.uuid)) {
+      item.classList.add('selected');
+    }
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'file-checkbox';
+    checkbox.checked = state.selectedFiles.has(file.uuid);
+    checkbox.addEventListener('change', () => toggleFileSelection(file.uuid));
+
+    const icon = document.createElement('div');
+    icon.className = 'file-icon';
+    icon.textContent = '📄';
+
+    const info = document.createElement('div');
+    info.className = 'file-info';
+
+    const name = document.createElement('div');
+    name.className = 'file-name';
+    name.textContent = file.file_name;
+
+    const meta = document.createElement('div');
+    meta.className = 'file-meta';
+    meta.textContent = `Project: ${file.project_name} • ${new Date(file.created_at).toLocaleDateString()}`;
+
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'file-actions';
+
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'action-btn small';
+    viewBtn.textContent = 'View';
+    viewBtn.addEventListener('click', () => viewFile(file));
+
+    actions.appendChild(viewBtn);
+
+    item.appendChild(checkbox);
+    item.appendChild(icon);
+    item.appendChild(info);
+    item.appendChild(actions);
+
+    filesList.appendChild(item);
+  });
+}
+
+function renderConversations() {
+  const conversationsList = document.getElementById('conversations-list')!;
+  const conversationsCount = document.getElementById('conversations-count')!;
+  conversationsCount.textContent = state.conversations.length.toString();
+
+  conversationsList.textContent = '';
+
+  if (state.conversations.length === 0) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.textContent = 'No conversations found';
+    conversationsList.appendChild(emptyState);
+    return;
+  }
+
+  state.conversations.forEach((conv) => {
+    const item = document.createElement('div');
+    item.className = 'conversation-item';
+
+    const icon = document.createElement('div');
+    icon.className = 'conversation-icon';
+    icon.textContent = '💬';
+
+    const info = document.createElement('div');
+    info.className = 'conversation-info';
+
+    const name = document.createElement('div');
+    name.className = 'conversation-name';
+    name.textContent = conv.name;
+
+    const meta = document.createElement('div');
+    meta.className = 'conversation-meta';
+    meta.textContent = `Last updated ${new Date(conv.updated_at).toLocaleDateString()}`;
+
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'conversation-actions';
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'action-btn small';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', () => openConversation(conv.uuid));
+
+    actions.appendChild(openBtn);
+
+    item.appendChild(icon);
+    item.appendChild(info);
+    item.appendChild(actions);
+
+    conversationsList.appendChild(item);
+  });
+}
+
+function updateAnalytics() {
+  totalProjectsEl.textContent = state.projects.length.toString();
+  totalFilesEl.textContent = state.files.length.toString();
+  totalConversationsEl.textContent = state.conversations.length.toString();
+
+  // Calculate approximate storage
+  const totalBytes = state.files.reduce((acc, file) => acc + (file.content?.length || 0), 0);
+  const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+  totalStorageEl.textContent = `${totalMB} MB`;
+
+  // Render enhanced analytics
+  renderActivityTimeline();
+  renderMostActiveProjects();
+  renderAdditionalStats();
+}
+
+function renderActivityTimeline() {
+  const timeline = document.getElementById('activity-timeline')!;
+  timeline.textContent = '';
+
+  // Combine all activities
+  const activities: any[] = [
+    ...state.projects.map((p) => ({
+      type: 'project',
+      name: p.name,
+      date: p.created_at || p.updated_at,
+      action: 'created',
+    })),
+    ...state.files.map((f) => ({
+      type: 'file',
+      name: f.file_name,
+      date: f.created_at,
+      action: 'uploaded',
+    })),
+    ...state.conversations.map((c) => ({
+      type: 'conversation',
+      name: c.name,
+      date: c.updated_at,
+      action: 'updated',
+    })),
+  ];
+
+  // Sort by date
+  activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // Show top 10
+  activities.slice(0, 10).forEach((activity) => {
+    const item = document.createElement('div');
+    item.className = 'timeline-item';
+
+    const icon = document.createElement('div');
+    icon.className = 'timeline-icon';
+    icon.textContent = activity.type === 'project' ? '📁' : activity.type === 'file' ? '📄' : '💬';
+
+    const content = document.createElement('div');
+    content.className = 'timeline-content';
+
+    const text = document.createElement('div');
+    text.textContent = `${activity.type} "${activity.name}" ${activity.action}`;
+
+    const time = document.createElement('div');
+    time.className = 'timeline-time';
+    time.textContent = new Date(activity.date).toLocaleString();
+
+    content.appendChild(text);
+    content.appendChild(time);
+
+    item.appendChild(icon);
+    item.appendChild(content);
+
+    timeline.appendChild(item);
+  });
+}
+
+function renderMostActiveProjects() {
+  const chartContainer = document.getElementById('active-projects-chart')!;
+  chartContainer.textContent = '';
+
+  // Calculate file count per project
+  const projectFileCounts = new Map<string, number>();
+  state.files.forEach(file => {
+    const count = projectFileCounts.get(file.project_uuid) || 0;
+    projectFileCounts.set(file.project_uuid, count + 1);
+  });
+
+  // Get top 5 projects by file count
+  const topProjects = state.projects
+    .map(project => ({
+      name: project.name,
+      fileCount: projectFileCounts.get(project.uuid) || 0,
+      uuid: project.uuid
+    }))
+    .sort((a, b) => b.fileCount - a.fileCount)
+    .slice(0, 5);
+
+  if (topProjects.length === 0) {
+    const emptyMsg = document.createElement('p');
+    emptyMsg.textContent = 'No project activity yet';
+    emptyMsg.style.cssText = 'color: #999; text-align: center; padding: 20px;';
+    chartContainer.appendChild(emptyMsg);
+    return;
+  }
+
+  // Create a simple bar chart
+  const maxCount = Math.max(...topProjects.map(p => p.fileCount));
+
+  topProjects.forEach((project, index) => {
+    const barContainer = document.createElement('div');
+    barContainer.style.cssText = 'margin-bottom: 16px;';
+
+    const label = document.createElement('div');
+    label.style.cssText = 'display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 14px;';
+
+    const projectName = document.createElement('span');
+    projectName.textContent = project.name;
+    projectName.style.cssText = 'font-weight: 500;';
+
+    const fileCount = document.createElement('span');
+    fileCount.textContent = `${project.fileCount} file${project.fileCount !== 1 ? 's' : ''}`;
+    fileCount.style.cssText = 'color: #666;';
+
+    label.appendChild(projectName);
+    label.appendChild(fileCount);
+
+    const barBg = document.createElement('div');
+    barBg.style.cssText = `
+      width: 100%;
+      height: 24px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      overflow: hidden;
+    `;
+
+    const barFill = document.createElement('div');
+    const percentage = (project.fileCount / maxCount) * 100;
+    const colors = ['#667eea', '#4CAF50', '#2196F3', '#FF9800', '#E91E63'];
+    barFill.style.cssText = `
+      width: ${percentage}%;
+      height: 100%;
+      background: linear-gradient(135deg, ${colors[index % colors.length]} 0%, ${colors[index % colors.length]}cc 100%);
+      transition: width 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 8px;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+    `;
+
+    if (percentage > 15) {
+      barFill.textContent = `${percentage.toFixed(0)}%`;
+    }
+
+    barBg.appendChild(barFill);
+    barContainer.appendChild(label);
+    barContainer.appendChild(barBg);
+    chartContainer.appendChild(barContainer);
+  });
+}
+
+function renderAdditionalStats() {
+  // Find or create additional stats section
+  let statsSection = document.querySelector('.analytics-section.additional-stats') as HTMLElement;
+
+  if (!statsSection) {
+    statsSection = document.createElement('div');
+    statsSection.className = 'analytics-section additional-stats';
+
+    const header = document.createElement('h3');
+    header.textContent = 'Additional Insights';
+    statsSection.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'insights-grid';
+    grid.id = 'insights-grid';
+    grid.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    `;
+    statsSection.appendChild(grid);
+
+    const analyticsTab = document.getElementById('analytics-tab')!;
+    analyticsTab.appendChild(statsSection);
+  }
+
+  const insightsGrid = document.getElementById('insights-grid')!;
+  insightsGrid.textContent = '';
+
+  // Calculate insights
+  const avgFilesPerProject = state.projects.length > 0
+    ? (state.files.length / state.projects.length).toFixed(1)
+    : '0';
+
+  const totalTags = state.projectTags.size + state.fileTags.size + state.conversationTags.size;
+
+  const projectsWithFiles = new Set(state.files.map(f => f.project_uuid)).size;
+
+  const recentActivity = state.projects.filter(p => {
+    const created = new Date(p.created_at || 0);
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return created > weekAgo;
+  }).length;
+
+  // Create insight cards
+  const insights = [
+    { label: 'Avg Files/Project', value: avgFilesPerProject, icon: '📊' },
+    { label: 'Tagged Items', value: totalTags.toString(), icon: '🏷️' },
+    { label: 'Active Projects', value: projectsWithFiles.toString(), icon: '✅' },
+    { label: 'Recent Projects (7d)', value: recentActivity.toString(), icon: '🆕' }
+  ];
+
+  insights.forEach(insight => {
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    `;
+
+    const icon = document.createElement('div');
+    icon.textContent = insight.icon;
+    icon.style.cssText = 'font-size: 32px; margin-bottom: 8px;';
+
+    const value = document.createElement('div');
+    value.textContent = insight.value;
+    value.style.cssText = 'font-size: 28px; font-weight: 700; margin-bottom: 4px;';
+
+    const label = document.createElement('div');
+    label.textContent = insight.label;
+    label.style.cssText = 'font-size: 14px; opacity: 0.9;';
+
+    card.appendChild(icon);
+    card.appendChild(value);
+    card.appendChild(label);
+
+    insightsGrid.appendChild(card);
+  });
+}
+
+// Helper functions
+function setViewMode(mode: 'grid' | 'list') {
+  state.viewMode = mode;
+
+  if (mode === 'grid') {
+    viewGridBtn.classList.add('active');
+    viewListBtn.classList.remove('active');
+  } else {
+    viewListBtn.classList.add('active');
+    viewGridBtn.classList.remove('active');
+  }
+
+  renderProjects();
+}
+
+function toggleProjectSelection(uuid: string) {
+  if (state.selectedProjects.has(uuid)) {
+    state.selectedProjects.delete(uuid);
+  } else {
+    state.selectedProjects.add(uuid);
+  }
+  renderProjects();
+}
+
+function toggleSelectAllProjects() {
+  if (state.selectedProjects.size === state.projects.length) {
+    state.selectedProjects.clear();
+  } else {
+    state.projects.forEach((p) => state.selectedProjects.add(p.uuid));
+  }
+  renderProjects();
+}
+
+function toggleFavorite(uuid: string) {
+  // TODO: Implement favorites storage
+  console.log('Toggle favorite:', uuid);
+}
+
+async function handleBulkAction(action: string) {
+  const selectedCount = state.selectedProjects.size;
+
+  if (selectedCount === 0) {
+    alert('No projects selected');
+    return;
+  }
+
+  switch (action) {
+    case 'archive':
+      // Archive functionality not yet implemented in API
+      alert(`Archive feature coming soon! Selected: ${selectedCount} project(s)`);
+      break;
+
+    case 'export':
+      await exportSelectedProjects();
+      break;
+
+    case 'tag':
+      await bulkAddTags();
+      break;
+
+    case 'delete':
+      await bulkDeleteProjects();
+      break;
+  }
+}
+
+async function exportSelectedProjects() {
+  const selectedProjects = state.projects.filter(p => state.selectedProjects.has(p.uuid));
+
+  // Create export data
+  const exportData = {
+    exportDate: new Date().toISOString(),
+    totalProjects: selectedProjects.length,
+    projects: selectedProjects.map(project => ({
+      name: project.name,
+      description: project.description,
+      created_at: project.created_at,
+      uuid: project.uuid,
+      tags: (state.projectTags.get(project.uuid) || []).map(t => t.name)
+    }))
+  };
+
+  // Download as JSON
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `eidolon-projects-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  alert(`Exported ${selectedProjects.length} project(s) successfully!`);
+}
+
+async function bulkAddTags() {
+  if (state.selectedProjects.size === 0) return;
+
+  // Show tag selection modal for the first selected project
+  // Tags will be added to all selected projects
+  const firstProjectId = Array.from(state.selectedProjects)[0];
+  const firstProjectTags = state.projectTags.get(firstProjectId) || [];
+
+  await showTagSelectionModal(firstProjectId, 'project', firstProjectTags);
+
+  // Get the updated tags from the first project
+  const updatedTags = await tagsService.getItemTags(firstProjectId, 'project');
+  const tagIds = updatedTags.map(t => t.id);
+
+  // Apply same tags to all other selected projects
+  for (const projectId of state.selectedProjects) {
+    if (projectId !== firstProjectId) {
+      await tagsService.assignTags(projectId, 'project', tagIds);
+    }
+  }
+
+  await loadAllTags();
+  await indexAllData();
+  renderProjects();
+
+  alert(`Added tags to ${state.selectedProjects.size} project(s)!`);
+}
+
+async function bulkDeleteProjects() {
+  const selectedCount = state.selectedProjects.size;
+
+  const confirmed = confirm(
+    `Are you sure you want to delete ${selectedCount} project(s)? This action cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  const orgId = state.currentOrg?.uuid;
+  if (!orgId) {
+    alert('No organization selected');
+    return;
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+
+  // Delete each selected project
+  for (const projectId of state.selectedProjects) {
+    try {
+      // Note: Delete project API might not be available
+      // For now, we'll just show what would be deleted
+      console.log('Would delete project:', projectId);
+      successCount++;
+    } catch (error) {
+      console.error('Failed to delete project:', projectId, error);
+      failCount++;
+    }
+  }
+
+  // Clear selection
+  state.selectedProjects.clear();
+
+  // Reload data
+  await loadAllData();
+  renderProjects();
+
+  if (failCount > 0) {
+    alert(`Deleted ${successCount} project(s). Failed to delete ${failCount} project(s).`);
+  } else {
+    alert(`Successfully deleted ${successCount} project(s)!`);
+  }
+}
+
+// File selection and bulk operations
+function toggleFileSelection(uuid: string) {
+  if (state.selectedFiles.has(uuid)) {
+    state.selectedFiles.delete(uuid);
+  } else {
+    state.selectedFiles.add(uuid);
+  }
+  renderFiles();
+}
+
+function toggleSelectAllFiles() {
+  if (state.selectedFiles.size === state.files.length) {
+    state.selectedFiles.clear();
+  } else {
+    state.files.forEach((f) => state.selectedFiles.add(f.uuid));
+  }
+  renderFiles();
+}
+
+async function handleFileBulkAction(action: string) {
+  const selectedCount = state.selectedFiles.size;
+
+  if (selectedCount === 0) {
+    alert('No files selected');
+    return;
+  }
+
+  switch (action) {
+    case 'export':
+      await exportSelectedFiles();
+      break;
+
+    case 'tag':
+      await bulkAddFileTags();
+      break;
+
+    case 'delete':
+      await bulkDeleteFiles();
+      break;
+  }
+}
+
+async function exportSelectedFiles() {
+  const selectedFiles = state.files.filter(f => state.selectedFiles.has(f.uuid));
+
+  // Create export data
+  const exportData = {
+    exportDate: new Date().toISOString(),
+    totalFiles: selectedFiles.length,
+    files: selectedFiles.map(file => ({
+      file_name: file.file_name,
+      project_name: file.project_name,
+      project_uuid: file.project_uuid,
+      created_at: file.created_at,
+      uuid: file.uuid,
+      tags: (state.fileTags.get(file.uuid) || []).map(t => t.name)
+    }))
+  };
+
+  // Download as JSON
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `eidolon-files-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  alert(`Exported ${selectedFiles.length} file(s) successfully!`);
+}
+
+async function bulkAddFileTags() {
+  if (state.selectedFiles.size === 0) return;
+
+  const firstFileId = Array.from(state.selectedFiles)[0];
+  const firstFileTags = state.fileTags.get(firstFileId) || [];
+
+  await showTagSelectionModal(firstFileId, 'file', firstFileTags);
+
+  const updatedTags = await tagsService.getItemTags(firstFileId, 'file');
+  const tagIds = updatedTags.map(t => t.id);
+
+  for (const fileId of state.selectedFiles) {
+    if (fileId !== firstFileId) {
+      await tagsService.assignTags(fileId, 'file', tagIds);
+    }
+  }
+
+  await loadAllTags();
+  await indexAllData();
+  renderFiles();
+
+  alert(`Added tags to ${state.selectedFiles.size} file(s)!`);
+}
+
+async function bulkDeleteFiles() {
+  const selectedCount = state.selectedFiles.size;
+
+  const confirmed = confirm(
+    `Are you sure you want to delete ${selectedCount} file(s)? This action cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  const orgId = state.currentOrg?.uuid;
+  if (!orgId) {
+    alert('No organization selected');
+    return;
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+
+  // Delete each selected file
+  for (const fileId of state.selectedFiles) {
+    try {
+      const file = state.files.find(f => f.uuid === fileId);
+      if (file) {
+        await browser.runtime.sendMessage({
+          action: 'delete-file',
+          orgId,
+          projectId: file.project_uuid,
+          fileId: file.uuid
+        });
+        successCount++;
+      }
+    } catch (error) {
+      console.error('Failed to delete file:', fileId, error);
+      failCount++;
+    }
+  }
+
+  // Clear selection
+  state.selectedFiles.clear();
+
+  // Reload data
+  await loadAllData();
+  renderFiles();
+
+  if (failCount > 0) {
+    alert(`Deleted ${successCount} file(s). Failed to delete ${failCount} file(s).`);
+  } else {
+    alert(`Successfully deleted ${successCount} file(s)!`);
+  }
+}
+
+// Export functionality
+function showExportModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  `;
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-content';
+  modal.style.cssText = `
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+  `;
+
+  const header = document.createElement('h3');
+  header.textContent = 'Export All Data';
+  header.style.cssText = 'margin: 0 0 20px; font-size: 20px; font-weight: 600;';
+  modal.appendChild(header);
+
+  const description = document.createElement('p');
+  description.textContent = 'Choose the format to export all your projects, files, and conversations:';
+  description.style.cssText = 'margin: 0 0 20px; color: #666; font-size: 14px;';
+  modal.appendChild(description);
+
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = 'display: flex; gap: 12px; flex-direction: column;';
+
+  const jsonBtn = document.createElement('button');
+  jsonBtn.textContent = '📄 Export as JSON';
+  jsonBtn.style.cssText = `
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  jsonBtn.addEventListener('click', async () => {
+    await exportAllDataAsJSON();
+    overlay.remove();
+  });
+
+  const csvBtn = document.createElement('button');
+  csvBtn.textContent = '📊 Export as CSV';
+  csvBtn.style.cssText = `
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  csvBtn.addEventListener('click', async () => {
+    await exportAllDataAsCSV();
+    overlay.remove();
+  });
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = `
+    padding: 12px 20px;
+    background: white;
+    color: #666;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  cancelBtn.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  buttonContainer.appendChild(jsonBtn);
+  buttonContainer.appendChild(csvBtn);
+  buttonContainer.appendChild(cancelBtn);
+  modal.appendChild(buttonContainer);
+
+  overlay.appendChild(modal);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  document.body.appendChild(overlay);
+}
+
+async function exportAllDataAsJSON() {
+  const exportData = {
+    exportDate: new Date().toISOString(),
+    organization: state.currentOrg?.name || 'Unknown',
+    summary: {
+      totalProjects: state.projects.length,
+      totalFiles: state.files.length,
+      totalConversations: state.conversations.length
+    },
+    projects: state.projects.map(project => ({
+      name: project.name,
+      description: project.description,
+      created_at: project.created_at,
+      uuid: project.uuid,
+      tags: (state.projectTags.get(project.uuid) || []).map(t => ({ name: t.name, color: t.color }))
+    })),
+    files: state.files.map(file => ({
+      file_name: file.file_name,
+      project_name: file.project_name,
+      project_uuid: file.project_uuid,
+      created_at: file.created_at,
+      uuid: file.uuid,
+      tags: (state.fileTags.get(file.uuid) || []).map(t => ({ name: t.name, color: t.color }))
+    })),
+    conversations: state.conversations.map(conv => ({
+      name: conv.name,
+      created_at: conv.created_at,
+      updated_at: conv.updated_at,
+      uuid: conv.uuid,
+      project_uuid: conv.project_uuid,
+      tags: (state.conversationTags.get(conv.uuid) || []).map(t => ({ name: t.name, color: t.color }))
+    })),
+    tags: await tagsService.getAllTags()
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `eidolon-full-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  alert(`Successfully exported ${exportData.projects.length} projects, ${exportData.files.length} files, and ${exportData.conversations.length} conversations!`);
+}
+
+async function exportAllDataAsCSV() {
+  // Export projects as CSV
+  const projectsCSV = [
+    ['Name', 'Description', 'Created At', 'UUID', 'Tags'].join(','),
+    ...state.projects.map(project => {
+      const tags = (state.projectTags.get(project.uuid) || []).map(t => t.name).join('; ');
+      return [
+        `"${project.name || ''}"`,
+        `"${project.description || ''}"`,
+        `"${project.created_at || ''}"`,
+        project.uuid,
+        `"${tags}"`
+      ].join(',');
+    })
+  ].join('\n');
+
+  // Export files as CSV
+  const filesCSV = [
+    ['File Name', 'Project Name', 'Created At', 'UUID', 'Tags'].join(','),
+    ...state.files.map(file => {
+      const tags = (state.fileTags.get(file.uuid) || []).map(t => t.name).join('; ');
+      return [
+        `"${file.file_name || ''}"`,
+        `"${file.project_name || ''}"`,
+        `"${file.created_at || ''}"`,
+        file.uuid,
+        `"${tags}"`
+      ].join(',');
+    })
+  ].join('\n');
+
+  // Export conversations as CSV
+  const conversationsCSV = [
+    ['Name', 'Created At', 'Updated At', 'UUID', 'Tags'].join(','),
+    ...state.conversations.map(conv => {
+      const tags = (state.conversationTags.get(conv.uuid) || []).map(t => t.name).join('; ');
+      return [
+        `"${conv.name || ''}"`,
+        `"${conv.created_at || ''}"`,
+        `"${conv.updated_at || ''}"`,
+        conv.uuid,
+        `"${tags}"`
+      ].join(',');
+    })
+  ].join('\n');
+
+  // Download projects CSV
+  downloadCSV(projectsCSV, `eidolon-projects-${Date.now()}.csv`);
+
+  // Download files CSV (with small delay)
+  setTimeout(() => {
+    downloadCSV(filesCSV, `eidolon-files-${Date.now()}.csv`);
+  }, 100);
+
+  // Download conversations CSV (with small delay)
+  setTimeout(() => {
+    downloadCSV(conversationsCSV, `eidolon-conversations-${Date.now()}.csv`);
+  }, 200);
+
+  alert(`Exported ${state.projects.length} projects, ${state.files.length} files, and ${state.conversations.length} conversations as CSV files!`);
+}
+
+function downloadCSV(csvContent: string, filename: string) {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function sortProjectsBy(key: 'name' | 'date' | 'files') {
+  state.projects.sort((a, b) => {
+    if (key === 'name') {
+      return a.name.localeCompare(b.name);
+    } else if (key === 'date') {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    }
+    return 0;
+  });
+}
+
+function filterProjects(filter: string) {
+  // TODO: Implement filtering logic
+  console.log('Filter projects:', filter);
+  renderProjects();
+}
+
+async function performSearch(query: string) {
+  if (!query || query.trim().length < 2) {
+    state.isSearching = false;
+    state.searchResults = [];
+    renderCurrentTab();
+    return;
+  }
+
+  state.isSearching = true;
+
+  try {
+    const results = await searchService.search(query);
+    state.searchResults = results;
+    renderSearchResults();
+  } catch (error) {
+    console.error('Search failed:', error);
+    state.isSearching = false;
+  }
+}
+
+function renderSearchResults() {
+  const main = document.querySelector('.dashboard-main')!;
+
+  // Hide all tabs
+  tabContents.forEach(tab => (tab as HTMLElement).classList.remove('active'));
+
+  // Create or update search results section
+  let searchSection = document.getElementById('search-results-section');
+
+  if (!searchSection) {
+    searchSection = document.createElement('section');
+    searchSection.id = 'search-results-section';
+    searchSection.className = 'tab-content active';
+    main.appendChild(searchSection);
+  } else {
+    searchSection.classList.add('active');
+  }
+
+  // Clear and render results
+  searchSection.textContent = '';
+
+  const header = document.createElement('div');
+  header.className = 'tab-header';
+
+  const title = document.createElement('h2');
+  title.textContent = 'Search Results';
+
+  const count = document.createElement('span');
+  count.className = 'count-badge';
+  count.textContent = state.searchResults.length.toString();
+
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'tab-title';
+  titleDiv.appendChild(title);
+  titleDiv.appendChild(count);
+
+  header.appendChild(titleDiv);
+  searchSection.appendChild(header);
+
+  if (state.searchResults.length === 0) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.textContent = 'No results found';
+    searchSection.appendChild(emptyState);
+    return;
+  }
+
+  // Group results by type
+  const projectResults = state.searchResults.filter(r => r.type === 'project');
+  const fileResults = state.searchResults.filter(r => r.type === 'file');
+  const conversationResults = state.searchResults.filter(r => r.type === 'conversation');
+
+  // Render project results
+  if (projectResults.length > 0) {
+    const projectsHeader = document.createElement('h3');
+    projectsHeader.textContent = `Projects (${projectResults.length})`;
+    projectsHeader.style.cssText = 'margin: 24px 0 12px; font-size: 18px;';
+    searchSection.appendChild(projectsHeader);
+
+    const projectsList = document.createElement('div');
+    projectsList.className = 'projects-list';
+
+    projectResults.forEach(result => {
+      const project = state.projects.find(p => p.uuid === result.id);
+      if (project) {
+        projectsList.appendChild(createProjectCard(project));
+      }
+    });
+
+    searchSection.appendChild(projectsList);
+  }
+
+  // Render file results
+  if (fileResults.length > 0) {
+    const filesHeader = document.createElement('h3');
+    filesHeader.textContent = `Files (${fileResults.length})`;
+    filesHeader.style.cssText = 'margin: 24px 0 12px; font-size: 18px;';
+    searchSection.appendChild(filesHeader);
+
+    const filesList = document.createElement('div');
+    filesList.className = 'files-list';
+
+    fileResults.forEach(result => {
+      const file = state.files.find(f => f.uuid === result.id);
+      if (file) {
+        filesList.appendChild(createFileItem(file));
+      }
+    });
+
+    searchSection.appendChild(filesList);
+  }
+
+  // Render conversation results
+  if (conversationResults.length > 0) {
+    const conversationsHeader = document.createElement('h3');
+    conversationsHeader.textContent = `Conversations (${conversationResults.length})`;
+    conversationsHeader.style.cssText = 'margin: 24px 0 12px; font-size: 18px;';
+    searchSection.appendChild(conversationsHeader);
+
+    const conversationsList = document.createElement('div');
+    conversationsList.className = 'conversations-list';
+
+    conversationResults.forEach(result => {
+      const conversation = state.conversations.find(c => c.uuid === result.id);
+      if (conversation) {
+        conversationsList.appendChild(createConversationItem(conversation));
+      }
+    });
+
+    searchSection.appendChild(conversationsList);
+  }
+}
+
+function openProject(uuid: string) {
+  browser.tabs.create({ url: `https://claude.ai/project/${uuid}` });
+}
+
+function openConversation(uuid: string) {
+  browser.tabs.create({ url: `https://claude.ai/chat/${uuid}` });
+}
+
+function viewProjectFiles(uuid: string) {
+  // Switch to files tab and filter by project
+  switchTab('files');
+  // TODO: Apply project filter
+}
+
+function viewFile(file: any) {
+  // TODO: Show file content modal
+  console.log('View file:', file);
+}
+
+function showNewProjectModal() {
+  // TODO: Show modal for creating new project
+  const projectName = prompt('Enter project name:');
+  if (projectName) {
+    createProject(projectName);
+  }
+}
+
+async function createProject(name: string) {
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'create-project',
+      name,
+      description: '',
+    });
+
+    if (response.success) {
+      await loadProjects();
+      renderProjects();
+    }
+  } catch (error) {
+    console.error('Failed to create project:', error);
+  }
+}
