@@ -307,9 +307,10 @@ export default defineBackground(() => {
 
           case 'get-api-client-session':
             // Validate sender is from extension pages, not content scripts
-            // Content scripts have sender.tab defined, extension pages do not
-            if (sender.tab) {
-              console.warn('Session key requested from content script - denied');
+            // Check if request is from an extension page (chrome-extension://) vs external page
+            const isExtensionPage = sender.url?.startsWith(browser.runtime.getURL(''));
+            if (!isExtensionPage) {
+              console.warn('Session key requested from non-extension page - denied');
               sendResponse({ success: false, error: 'Unauthorized access' });
               break;
             }
