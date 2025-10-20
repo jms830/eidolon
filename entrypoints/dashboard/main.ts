@@ -47,6 +47,7 @@ interface AppState {
   syncConfigured: boolean;
   isSyncing: boolean;
   workspaceHandle: FileSystemDirectoryHandle | null;
+  fileFilter: { projectId: string; projectName: string } | null;
 }
 
 const state: AppState = {
@@ -69,6 +70,7 @@ const state: AppState = {
   syncConfigured: false,
   isSyncing: false,
   workspaceHandle: null,
+  fileFilter: null,
 };
 
 const searchService = getSearchService();
@@ -308,8 +310,17 @@ function setupEventListeners() {
   selectAllProjectsBtn.addEventListener('click', toggleSelectAllProjects);
 
   // Bulk actions
-  bulkActionsProjectsBtn.addEventListener('click', () => {
+  bulkActionsProjectsBtn.addEventListener('click', (e) => {
     const menu = document.getElementById('bulk-actions-menu')!;
+    const isHidden = menu.classList.contains('hidden');
+
+    if (isHidden) {
+      // Position menu relative to button
+      const buttonRect = bulkActionsProjectsBtn.getBoundingClientRect();
+      menu.style.top = `${buttonRect.bottom + window.scrollY + 8}px`;
+      menu.style.left = `${buttonRect.left + window.scrollX}px`;
+    }
+
     menu.classList.toggle('hidden');
   });
 
@@ -325,8 +336,17 @@ function setupEventListeners() {
   // File bulk actions
   selectAllFilesBtn.addEventListener('click', toggleSelectAllFiles);
 
-  bulkActionsFilesBtn.addEventListener('click', () => {
+  bulkActionsFilesBtn.addEventListener('click', (e) => {
     const menu = document.getElementById('bulk-actions-menu-files')!;
+    const isHidden = menu.classList.contains('hidden');
+
+    if (isHidden) {
+      // Position menu relative to button
+      const buttonRect = bulkActionsFilesBtn.getBoundingClientRect();
+      menu.style.top = `${buttonRect.bottom + window.scrollY + 8}px`;
+      menu.style.left = `${buttonRect.left + window.scrollX}px`;
+    }
+
     menu.classList.toggle('hidden');
   });
 
@@ -337,6 +357,23 @@ function setupEventListeners() {
       await handleFileBulkAction(action);
       document.getElementById('bulk-actions-menu-files')!.classList.add('hidden');
     });
+  });
+
+  // Close menus when clicking outside
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const projectMenu = document.getElementById('bulk-actions-menu')!;
+    const fileMenu = document.getElementById('bulk-actions-menu-files')!;
+
+    // Close project menu if clicking outside
+    if (!projectMenu.contains(target) && target !== bulkActionsProjectsBtn) {
+      projectMenu.classList.add('hidden');
+    }
+
+    // Close file menu if clicking outside
+    if (!fileMenu.contains(target) && target !== bulkActionsFilesBtn) {
+      fileMenu.classList.add('hidden');
+    }
   });
 
   // New project
@@ -553,19 +590,52 @@ function renderProjects() {
 function renderFiles() {
   const filesList = document.getElementById('files-list')!;
   const filesCount = document.getElementById('files-count')!;
-  filesCount.textContent = state.files.length.toString();
+  const filesTabTitle = document.querySelector('#files-tab .tab-title h2')!;
+  const tabActions = document.querySelector('#files-tab .tab-actions')!;
 
+  // Filter files by project if filter is active
+  let filesToDisplay = state.files;
+  if (state.fileFilter) {
+    filesToDisplay = state.files.filter(f => f.project_uuid === state.fileFilter!.projectId);
+    filesTabTitle.textContent = `Files from ${state.fileFilter.projectName}`;
+
+    // Add clear filter button if not already present
+    let clearBtn = document.getElementById('clear-file-filter');
+    if (!clearBtn) {
+      clearBtn = document.createElement('button');
+      clearBtn.id = 'clear-file-filter';
+      clearBtn.className = 'action-btn secondary';
+      clearBtn.textContent = '✕ Clear Filter';
+      clearBtn.addEventListener('click', () => {
+        state.fileFilter = null;
+        renderFiles();
+      });
+      tabActions.insertBefore(clearBtn, tabActions.firstChild);
+    }
+  } else {
+    filesTabTitle.textContent = 'All Files';
+
+    // Remove clear filter button if present
+    const clearBtn = document.getElementById('clear-file-filter');
+    if (clearBtn) {
+      clearBtn.remove();
+    }
+  }
+
+  filesCount.textContent = filesToDisplay.length.toString();
   filesList.textContent = '';
 
-  if (state.files.length === 0) {
+  if (filesToDisplay.length === 0) {
     const emptyState = document.createElement('div');
     emptyState.className = 'empty-state';
-    emptyState.textContent = 'No files found';
+    emptyState.textContent = state.fileFilter
+      ? `No files found in ${state.fileFilter.projectName}`
+      : 'No files found';
     filesList.appendChild(emptyState);
     return;
   }
 
-  state.files.forEach((file) => {
+  filesToDisplay.forEach((file) => {
     const item = document.createElement('div');
     item.className = 'file-item';
     if (state.selectedFiles.has(file.uuid)) {
@@ -1610,9 +1680,19 @@ function openConversation(uuid: string) {
 }
 
 function viewProjectFiles(uuid: string) {
-  // Switch to files tab and filter by project
+  // Find project name
+  const project = state.projects.find(p => p.uuid === uuid);
+  if (!project) return;
+
+  // Set file filter
+  state.fileFilter = {
+    projectId: uuid,
+    projectName: project.name
+  };
+
+  // Switch to files tab and render
   switchTab('files');
-  // TODO: Apply project filter
+  renderFiles();
 }
 
 function viewFile(file: any) {
@@ -1948,13 +2028,22 @@ async function syncNow(dryRun: boolean = false) {
     state.isSyncing = true;
     showSyncProgress();
 
+    // First validate the session is still active
+    const validationResponse = await browser.runtime.sendMessage({
+      action: 'validate-session'
+    });
+
+    if (!validationResponse.success) {
+      throw new Error('Session expired or invalid. Please log in to Claude.ai and refresh this page.');
+    }
+
     // Get session key and create API client
     const sessionResponse = await browser.runtime.sendMessage({
       action: 'get-api-client-session'
     });
 
     if (!sessionResponse.success) {
-      throw new Error('Failed to get API session');
+      throw new Error(sessionResponse.error || 'Failed to get API session. Please refresh the page and try again.');
     }
 
     const { sessionKey, orgId } = sessionResponse.data;
@@ -2042,10 +2131,16 @@ async function openWorkspaceFolder() {
     return;
   }
 
+  // Load config to get workspace path
+  const config = await getWorkspaceConfig();
+  const workspaceName = config.workspacePath || state.workspaceHandle.name;
+
   alert(
-    `Workspace location:\n\n${state.workspaceHandle.name}\n\n` +
-    `Note: Chrome extensions cannot directly open file manager. ` +
-    `Please navigate to the workspace folder manually.`
+    `Workspace location: ${workspaceName}\n\n` +
+    `Note: Due to browser security restrictions, Chrome extensions cannot:\n` +
+    `• Display the full filesystem path\n` +
+    `• Directly open the file manager\n\n` +
+    `Please navigate to your workspace folder manually.`
   );
 }
 
