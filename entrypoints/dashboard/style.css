@@ -1162,6 +1162,60 @@ body {
   font-weight: bold;
 }
 
+/* Project Expand Button */
+.expand-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  color: #666;
+  margin-left: 8px;
+}
+
+.expand-btn:hover {
+  background: #f5f7fa;
+  color: #667eea;
+}
+
+/* Project Files Container */
+.project-files-container {
+  margin-top: 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.project-file-item {
+  cursor: default;
+}
+
+.file-item-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Bulk Actions for Project Files */
+.bulk-actions-project-files {
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn.danger {
+  color: #d32f2f;
+  border-color: #ffcdd2;
+}
+
+.action-btn.danger:hover {
+  background: #ffebee;
+  border-color: #d32f2f;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .dashboard-header {

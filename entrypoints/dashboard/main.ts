@@ -534,6 +534,7 @@ function renderProjects() {
   filteredProjects.forEach((project) => {
     const card = document.createElement('div');
     card.className = 'project-card';
+    card.dataset.projectId = project.uuid;
     if (state.selectedProjects.has(project.uuid)) {
       card.classList.add('selected');
     }
@@ -555,9 +556,17 @@ function renderProjects() {
     favorite.textContent = '⭐';
     favorite.addEventListener('click', () => toggleFavorite(project.uuid));
 
+    // Expand/collapse button
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'expand-btn';
+    expandBtn.textContent = '▶';
+    expandBtn.title = 'Show files';
+    expandBtn.addEventListener('click', () => toggleProjectExpand(project.uuid, card, expandBtn));
+
     header.appendChild(checkbox);
     header.appendChild(title);
     header.appendChild(favorite);
+    header.appendChild(expandBtn);
 
     const description = document.createElement('p');
     description.className = 'project-description';
@@ -609,8 +618,314 @@ function renderProjects() {
     card.appendChild(tagsContainer);
     card.appendChild(actions);
 
+    // Files container (initially hidden)
+    const filesContainer = document.createElement('div');
+    filesContainer.className = 'project-files-container';
+    filesContainer.style.display = 'none';
+    card.appendChild(filesContainer);
+
     projectsGrid.appendChild(card);
   });
+}
+
+/**
+ * Toggle project expansion to show/hide files
+ */
+async function toggleProjectExpand(projectId: string, card: HTMLElement, expandBtn: HTMLElement) {
+  const filesContainer = card.querySelector('.project-files-container') as HTMLElement;
+  const isExpanded = filesContainer.style.display !== 'none';
+
+  if (isExpanded) {
+    // Collapse
+    filesContainer.style.display = 'none';
+    expandBtn.textContent = '▶';
+    expandBtn.title = 'Show files';
+  } else {
+    // Expand and load files
+    expandBtn.textContent = '▼';
+    expandBtn.title = 'Hide files';
+    filesContainer.style.display = 'block';
+    filesContainer.innerHTML = '<div style="padding: 12px; text-align: center;">Loading files...</div>';
+
+    try {
+      // Fetch files for this project
+      const response = await browser.runtime.sendMessage({
+        action: 'get-project-files',
+        projectId: projectId
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch files');
+      }
+
+      const files = response.data || [];
+      renderProjectFiles(filesContainer, projectId, files);
+    } catch (error) {
+      console.error('Error loading project files:', error);
+      filesContainer.innerHTML = `<div style="padding: 12px; color: #f56565;">Error loading files: ${(error as Error).message}</div>`;
+    }
+  }
+}
+
+/**
+ * Render files within an expanded project card
+ */
+function renderProjectFiles(container: HTMLElement, projectId: string, files: any[]) {
+  container.innerHTML = '';
+
+  if (files.length === 0) {
+    container.innerHTML = '<div style="padding: 12px; color: #999;">No files in this project</div>';
+    return;
+  }
+
+  // Toolbar with bulk actions
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #f7fafc;
+    border-bottom: 1px solid #e2e8f0;
+  `;
+
+  const selectInfo = document.createElement('div');
+  selectInfo.style.cssText = 'font-size: 13px; color: #666;';
+
+  const selectAllCheckbox = document.createElement('input');
+  selectAllCheckbox.type = 'checkbox';
+  selectAllCheckbox.style.marginRight = '8px';
+  selectAllCheckbox.addEventListener('change', (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    container.querySelectorAll('.file-item-checkbox').forEach((cb: any) => {
+      cb.checked = checked;
+    });
+    updateBulkActionsVisibility(container, projectId);
+  });
+
+  selectInfo.appendChild(selectAllCheckbox);
+  selectInfo.appendChild(document.createTextNode(`${files.length} file${files.length !== 1 ? 's' : ''}`));
+
+  const bulkActions = document.createElement('div');
+  bulkActions.className = 'bulk-actions-project-files';
+  bulkActions.style.display = 'none';
+
+  const bulkDeleteBtn = document.createElement('button');
+  bulkDeleteBtn.className = 'action-btn small danger';
+  bulkDeleteBtn.textContent = '🗑️ Delete Selected';
+  bulkDeleteBtn.addEventListener('click', () => bulkDeleteProjectFiles(container, projectId));
+
+  bulkActions.appendChild(bulkDeleteBtn);
+
+  toolbar.appendChild(selectInfo);
+  toolbar.appendChild(bulkActions);
+  container.appendChild(toolbar);
+
+  // Files list
+  const filesList = document.createElement('div');
+  filesList.style.cssText = 'max-height: 400px; overflow-y: auto;';
+
+  files.forEach(file => {
+    const fileItem = document.createElement('div');
+    fileItem.className = 'project-file-item';
+    fileItem.dataset.fileId = file.uuid;
+    fileItem.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      background: white;
+      transition: background 0.2s;
+    `;
+    fileItem.addEventListener('mouseenter', () => {
+      fileItem.style.background = '#f7fafc';
+    });
+    fileItem.addEventListener('mouseleave', () => {
+      fileItem.style.background = 'white';
+    });
+
+    const leftSection = document.createElement('div');
+    leftSection.style.cssText = 'display: flex; align-items: center; flex: 1;';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'file-item-checkbox';
+    checkbox.style.marginRight = '8px';
+    checkbox.addEventListener('change', () => updateBulkActionsVisibility(container, projectId));
+
+    const fileName = document.createElement('span');
+    fileName.textContent = file.file_name;
+    fileName.style.cssText = 'flex: 1; font-size: 14px;';
+
+    leftSection.appendChild(checkbox);
+    leftSection.appendChild(fileName);
+
+    const actionsSection = document.createElement('div');
+    actionsSection.style.cssText = 'display: flex; gap: 4px;';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'action-btn small';
+    renameBtn.textContent = '✏️';
+    renameBtn.title = 'Rename';
+    renameBtn.addEventListener('click', () => renameProjectFile(projectId, file));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'action-btn small danger';
+    deleteBtn.textContent = '🗑️';
+    deleteBtn.title = 'Delete';
+    deleteBtn.addEventListener('click', () => deleteProjectFile(projectId, file, fileItem));
+
+    actionsSection.appendChild(renameBtn);
+    actionsSection.appendChild(deleteBtn);
+
+    fileItem.appendChild(leftSection);
+    fileItem.appendChild(actionsSection);
+    filesList.appendChild(fileItem);
+  });
+
+  container.appendChild(filesList);
+}
+
+/**
+ * Update bulk actions visibility based on selection
+ */
+function updateBulkActionsVisibility(container: HTMLElement, projectId: string) {
+  const checkboxes = container.querySelectorAll('.file-item-checkbox:checked');
+  const bulkActions = container.querySelector('.bulk-actions-project-files') as HTMLElement;
+
+  if (checkboxes.length > 0) {
+    bulkActions.style.display = 'flex';
+    bulkActions.style.gap = '8px';
+  } else {
+    bulkActions.style.display = 'none';
+  }
+}
+
+/**
+ * Rename a project file
+ */
+async function renameProjectFile(projectId: string, file: any) {
+  const newName = prompt(`Rename "${file.file_name}" to:`, file.file_name);
+
+  if (!newName || newName === file.file_name) {
+    return;
+  }
+
+  try {
+    if (!state.currentOrg) {
+      throw new Error('No organization selected');
+    }
+
+    // Delete old file and upload with new name
+    const apiClient = new ClaudeAPIClient(await getSessionKey());
+
+    await apiClient.deleteFile(state.currentOrg.uuid, projectId, file.uuid);
+    await apiClient.uploadFile(state.currentOrg.uuid, projectId, newName, file.content);
+
+    alert(`File renamed to "${newName}"`);
+
+    // Refresh the project card
+    const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
+    const expandBtn = card?.querySelector('.expand-btn') as HTMLElement;
+    if (card && expandBtn) {
+      // Collapse and re-expand to refresh
+      await toggleProjectExpand(projectId, card, expandBtn);
+      await toggleProjectExpand(projectId, card, expandBtn);
+    }
+  } catch (error) {
+    console.error('Error renaming file:', error);
+    alert(`Failed to rename file: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Delete a project file
+ */
+async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLElement) {
+  if (!confirm(`Delete "${file.file_name}"? This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    if (!state.currentOrg) {
+      throw new Error('No organization selected');
+    }
+
+    const apiClient = new ClaudeAPIClient(await getSessionKey());
+    await apiClient.deleteFile(state.currentOrg.uuid, projectId, file.uuid);
+
+    fileItem.style.opacity = '0';
+    setTimeout(() => fileItem.remove(), 300);
+
+    alert(`File "${file.file_name}" deleted`);
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    alert(`Failed to delete file: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Bulk delete selected files in project
+ */
+async function bulkDeleteProjectFiles(container: HTMLElement, projectId: string) {
+  const checkboxes = Array.from(container.querySelectorAll('.file-item-checkbox:checked'));
+  const selectedCount = checkboxes.length;
+
+  if (selectedCount === 0) {
+    return;
+  }
+
+  if (!confirm(`Delete ${selectedCount} file(s)? This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    if (!state.currentOrg) {
+      throw new Error('No organization selected');
+    }
+
+    const apiClient = new ClaudeAPIClient(await getSessionKey());
+
+    for (const checkbox of checkboxes) {
+      const fileItem = (checkbox as HTMLElement).closest('.project-file-item') as HTMLElement;
+      const fileId = fileItem.dataset.fileId;
+
+      if (fileId) {
+        await apiClient.deleteFile(state.currentOrg.uuid, projectId, fileId);
+        fileItem.style.opacity = '0';
+        setTimeout(() => fileItem.remove(), 300);
+      }
+    }
+
+    alert(`Deleted ${selectedCount} file(s)`);
+
+    // Refresh the project card
+    const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
+    const expandBtn = card?.querySelector('.expand-btn') as HTMLElement;
+    if (card && expandBtn) {
+      await toggleProjectExpand(projectId, card, expandBtn);
+      await toggleProjectExpand(projectId, card, expandBtn);
+    }
+  } catch (error) {
+    console.error('Error bulk deleting files:', error);
+    alert(`Failed to delete files: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Helper to get session key
+ */
+async function getSessionKey(): Promise<string> {
+  const response = await browser.runtime.sendMessage({
+    action: 'get-api-client-session'
+  });
+
+  if (!response.success) {
+    throw new Error('Not authenticated');
+  }
+
+  return response.data.sessionKey;
 }
 
 function renderFiles() {
