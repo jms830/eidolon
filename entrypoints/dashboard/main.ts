@@ -1729,24 +1729,62 @@ function showNewProjectModal() {
   // TODO: Show modal for creating new project
   const projectName = prompt('Enter project name:');
   if (projectName) {
+    const validationError = validateProjectName(projectName);
+    if (validationError) {
+      alert(`Invalid project name: ${validationError}`);
+      return;
+    }
     createProject(projectName);
   }
 }
 
+/**
+ * Validate project name input
+ */
+function validateProjectName(name: string): string | null {
+  const trimmed = name.trim();
+
+  if (!trimmed) {
+    return 'Project name cannot be empty';
+  }
+
+  if (trimmed.length < 3) {
+    return 'Project name must be at least 3 characters';
+  }
+
+  if (trimmed.length > 100) {
+    return 'Project name must be less than 100 characters';
+  }
+
+  // Check for invalid characters that might cause API issues
+  const invalidChars = /[<>:"/\\|?*\x00-\x1F]/;
+  if (invalidChars.test(trimmed)) {
+    return 'Project name contains invalid characters';
+  }
+
+  return null;
+}
+
 async function createProject(name: string) {
   try {
+    const trimmedName = name.trim();
+
     const response = await browser.runtime.sendMessage({
       action: 'create-project',
-      name,
+      name: trimmedName,
       description: '',
     });
 
     if (response.success) {
       await loadProjects();
       renderProjects();
+      statusText.textContent = `Project "${trimmedName}" created successfully`;
+    } else {
+      alert(`Failed to create project: ${response.error || 'Unknown error'}`);
     }
   } catch (error) {
     console.error('Failed to create project:', error);
+    alert('Failed to create project. Please try again.');
   }
 }
 

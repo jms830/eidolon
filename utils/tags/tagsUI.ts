@@ -5,6 +5,33 @@ import { getTagsService, Tag, TAG_COLORS } from './tagsService';
 const tagsService = getTagsService();
 
 /**
+ * Validate tag name input
+ */
+function validateTagName(name: string): string | null {
+  const trimmed = name.trim();
+
+  if (!trimmed) {
+    return 'Tag name cannot be empty';
+  }
+
+  if (trimmed.length < 2) {
+    return 'Tag name must be at least 2 characters';
+  }
+
+  if (trimmed.length > 30) {
+    return 'Tag name must be less than 30 characters';
+  }
+
+  // Check for invalid characters
+  const invalidChars = /[<>:"/\\|?*\x00-\x1F]/;
+  if (invalidChars.test(trimmed)) {
+    return 'Tag name contains invalid characters';
+  }
+
+  return null;
+}
+
+/**
  * Create a tag badge element
  */
 export function createTagBadge(tag: Tag, options: {
@@ -237,12 +264,20 @@ export async function showTagSelectionModal(
     const name = createInput.value.trim();
     if (!name) return;
 
+    // Validate tag name
+    const validationError = validateTagName(name);
+    if (validationError) {
+      alert(`Invalid tag name: ${validationError}`);
+      return;
+    }
+
     try {
       const newTag = await tagsService.createTag(name, selectedColor);
       createInput.value = '';
       await renderTagsList();
     } catch (error) {
       console.error('Failed to create tag:', error);
+      alert('Failed to create tag. Please try again.');
     }
   });
 
