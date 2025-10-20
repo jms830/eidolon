@@ -145,7 +145,7 @@ export class ClaudeAPIClient {
   ): Promise<{ content: string } | null> {
     try {
       const project = await this.getProject(orgId, projectId);
-      return { content: project.description || '' };
+      return { content: project.prompt_template || '' };
     } catch (error) {
       console.error('Failed to get project instructions:', error);
       return null;
@@ -157,7 +157,7 @@ export class ClaudeAPIClient {
     projectId: string,
     instructions: string
   ): Promise<void> {
-    await this.updateProject(orgId, projectId, { description: instructions });
+    await this.updateProject(orgId, projectId, { prompt_template: instructions });
   }
 
   // Project Files
