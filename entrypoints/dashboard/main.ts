@@ -96,7 +96,15 @@ const orgSwitcherBtn = document.getElementById('org-switcher-btn')!;
 const currentOrgName = document.getElementById('current-org-name')!;
 const orgSwitcherModal = document.getElementById('org-switcher-modal')!;
 const orgList = document.getElementById('org-list')!;
-const closeOrgModal = document.getElementById('close-org-modal')!
+const closeOrgModal = document.getElementById('close-org-modal')!;
+
+// Auth modal elements
+const authBtn = document.getElementById('auth-btn')!;
+const authModal = document.getElementById('auth-modal')!;
+const authStatusContent = document.getElementById('auth-status-content')!;
+const validateSessionBtn = document.getElementById('validate-session-btn')!;
+const showSessionKeyBtn = document.getElementById('show-session-key-btn')!;
+const closeAuthModal = document.getElementById('close-auth-modal')!
 
 // Projects elements
 const projectsGrid = document.getElementById('projects-grid')!;
@@ -441,6 +449,21 @@ function setupEventListeners() {
   orgSwitcherModal.addEventListener('click', (e) => {
     if (e.target === orgSwitcherModal) {
       orgSwitcherModal.classList.add('hidden');
+    }
+  });
+
+  // Auth modal
+  authBtn.addEventListener('click', showAuthModal);
+  closeAuthModal.addEventListener('click', () => {
+    authModal.classList.add('hidden');
+  });
+  validateSessionBtn.addEventListener('click', validateAuthSession);
+  showSessionKeyBtn.addEventListener('click', toggleSessionKeyDisplay);
+
+  // Close auth modal when clicking outside
+  authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) {
+      authModal.classList.add('hidden');
     }
   });
 
@@ -3443,5 +3466,153 @@ async function switchOrganization(orgId: string, orgName: string) {
   } catch (error) {
     console.error('Failed to switch organization:', error);
     alert('Failed to switch organization. Please try again.');
+  }
+}
+
+/**
+ * Show authentication status modal
+ */
+async function showAuthModal() {
+  // Show modal immediately
+  authModal.classList.remove('hidden');
+
+  // Display loading state
+  authStatusContent.innerHTML = '<div class="auth-loading">Checking authentication...</div>';
+
+  // Check authentication status
+  await checkAuthStatus();
+}
+
+/**
+ * Check and display authentication status
+ */
+async function checkAuthStatus() {
+  try {
+    // Get session from background worker
+    const response = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (response.success && response.data) {
+      const { sessionKey, orgId } = response.data;
+
+      // Validate the session
+      const validateResponse = await browser.runtime.sendMessage({
+        action: 'validate-session'
+      });
+
+      const isValid = validateResponse.success;
+
+      // Display status
+      authStatusContent.innerHTML = `
+        <div class="auth-status-item">
+          <div class="auth-label">Status:</div>
+          <div class="auth-value ${isValid ? 'auth-valid' : 'auth-invalid'}">
+            ${isValid ? '✅ Authenticated' : '❌ Not Authenticated'}
+          </div>
+        </div>
+        <div class="auth-status-item">
+          <div class="auth-label">Organization ID:</div>
+          <div class="auth-value">${orgId || 'None'}</div>
+        </div>
+        <div class="auth-status-item">
+          <div class="auth-label">Session Key:</div>
+          <div class="auth-value">
+            <span class="session-key-hidden" id="session-key-display">
+              ${sessionKey ? '••••••••••••••••' : 'Not available'}
+            </span>
+          </div>
+        </div>
+        ${!isValid ? '<div class="auth-warning">⚠️ Authentication failed. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Validate Session" again.</div>' : ''}
+      `;
+    } else {
+      // Not authenticated
+      authStatusContent.innerHTML = `
+        <div class="auth-status-item">
+          <div class="auth-label">Status:</div>
+          <div class="auth-value auth-invalid">❌ Not Authenticated</div>
+        </div>
+        <div class="auth-warning">
+          ⚠️ No session found. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Validate Session".
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('Failed to check auth status:', error);
+    authStatusContent.innerHTML = `
+      <div class="auth-error">
+        ❌ Error checking authentication: ${(error as Error).message}
+      </div>
+    `;
+  }
+}
+
+/**
+ * Validate session and update display
+ */
+async function validateAuthSession() {
+  authStatusContent.innerHTML = '<div class="auth-loading">Validating session...</div>';
+
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'validate-session'
+    });
+
+    if (response.success) {
+      await checkAuthStatus();
+      alert('✅ Session validated successfully!');
+    } else {
+      await checkAuthStatus();
+      alert('❌ Session validation failed. Please visit claude.ai to log in.');
+    }
+  } catch (error) {
+    console.error('Failed to validate session:', error);
+    authStatusContent.innerHTML = `
+      <div class="auth-error">
+        ❌ Error validating session: ${(error as Error).message}
+      </div>
+    `;
+  }
+}
+
+/**
+ * Toggle session key display (show/hide)
+ */
+let sessionKeyVisible = false;
+
+async function toggleSessionKeyDisplay() {
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (response.success && response.data) {
+      const { sessionKey } = response.data;
+      const displayElement = document.getElementById('session-key-display');
+
+      if (!displayElement || !sessionKey) {
+        alert('Session key not available');
+        return;
+      }
+
+      sessionKeyVisible = !sessionKeyVisible;
+
+      if (sessionKeyVisible) {
+        displayElement.textContent = sessionKey;
+        displayElement.classList.remove('session-key-hidden');
+        displayElement.classList.add('session-key-visible');
+        showSessionKeyBtn.textContent = 'Hide Session Key';
+      } else {
+        displayElement.textContent = '••••••••••••••••';
+        displayElement.classList.remove('session-key-visible');
+        displayElement.classList.add('session-key-hidden');
+        showSessionKeyBtn.textContent = 'Show Session Key';
+      }
+    } else {
+      alert('Session key not available');
+    }
+  } catch (error) {
+    console.error('Failed to toggle session key:', error);
+    alert('Error accessing session key');
   }
 }

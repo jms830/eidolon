@@ -28,6 +28,7 @@
           <button id="search-btn" class="search-btn">🔍</button>
         </div>
         <button id="refresh-all-btn" class="icon-btn" title="Refresh All">↻</button>
+        <button id="auth-btn" class="icon-btn" title="Authentication Status">🔐</button>
         <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
       </div>
     </header>
@@ -337,6 +338,21 @@
           <!-- Organizations will be listed here -->
         </div>
         <button id="close-org-modal" class="action-btn" style="margin-top: 20px;">Close</button>
+      </div>
+    </div>
+
+    <!-- Authentication Modal -->
+    <div id="auth-modal" class="modal-overlay hidden">
+      <div class="modal-content auth-modal">
+        <h2>🔐 Authentication Status</h2>
+        <div id="auth-status-content" class="auth-status-content">
+          <div class="auth-loading">Checking authentication...</div>
+        </div>
+        <div class="auth-actions">
+          <button id="validate-session-btn" class="action-btn">Validate Session</button>
+          <button id="show-session-key-btn" class="action-btn">Show Session Key</button>
+          <button id="close-auth-modal" class="action-btn">Close</button>
+        </div>
       </div>
     </div>
 
