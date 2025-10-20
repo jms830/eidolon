@@ -165,16 +165,41 @@ export async function verifyPermission(
   dirHandle: FileSystemDirectoryHandle,
   mode: 'read' | 'readwrite' = 'readwrite'
 ): Promise<boolean> {
-  const options: FileSystemHandlePermissionDescriptor = { mode };
-
-  // Check if permission was already granted
-  if ((await dirHandle.queryPermission(options)) === 'granted') {
-    return true;
+  // Check if permission methods are available
+  if (typeof dirHandle.queryPermission !== 'function') {
+    // If queryPermission is not available, try to access the handle
+    // If we can access it, we likely have permission
+    try {
+      await dirHandle.getDirectoryHandle('.', { create: false }).catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  // Request permission
-  if ((await dirHandle.requestPermission(options)) === 'granted') {
-    return true;
+  const options: FileSystemHandlePermissionDescriptor = { mode };
+
+  try {
+    // Check if permission was already granted
+    if ((await dirHandle.queryPermission(options)) === 'granted') {
+      return true;
+    }
+
+    // Request permission if requestPermission is available
+    if (typeof dirHandle.requestPermission === 'function') {
+      if ((await dirHandle.requestPermission(options)) === 'granted') {
+        return true;
+      }
+    }
+  } catch (error) {
+    console.warn('Permission check failed:', error);
+    // Try to test access directly
+    try {
+      await dirHandle.getDirectoryHandle('.', { create: false }).catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return false;
