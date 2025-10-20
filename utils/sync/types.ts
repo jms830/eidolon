@@ -90,6 +90,8 @@ export interface ProjectDiff {
   localOnlyFiles: string[];
   /** Modified files */
   modifiedFiles: string[];
+  /** Renamed files (old name -> new name) */
+  renamedFiles?: Array<{ oldName: string; newName: string }>;
 }
 
 export interface WorkspaceDiff {

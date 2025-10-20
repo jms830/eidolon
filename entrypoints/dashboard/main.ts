@@ -122,8 +122,7 @@ const syncConfigured = document.getElementById('sync-configured')!;
 const setupWorkspaceBtn = document.getElementById('setup-workspace-btn')!;
 const configureWorkspaceBtn = document.getElementById('configure-workspace-btn')!;
 const syncNowBtn = document.getElementById('sync-now-btn')!;
-const previewChangesBtn = document.getElementById('preview-changes-btn')!;
-const viewDiffBtn = document.getElementById('view-diff-btn')!;
+const previewDiffBtn = document.getElementById('preview-diff-btn')!;
 const openWorkspaceBtn = document.getElementById('open-workspace-btn')!;
 const autoSyncEnabledCheckbox = document.getElementById('auto-sync-enabled') as HTMLInputElement;
 const syncIntervalSelect = document.getElementById('sync-interval') as HTMLSelectElement;
@@ -446,8 +445,7 @@ function setupEventListeners() {
   setupWorkspaceBtn.addEventListener('click', setupWorkspace);
   configureWorkspaceBtn.addEventListener('click', setupWorkspace);
   syncNowBtn.addEventListener('click', () => syncNow(false));
-  previewChangesBtn.addEventListener('click', () => syncNow(true));
-  viewDiffBtn.addEventListener('click', viewWorkspaceDiff);
+  previewDiffBtn.addEventListener('click', viewWorkspaceDiff);
   openWorkspaceBtn.addEventListener('click', openWorkspaceFolder);
 
   // Sync settings
@@ -2274,14 +2272,42 @@ async function viewWorkspaceDiff() {
       }
     }
 
-    // Show loading
+    // Show loading with progress bar
     modalContent.textContent = '';
     modalContent.classList.remove('diff-modal-container'); // Remove class during loading
+    modalContent.style.cssText = 'padding: 40px; text-align: center;';
+
     const loadingTitle = document.createElement('h2');
     loadingTitle.textContent = 'Computing Diff...';
+    loadingTitle.style.marginBottom = '20px';
+
+    const progressBar = document.createElement('div');
+    progressBar.style.cssText = `
+      width: 100%;
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 20px 0;
+    `;
+
+    const progressFill = document.createElement('div');
+    progressFill.id = 'diff-progress-fill';
+    progressFill.style.cssText = `
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s ease;
+    `;
+    progressBar.appendChild(progressFill);
+
     const loadingText = document.createElement('p');
-    loadingText.textContent = 'Comparing local workspace with Claude.ai...';
+    loadingText.id = 'diff-progress-text';
+    loadingText.textContent = 'Initializing...';
+    loadingText.style.cssText = 'color: #666; margin-top: 10px; font-size: 14px;';
+
     modalContent.appendChild(loadingTitle);
+    modalContent.appendChild(progressBar);
     modalContent.appendChild(loadingText);
     modalOverlay.classList.remove('hidden');
 
@@ -2307,6 +2333,19 @@ async function viewWorkspaceDiff() {
     const apiClient = new ClaudeAPIClient(sessionKey);
     const syncManager = new SyncManager(apiClient);
 
+    // Set up progress callback for diff computation
+    syncManager.setProgressCallback((progress) => {
+      const progressFillEl = document.getElementById('diff-progress-fill');
+      const progressTextEl = document.getElementById('diff-progress-text');
+
+      if (progressFillEl) {
+        progressFillEl.style.width = `${progress.percentage}%`;
+      }
+      if (progressTextEl) {
+        progressTextEl.textContent = progress.message || 'Computing...';
+      }
+    });
+
     // Validate handle has methods before using it
     if (!state.workspaceHandle || typeof state.workspaceHandle.values !== 'function') {
       throw new Error('Invalid workspace handle. Please close and reopen the dashboard, then try again.');
@@ -2328,6 +2367,172 @@ async function viewWorkspaceDiff() {
     alert(`Failed to compute diff: ${(error as Error).message}`);
     document.getElementById('modal-overlay')?.classList.add('hidden');
   }
+}
+
+/**
+ * Sync individual file
+ */
+async function syncSingleFile(fileName: string, fileType: string, projectInfo: any) {
+  if (!state.currentOrg || !state.workspaceHandle) {
+    throw new Error('Workspace not configured');
+  }
+
+  // Get API session
+  const sessionResponse = await browser.runtime.sendMessage({
+    action: 'get-api-client-session'
+  });
+
+  if (!sessionResponse.success) {
+    throw new Error(sessionResponse.error || 'Failed to get API session');
+  }
+
+  const { sessionKey, orgId } = sessionResponse.data;
+  const apiClient = new ClaudeAPIClient(sessionKey);
+
+  // Get project folder handle
+  const projectHandle = await state.workspaceHandle.getDirectoryHandle(projectInfo.folder);
+  const contextHandle = await projectHandle.getDirectoryHandle('context').catch(() =>
+    getOrCreateDirectory(projectHandle, 'context')
+  );
+
+  if (fileType === 'remote-only') {
+    // Download file from remote
+    if (fileName === 'AGENTS.md') {
+      const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+      if (instructionsData?.content) {
+        await writeTextFile(projectHandle, 'AGENTS.md', instructionsData.content.trim());
+      }
+    } else {
+      const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+      const file = files.find((f: any) => f.file_name === fileName);
+      if (file) {
+        await writeTextFile(contextHandle, fileName, file.content);
+      }
+    }
+  } else if (fileType === 'local-only') {
+    // Upload file to remote
+    if (fileName === 'AGENTS.md') {
+      const content = await readTextFile(projectHandle, 'AGENTS.md');
+      if (content) {
+        await apiClient.updateProjectInstructions(orgId, projectInfo.id, content);
+      }
+    } else {
+      const content = await readTextFile(contextHandle, fileName);
+      if (content) {
+        await apiClient.uploadFile(orgId, projectInfo.id, fileName, content);
+      }
+    }
+  } else if (fileType === 'modified') {
+    // Handle modified file based on conflict strategy
+    const config = await getWorkspaceConfig();
+    const strategy = config.settings.conflictStrategy || 'remote';
+
+    let localContent: string | null = null;
+    let remoteContent: string = '';
+
+    if (fileName === 'AGENTS.md') {
+      localContent = await readTextFile(projectHandle, 'AGENTS.md');
+      const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+      remoteContent = instructionsData?.content?.trim() || '';
+    } else {
+      localContent = await readTextFile(contextHandle, fileName);
+      const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+      const remoteFile = files.find((f: any) => f.file_name === fileName);
+      remoteContent = remoteFile?.content || '';
+    }
+
+    if (!localContent) {
+      throw new Error('Could not read local file');
+    }
+
+    // Apply strategy
+    if (strategy === 'local') {
+      // Upload local version
+      if (fileName === 'AGENTS.md') {
+        await apiClient.updateProjectInstructions(orgId, projectInfo.id, localContent);
+      } else {
+        await apiClient.uploadFile(orgId, projectInfo.id, fileName, localContent);
+      }
+    } else if (strategy === 'remote') {
+      // Download remote version
+      if (fileName === 'AGENTS.md') {
+        await writeTextFile(projectHandle, 'AGENTS.md', remoteContent);
+      } else {
+        await writeTextFile(contextHandle, fileName, remoteContent);
+      }
+    } else {
+      // For 'newer' strategy, just use local for now (would need timestamp comparison)
+      if (fileName === 'AGENTS.md') {
+        await apiClient.updateProjectInstructions(orgId, projectInfo.id, localContent);
+      } else {
+        await apiClient.uploadFile(orgId, projectInfo.id, fileName, localContent);
+      }
+    }
+  }
+}
+
+/**
+ * Create file item with sync button
+ */
+function createFileItemWithSyncButton(
+  fileName: string,
+  fileType: 'remote-only' | 'local-only' | 'modified',
+  projectInfo: any,
+  onSync: (fileName: string, fileType: string, projectInfo: any) => Promise<void>
+): HTMLElement {
+  const fileItem = document.createElement('div');
+  fileItem.className = `diff-file-item ${fileType}`;
+  fileItem.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: ${fileType === 'remote-only' ? '#e6f7ff' : fileType === 'local-only' ? '#fff7e6' : '#fff0f0'};
+    border-radius: 4px;
+    margin-bottom: 4px;
+  `;
+
+  const fileNameSpan = document.createElement('span');
+  fileNameSpan.textContent = fileName;
+  fileNameSpan.style.cssText = 'flex: 1;';
+
+  const syncButton = document.createElement('button');
+  syncButton.textContent = fileType === 'remote-only' ? '⬇ Download' : fileType === 'local-only' ? '⬆ Upload' : '🔄 Sync';
+  syncButton.style.cssText = `
+    padding: 4px 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 10px;
+  `;
+
+  syncButton.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    syncButton.disabled = true;
+    syncButton.textContent = 'Syncing...';
+    try {
+      await onSync(fileName, fileType, projectInfo);
+      syncButton.textContent = '✓ Done';
+      syncButton.style.background = '#48bb78';
+      setTimeout(() => {
+        fileItem.style.opacity = '0.5';
+        fileItem.style.pointerEvents = 'none';
+      }, 1000);
+    } catch (error) {
+      console.error('Sync failed:', error);
+      syncButton.textContent = '✗ Failed';
+      syncButton.style.background = '#f56565';
+      syncButton.disabled = false;
+      alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
+    }
+  });
+
+  fileItem.appendChild(fileNameSpan);
+  fileItem.appendChild(syncButton);
+  return fileItem;
 }
 
 /**
@@ -2443,6 +2648,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
         if (p.remoteOnlyFiles.length > 0) summaryParts.push(`${p.remoteOnlyFiles.length} remote`);
         if (p.localOnlyFiles.length > 0) summaryParts.push(`${p.localOnlyFiles.length} local`);
         if (p.modifiedFiles.length > 0) summaryParts.push(`${p.modifiedFiles.length} modified`);
+        if (p.renamedFiles && p.renamedFiles.length > 0) summaryParts.push(`${p.renamedFiles.length} renamed`);
         summary.textContent = summaryParts.join(', ');
 
         const expandIcon = document.createElement('span');
@@ -2468,9 +2674,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
           category.appendChild(title);
 
           p.remoteOnlyFiles.forEach((file: string) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'diff-file-item remote-only';
-            fileItem.textContent = file;
+            const fileItem = createFileItemWithSyncButton(file, 'remote-only', p, syncSingleFile);
             category.appendChild(fileItem);
           });
 
@@ -2488,9 +2692,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
           category.appendChild(title);
 
           p.localOnlyFiles.forEach((file: string) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'diff-file-item local-only';
-            fileItem.textContent = file;
+            const fileItem = createFileItemWithSyncButton(file, 'local-only', p, syncSingleFile);
             category.appendChild(fileItem);
           });
 
@@ -2508,10 +2710,38 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
           category.appendChild(title);
 
           p.modifiedFiles.forEach((file: string) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'diff-file-item modified';
-            fileItem.textContent = file;
+            const fileItem = createFileItemWithSyncButton(file, 'modified', p, syncSingleFile);
             category.appendChild(fileItem);
+          });
+
+          details.appendChild(category);
+        }
+
+        // Renamed files
+        if (p.renamedFiles && p.renamedFiles.length > 0) {
+          const category = document.createElement('div');
+          category.className = 'diff-file-category';
+
+          const title = document.createElement('div');
+          title.className = 'diff-file-category-title';
+          title.textContent = `📝 Renamed (${p.renamedFiles.length})`;
+          category.appendChild(title);
+
+          p.renamedFiles.forEach((rename: { oldName: string; newName: string }) => {
+            const renameItem = document.createElement('div');
+            renameItem.className = 'diff-file-item renamed';
+            renameItem.style.cssText = `
+              padding: 8px 12px;
+              background: #f0f9ff;
+              border-radius: 4px;
+              margin-bottom: 4px;
+            `;
+
+            const renameText = document.createElement('span');
+            renameText.innerHTML = `<span style="text-decoration: line-through; color: #999;">${rename.oldName}</span> → <span style="font-weight: 500;">${rename.newName}</span>`;
+
+            renameItem.appendChild(renameText);
+            category.appendChild(renameItem);
           });
 
           details.appendChild(category);

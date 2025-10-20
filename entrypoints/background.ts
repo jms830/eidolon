@@ -81,6 +81,28 @@ export default defineBackground(() => {
   let currentOrg: Organization | null = null;
   let sessionKey: string | null = null;
 
+  // Initialize session from storage on startup
+  async function initializeSession(): Promise<void> {
+    try {
+      const stored = await browser.storage.local.get(['sessionKey', 'currentOrg', 'sessionValid']);
+
+      if (stored.sessionValid && stored.sessionKey && stored.currentOrg) {
+        sessionKey = stored.sessionKey;
+        currentOrg = stored.currentOrg;
+        apiClient = new ClaudeAPIClient(sessionKey);
+        console.log('Session restored from storage');
+      } else {
+        // Try to extract fresh session key from cookies
+        await validateSession();
+      }
+    } catch (error) {
+      console.error('Failed to initialize session:', error);
+    }
+  }
+
+  // Call initialization
+  initializeSession();
+
   // Session management
   async function extractSessionKey(): Promise<string | null> {
     try {

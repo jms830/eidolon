@@ -601,6 +601,50 @@ export class SyncManager {
       contextHandle = await getOrCreateDirectory(projectHandle, 'context');
     }
 
+    // 0. Handle renamed files: Delete old remote file, content already local with new name
+    if (projectDiff.renamedFiles && projectDiff.renamedFiles.length > 0) {
+      for (const rename of projectDiff.renamedFiles) {
+        if (dryRun) {
+          uploaded++;
+          continue;
+        }
+
+        try {
+          // Delete the old remote file
+          if (rename.oldName === 'AGENTS.md') {
+            // Clear project instructions
+            await this.apiClient.updateProjectInstructions(orgId, projectId, '');
+          } else {
+            // Find and delete the old file from remote
+            const files = await this.apiClient.getProjectFiles(orgId, projectId);
+            const oldFile = files.find(f => f.file_name === rename.oldName);
+            if (oldFile) {
+              await this.apiClient.deleteFile(orgId, projectId, oldFile.uuid);
+            }
+          }
+
+          // Upload file with new name
+          if (rename.newName === 'AGENTS.md') {
+            const content = await readTextFile(projectHandle, 'AGENTS.md');
+            if (content) {
+              await this.apiClient.updateProjectInstructions(orgId, projectId, content);
+              uploaded++;
+            }
+          } else {
+            const content = await readTextFile(contextHandle, rename.newName);
+            if (content) {
+              await this.apiClient.uploadFile(orgId, projectId, rename.newName, content);
+              uploaded++;
+            }
+          }
+        } catch (error) {
+          const errorMsg = `Rename ${rename.oldName} → ${rename.newName}: ${(error as Error).message}`;
+          console.error(`Error handling rename:`, error);
+          fileErrors.push(errorMsg);
+        }
+      }
+    }
+
     // 1. Handle remote-only files: Download them
     for (const fileName of projectDiff.remoteOnlyFiles) {
       if (dryRun) continue;
@@ -804,10 +848,23 @@ export class SyncManager {
   ): Promise<import('./types').WorkspaceDiff> {
     const config = await getWorkspaceConfig();
 
+    // Report initial progress
+    this.reportProgress({
+      phase: 'fetching',
+      message: 'Fetching remote projects...',
+      percentage: 10,
+    });
+
     // Fetch remote projects
     const remoteProjects = await this.apiClient.getProjects(orgId);
 
     // Get local folders
+    this.reportProgress({
+      phase: 'fetching',
+      message: 'Scanning local workspace...',
+      percentage: 20,
+    });
+
     const localFolders = new Set<string>();
     for await (const entry of workspaceHandle.values()) {
       if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
@@ -824,8 +881,17 @@ export class SyncManager {
     const matched: import('./types').ProjectDiff[] = [];
     const localOnlyFolders = new Set(localFolders);
 
+    this.reportProgress({
+      phase: 'syncing',
+      message: `Comparing ${remoteProjects.length} projects...`,
+      percentage: 30,
+      totalProjects: remoteProjects.length,
+      completedProjects: 0,
+    });
+
     // Process remote projects
-    for (const project of remoteProjects) {
+    for (let i = 0; i < remoteProjects.length; i++) {
+      const project = remoteProjects[i];
       const folderName = config.projectMap[project.uuid] || sanitizeProjectName(project.name);
 
       if (localFolders.has(folderName)) {
@@ -849,7 +915,23 @@ export class SyncManager {
           fileCount: files?.length || 0
         });
       }
+
+      // Report progress (30% to 90% range)
+      const progressPercent = 30 + Math.floor(((i + 1) / remoteProjects.length) * 60);
+      this.reportProgress({
+        phase: 'syncing',
+        message: `Analyzed ${i + 1}/${remoteProjects.length} projects`,
+        percentage: progressPercent,
+        totalProjects: remoteProjects.length,
+        completedProjects: i + 1,
+      });
     }
+
+    this.reportProgress({
+      phase: 'complete',
+      message: 'Diff computation complete',
+      percentage: 100,
+    });
 
     return {
       summary: {
@@ -916,6 +998,7 @@ export class SyncManager {
     const remoteOnlyFiles: string[] = [];
     const localOnlyFiles: string[] = [];
     const modifiedFiles: string[] = [];
+    const renamedFiles: Array<{ oldName: string; newName: string }> = [];
 
     // Files only in remote
     for (const fileName of remoteFileSet) {
@@ -929,6 +1012,75 @@ export class SyncManager {
       if (!remoteFileSet.has(fileName)) {
         localOnlyFiles.push(fileName);
       }
+    }
+
+    // Content-based rename detection: Build hash maps for remote-only and local-only files
+    const remoteFileHashes = new Map<string, string>(); // hash -> fileName
+    const localFileHashes = new Map<string, string>();  // hash -> fileName
+
+    // Compute hashes for remote-only files
+    for (const fileName of remoteOnlyFiles) {
+      try {
+        let content: string = '';
+        if (fileName === 'AGENTS.md') {
+          const instructionsData = await this.apiClient.getProjectInstructions(
+            orgId,
+            remoteProject.uuid
+          );
+          content = instructionsData?.content?.trim() || '';
+        } else {
+          const remoteFile = remoteFileMap.get(fileName);
+          content = remoteFile?.content || '';
+        }
+
+        if (content) {
+          const hash = await computeFileHash(content);
+          remoteFileHashes.set(hash, fileName);
+        }
+      } catch (error) {
+        console.error(`Error hashing remote file ${fileName}:`, error);
+      }
+    }
+
+    // Compute hashes for local-only files and detect renames
+    for (const fileName of localOnlyFiles) {
+      try {
+        let content: string | null = null;
+        if (fileName === 'AGENTS.md') {
+          content = await readTextFile(projectHandle, 'AGENTS.md');
+        } else {
+          const contextHandle = await projectHandle.getDirectoryHandle('context');
+          content = await readTextFile(contextHandle, fileName);
+        }
+
+        if (content) {
+          const hash = await computeFileHash(content);
+
+          // Check if this hash exists in remote-only files (rename detection)
+          if (remoteFileHashes.has(hash)) {
+            const oldName = remoteFileHashes.get(hash)!;
+            renamedFiles.push({ oldName, newName: fileName });
+          } else {
+            localFileHashes.set(hash, fileName);
+          }
+        }
+      } catch (error) {
+        console.error(`Error hashing local file ${fileName}:`, error);
+      }
+    }
+
+    // Remove renamed files from remote-only and local-only lists
+    if (renamedFiles.length > 0) {
+      const renamedOldNames = new Set(renamedFiles.map(r => r.oldName));
+      const renamedNewNames = new Set(renamedFiles.map(r => r.newName));
+
+      const filteredRemoteOnly = remoteOnlyFiles.filter(f => !renamedOldNames.has(f));
+      const filteredLocalOnly = localOnlyFiles.filter(f => !renamedNewNames.has(f));
+
+      remoteOnlyFiles.length = 0;
+      localOnlyFiles.length = 0;
+      remoteOnlyFiles.push(...filteredRemoteOnly);
+      localOnlyFiles.push(...filteredLocalOnly);
     }
 
     // Check for modifications in common files
@@ -969,7 +1121,8 @@ export class SyncManager {
     const hasDifferences =
       remoteOnlyFiles.length > 0 ||
       localOnlyFiles.length > 0 ||
-      modifiedFiles.length > 0;
+      modifiedFiles.length > 0 ||
+      renamedFiles.length > 0;
 
     return {
       name: remoteProject.name,
@@ -978,7 +1131,8 @@ export class SyncManager {
       hasDifferences,
       remoteOnlyFiles,
       localOnlyFiles,
-      modifiedFiles
+      modifiedFiles,
+      renamedFiles: renamedFiles.length > 0 ? renamedFiles : undefined
     };
   }
 }
