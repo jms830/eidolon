@@ -18,7 +18,6 @@ import {
   readTextFile,
   listFiles,
   sanitizeProjectName,
-  verifyPermission,
 } from './fileSystem';
 import {
   getWorkspaceConfig,
@@ -76,12 +75,6 @@ export class SyncManager {
     const errors: string[] = [];
 
     try {
-      // Verify permissions
-      const hasPermission = await verifyPermission(workspaceHandle, 'readwrite');
-      if (!hasPermission) {
-        throw new Error('No permission to access workspace directory');
-      }
-
       this.reportProgress({
         phase: 'fetching',
         message: 'Fetching projects from Claude.ai...',
