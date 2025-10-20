@@ -120,6 +120,7 @@ export async function saveWorkspaceHandle(handle: FileSystemDirectoryHandle): Pr
 
 /**
  * Retrieve workspace directory handle from IndexedDB
+ * Automatically requests permission to "refresh" the handle methods
  */
 export async function getWorkspaceHandle(): Promise<FileSystemDirectoryHandle | null> {
   try {
@@ -127,7 +128,25 @@ export async function getWorkspaceHandle(): Promise<FileSystemDirectoryHandle | 
     const tx = db.transaction('handles', 'readonly');
     const store = tx.objectStore('handles');
     const handle = await store.get(WORKSPACE_HANDLE_KEY);
-    return handle || null;
+
+    if (!handle) {
+      return null;
+    }
+
+    // Request permission to "refresh" the handle and restore its methods
+    // This is required when retrieving handles from IndexedDB
+    try {
+      const permission = await handle.requestPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        console.warn('Permission not granted for workspace handle');
+        return null;
+      }
+      return handle;
+    } catch (permError) {
+      console.error('Failed to request permission for handle:', permError);
+      // Return null so the UI can prompt user to re-select workspace
+      return null;
+    }
   } catch (error) {
     console.error('Failed to get workspace handle:', error);
     return null;
