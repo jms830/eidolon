@@ -165,42 +165,33 @@ export async function verifyPermission(
   dirHandle: FileSystemDirectoryHandle,
   mode: 'read' | 'readwrite' = 'readwrite'
 ): Promise<boolean> {
-  // Check if permission methods are available
-  if (typeof dirHandle.queryPermission !== 'function') {
-    // If queryPermission is not available, try to access the handle
-    // If we can access it, we likely have permission
-    try {
-      await dirHandle.getDirectoryHandle('.', { create: false }).catch(() => {});
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const options: FileSystemHandlePermissionDescriptor = { mode };
-
+  // Test actual access by trying to enumerate the directory
+  // This is more reliable than queryPermission which may not be available
   try {
-    // Check if permission was already granted
-    if ((await dirHandle.queryPermission(options)) === 'granted') {
-      return true;
-    }
+    // Try to iterate the directory - this will fail if we don't have permission
+    const iterator = dirHandle.values();
+    await iterator.next();
 
-    // Request permission if requestPermission is available
-    if (typeof dirHandle.requestPermission === 'function') {
-      if ((await dirHandle.requestPermission(options)) === 'granted') {
+    // If we need write permission, try to verify we can write
+    if (mode === 'readwrite') {
+      // Try to create a temporary test file to verify write access
+      try {
+        const testFile = await dirHandle.getFileHandle('.eidolon-test', { create: true });
+        const writable = await testFile.createWritable();
+        await writable.write('test');
+        await writable.close();
+        // Clean up test file
+        await dirHandle.removeEntry('.eidolon-test').catch(() => {});
         return true;
+      } catch (writeError) {
+        console.warn('Write permission test failed:', writeError);
+        return false;
       }
     }
-  } catch (error) {
-    console.warn('Permission check failed:', error);
-    // Try to test access directly
-    try {
-      await dirHandle.getDirectoryHandle('.', { create: false }).catch(() => {});
-      return true;
-    } catch {
-      return false;
-    }
-  }
 
-  return false;
+    return true;
+  } catch (error) {
+    console.error('Permission verification failed:', error);
+    return false;
+  }
 }
