@@ -160,38 +160,24 @@ export function sanitizeProjectName(name: string): string {
 
 /**
  * Request permission for directory handle (if needed)
+ * Based on Chrome's official File System Access API example
  */
 export async function verifyPermission(
   dirHandle: FileSystemDirectoryHandle,
   mode: 'read' | 'readwrite' = 'readwrite'
 ): Promise<boolean> {
-  // Test actual access by trying to enumerate the directory
-  // This is more reliable than queryPermission which may not be available
-  try {
-    // Try to iterate the directory - this will fail if we don't have permission
-    const iterator = dirHandle.values();
-    await iterator.next();
+  const options: FileSystemHandlePermissionDescriptor = { mode };
 
-    // If we need write permission, try to verify we can write
-    if (mode === 'readwrite') {
-      // Try to create a temporary test file to verify write access
-      try {
-        const testFile = await dirHandle.getFileHandle('.eidolon-test', { create: true });
-        const writable = await testFile.createWritable();
-        await writable.write('test');
-        await writable.close();
-        // Clean up test file
-        await dirHandle.removeEntry('.eidolon-test').catch(() => {});
-        return true;
-      } catch (writeError) {
-        console.warn('Write permission test failed:', writeError);
-        return false;
-      }
-    }
-
+  // Check if permission was already granted. If so, return true.
+  if ((await dirHandle.queryPermission(options)) === 'granted') {
     return true;
-  } catch (error) {
-    console.error('Permission verification failed:', error);
-    return false;
   }
+
+  // Request permission. If the user grants permission, return true.
+  if ((await dirHandle.requestPermission(options)) === 'granted') {
+    return true;
+  }
+
+  // The user didn't grant permission, so return false.
+  return false;
 }
