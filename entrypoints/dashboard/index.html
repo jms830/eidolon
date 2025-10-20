@@ -12,6 +12,10 @@
       <div class="header-left">
         <img src="/icon-48.png" alt="Eidolon" class="header-logo">
         <h1>Eidolon Dashboard</h1>
+        <button id="org-switcher-btn" class="org-switcher-btn" title="Switch Organization">
+          <span id="current-org-name">Loading...</span>
+          <span class="dropdown-arrow">▾</span>
+        </button>
       </div>
       <div class="header-right">
         <div class="search-bar">
@@ -326,6 +330,18 @@
     <div id="modal-overlay" class="modal-overlay hidden">
       <div id="modal-content" class="modal-content">
         <!-- Modal content will be injected here -->
+      </div>
+    </div>
+
+    <!-- Org Switcher Modal -->
+    <div id="org-switcher-modal" class="modal-overlay hidden">
+      <div class="modal-content org-switcher-modal">
+        <h2>Switch Organization</h2>
+        <p style="color: #718096; margin-bottom: 20px;">Select which organization to manage</p>
+        <div id="org-list" class="org-list">
+          <!-- Organizations will be listed here -->
+        </div>
+        <button id="close-org-modal" class="action-btn" style="margin-top: 20px;">Close</button>
       </div>
     </div>
 

@@ -95,6 +95,114 @@ body {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Org Switcher */
+.org-switcher-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+  margin-left: auto;
+}
+
+.org-switcher-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+#current-org-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-arrow {
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+
+.org-switcher-modal {
+  max-width: 500px;
+}
+
+.org-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.org-item {
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.org-item:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.org-item.active {
+  border-color: #667eea;
+  background: #f7f8ff;
+}
+
+.org-item-icon {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.org-item.active .org-item-icon {
+  background: #667eea;
+  color: white;
+}
+
+.org-item-info {
+  flex: 1;
+}
+
+.org-item-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.org-item-id {
+  font-size: 12px;
+  color: #999;
+  font-family: monospace;
+}
+
+.org-item-badge {
+  background: #667eea;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* Navigation */
 .dashboard-nav {
   background: white;

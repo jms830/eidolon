@@ -88,6 +88,13 @@ const refreshAllBtn = document.getElementById('refresh-all-btn')!;
 const navTabs = document.querySelectorAll('.nav-tab');
 const tabContents = document.querySelectorAll('.tab-content');
 
+// Org switcher elements
+const orgSwitcherBtn = document.getElementById('org-switcher-btn')!;
+const currentOrgName = document.getElementById('current-org-name')!;
+const orgSwitcherModal = document.getElementById('org-switcher-modal')!;
+const orgList = document.getElementById('org-list')!;
+const closeOrgModal = document.getElementById('close-org-modal')!
+
 // Projects elements
 const projectsGrid = document.getElementById('projects-grid')!;
 const projectsCount = document.getElementById('projects-count')!;
@@ -144,6 +151,7 @@ async function initialize() {
     const orgResponse = await browser.runtime.sendMessage({ action: 'get-current-org' });
     if (orgResponse.success) {
       state.currentOrg = orgResponse.data;
+      updateOrgDisplay();
     }
   } catch (error) {
     console.error('Failed to get current organization:', error);
@@ -419,6 +427,19 @@ function setupEventListeners() {
   const settingsBtn = document.getElementById('settings-btn')!;
   settingsBtn.addEventListener('click', () => {
     showSettingsModal();
+  });
+
+  // Org switcher
+  orgSwitcherBtn.addEventListener('click', showOrgSwitcher);
+  closeOrgModal.addEventListener('click', () => {
+    orgSwitcherModal.classList.add('hidden');
+  });
+
+  // Close org modal when clicking outside
+  orgSwitcherModal.addEventListener('click', (e) => {
+    if (e.target === orgSwitcherModal) {
+      orgSwitcherModal.classList.add('hidden');
+    }
   });
 
   // Sync tab event listeners
@@ -2657,5 +2678,122 @@ function logSyncActivity(type: 'success' | 'error' | 'info', message: string) {
   // Limit to 50 entries
   while (syncLogContent.children.length > 50) {
     syncLogContent.removeChild(syncLogContent.lastChild!);
+  }
+}
+
+// ============================================================================
+// Organization Switcher Functions
+// ============================================================================
+
+/**
+ * Update organization display in header
+ */
+function updateOrgDisplay() {
+  if (state.currentOrg) {
+    currentOrgName.textContent = state.currentOrg.name;
+  } else {
+    currentOrgName.textContent = 'No Organization';
+  }
+}
+
+/**
+ * Show organization switcher modal
+ */
+async function showOrgSwitcher() {
+  try {
+    // Fetch available organizations
+    const response = await browser.runtime.sendMessage({ action: 'get-organizations' });
+
+    if (!response.success) {
+      alert('Failed to load organizations: ' + (response.error || 'Unknown error'));
+      return;
+    }
+
+    const organizations = response.data;
+
+    // Clear existing org list
+    orgList.innerHTML = '';
+
+    // Render organization items
+    organizations.forEach((org: any) => {
+      const orgItem = document.createElement('div');
+      orgItem.className = 'org-item';
+
+      const isActive = state.currentOrg?.uuid === org.uuid;
+      if (isActive) {
+        orgItem.classList.add('active');
+      }
+
+      const orgInfo = document.createElement('div');
+      orgInfo.className = 'org-item-info';
+
+      const orgName = document.createElement('div');
+      orgName.className = 'org-item-name';
+      orgName.textContent = org.name;
+
+      const orgCapabilities = document.createElement('div');
+      orgCapabilities.className = 'org-item-capabilities';
+      orgCapabilities.textContent = org.capabilities ? `${org.capabilities.length} capabilities` : 'Standard';
+
+      orgInfo.appendChild(orgName);
+      orgInfo.appendChild(orgCapabilities);
+      orgItem.appendChild(orgInfo);
+
+      if (isActive) {
+        const badge = document.createElement('div');
+        badge.className = 'org-item-badge';
+        badge.textContent = 'Current';
+        orgItem.appendChild(badge);
+      }
+
+      // Click handler to switch organization
+      orgItem.addEventListener('click', () => {
+        if (!isActive) {
+          switchOrganization(org.uuid, org.name);
+        }
+      });
+
+      orgList.appendChild(orgItem);
+    });
+
+    // Show modal
+    orgSwitcherModal.classList.remove('hidden');
+  } catch (error) {
+    console.error('Failed to show org switcher:', error);
+    alert('Failed to load organizations. Please try again.');
+  }
+}
+
+/**
+ * Switch to a different organization
+ */
+async function switchOrganization(orgId: string, orgName: string) {
+  try {
+    // Send message to background to switch org
+    const response = await browser.runtime.sendMessage({
+      action: 'set-current-org',
+      orgId: orgId
+    });
+
+    if (response.success) {
+      state.currentOrg = response.data;
+      updateOrgDisplay();
+
+      // Close modal
+      orgSwitcherModal.classList.add('hidden');
+
+      // Reload all data for the new organization
+      statusText.textContent = `Switched to ${orgName}. Loading data...`;
+      await loadAllData();
+      renderCurrentTab();
+      updateAnalytics();
+
+      statusText.textContent = 'Connected to Claude.ai';
+    } else {
+      alert('Failed to switch organization: ' + (response.error || 'Unknown error'));
+    }
+  } catch (error) {
+    console.error('Failed to switch organization:', error);
+    alert('Failed to switch organization. Please try again.');
   }
 }

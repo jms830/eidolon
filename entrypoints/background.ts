@@ -286,6 +286,26 @@ export default defineBackground(() => {
             }
             break;
 
+          case 'set-current-org':
+            if (request.orgId) {
+              try {
+                const orgs = await apiClient?.getOrganizations();
+                const selectedOrg = orgs?.find((org: Organization) => org.uuid === request.orgId);
+                if (selectedOrg) {
+                  currentOrg = selectedOrg;
+                  await browser.storage.local.set({ currentOrg });
+                  sendResponse({ success: true, data: currentOrg });
+                } else {
+                  sendResponse({ success: false, error: 'Organization not found' });
+                }
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Organization ID required' });
+            }
+            break;
+
           default:
             sendResponse({ success: false, error: 'Unknown action' });
         }
