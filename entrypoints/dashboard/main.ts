@@ -2377,13 +2377,27 @@ async function syncSingleFile(fileName: string, fileType: string, projectInfo: a
     throw new Error('Workspace not configured');
   }
 
+  // Proactively validate session before attempting sync
+  const validationResponse = await browser.runtime.sendMessage({
+    action: 'validate-session'
+  });
+
+  if (!validationResponse.success) {
+    const authError = new Error('Session validation failed. Please reconnect to Claude.ai.');
+    (authError as any).authenticationRequired = true;
+    throw authError;
+  }
+
   // Get API session
   const sessionResponse = await browser.runtime.sendMessage({
     action: 'get-api-client-session'
   });
 
   if (!sessionResponse.success) {
-    throw new Error(sessionResponse.error || 'Failed to get API session');
+    // Authentication error - provide re-authentication option
+    const authError = new Error(sessionResponse.error || 'Not authenticated');
+    (authError as any).authenticationRequired = true;
+    throw authError;
   }
 
   const { sessionKey, orgId } = sessionResponse.data;
@@ -2526,7 +2540,55 @@ function createFileItemWithSyncButton(
       syncButton.textContent = '✗ Failed';
       syncButton.style.background = '#f56565';
       syncButton.disabled = false;
-      alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
+
+      // Check if it's an authentication error
+      if ((error as any).authenticationRequired) {
+        const retry = confirm(
+          `Authentication required to sync ${fileName}.\n\n` +
+          `Click OK to validate your session and try again, or Cancel to abort.`
+        );
+
+        if (retry) {
+          // Attempt to validate session
+          syncButton.textContent = 'Authenticating...';
+          syncButton.disabled = true;
+
+          try {
+            const validationResponse = await browser.runtime.sendMessage({
+              action: 'validate-session'
+            });
+
+            if (validationResponse.success) {
+              // Retry the sync
+              syncButton.textContent = 'Retrying...';
+              await onSync(fileName, fileType, projectInfo);
+              syncButton.textContent = '✓ Done';
+              syncButton.style.background = '#48bb78';
+              setTimeout(() => {
+                fileItem.style.opacity = '0.5';
+                fileItem.style.pointerEvents = 'none';
+              }, 1000);
+            } else {
+              alert(
+                'Session validation failed. Please:\n' +
+                '1. Make sure you are logged into Claude.ai in this browser\n' +
+                '2. Click the Eidolon extension icon to reconnect\n' +
+                '3. Try syncing again'
+              );
+              syncButton.textContent = '✗ Not Auth';
+              syncButton.disabled = false;
+            }
+          } catch (authError) {
+            console.error('Authentication error:', authError);
+            alert('Failed to authenticate. Please click the extension icon to reconnect.');
+            syncButton.textContent = '✗ Auth Failed';
+            syncButton.disabled = false;
+          }
+        }
+      } else {
+        // Regular error
+        alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
+      }
     }
   });
 
