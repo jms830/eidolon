@@ -49,9 +49,24 @@ export async function writeTextFile(
 ): Promise<void> {
   const sanitizedName = sanitizeFileName(fileName);
   const fileHandle = await dirHandle.getFileHandle(sanitizedName, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(content);
-  await writable.close();
+
+  let writable: FileSystemWritableFileStream | null = null;
+  try {
+    writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+  } catch (error) {
+    // Abort the writable stream if an error occurs to prevent file corruption
+    if (writable) {
+      try {
+        await writable.abort();
+      } catch (abortError) {
+        // Ignore abort errors, as the stream may already be closed
+        console.error('Failed to abort writable stream:', abortError);
+      }
+    }
+    throw error;
+  }
 }
 
 /**

@@ -31,10 +31,21 @@ export default defineBackground(() => {
       });
 
       if (!response.ok) {
-        throw new Error(response.statusText);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      return await response.json() as T;
+      // Validate Content-Type before parsing as JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Expected JSON response but got: ${contentType || 'unknown'}`);
+      }
+
+      try {
+        const data = await response.json();
+        return data as T;
+      } catch (error) {
+        throw new Error(`Failed to parse JSON response: ${(error as Error).message}`);
+      }
     }
 
     async getOrganizations(): Promise<Organization[]> {
@@ -295,6 +306,14 @@ export default defineBackground(() => {
             break;
 
           case 'get-api-client-session':
+            // Validate sender is from extension pages, not content scripts
+            // Content scripts have sender.tab defined, extension pages do not
+            if (sender.tab) {
+              console.warn('Session key requested from content script - denied');
+              sendResponse({ success: false, error: 'Unauthorized access' });
+              break;
+            }
+
             if (sessionKey && currentOrg) {
               sendResponse({
                 success: true,
@@ -311,7 +330,13 @@ export default defineBackground(() => {
           case 'set-current-org':
             if (request.orgId) {
               try {
-                const orgs = await apiClient?.getOrganizations();
+                // Ensure API client is initialized before making requests
+                if (!apiClient) {
+                  sendResponse({ success: false, error: 'API client not initialized. Please validate session first.' });
+                  break;
+                }
+
+                const orgs = await apiClient.getOrganizations();
                 const selectedOrg = orgs?.find((org: Organization) => org.uuid === request.orgId);
                 if (selectedOrg) {
                   currentOrg = selectedOrg;

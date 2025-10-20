@@ -83,72 +83,81 @@ const state: AppState = {
 const searchService = getSearchService();
 const tagsService = getTagsService();
 
+// Helper function to get required DOM elements with proper error handling
+function getRequiredElement<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (!element) {
+    throw new Error(`Required DOM element not found: ${id}. The page may have failed to load correctly.`);
+  }
+  return element as T;
+}
+
 // DOM Elements
-const statusBar = document.getElementById('status-bar')!;
-const statusText = document.getElementById('status-text')!;
-const globalSearch = document.getElementById('global-search') as HTMLInputElement;
-const refreshAllBtn = document.getElementById('refresh-all-btn')!;
+const statusBar = getRequiredElement('status-bar');
+const statusText = getRequiredElement('status-text');
+const globalSearch = getRequiredElement<HTMLInputElement>('global-search');
+const refreshAllBtn = getRequiredElement('refresh-all-btn');
 const navTabs = document.querySelectorAll('.nav-tab');
 const tabContents = document.querySelectorAll('.tab-content');
 
 // Org switcher elements
-const orgSwitcherBtn = document.getElementById('org-switcher-btn')!;
-const currentOrgName = document.getElementById('current-org-name')!;
-const orgSwitcherModal = document.getElementById('org-switcher-modal')!;
-const orgList = document.getElementById('org-list')!;
-const closeOrgModal = document.getElementById('close-org-modal')!;
+const orgSwitcherBtn = getRequiredElement('org-switcher-btn');
+const currentOrgName = getRequiredElement('current-org-name');
+const orgSwitcherModal = getRequiredElement('org-switcher-modal');
+const orgList = getRequiredElement('org-list');
+const closeOrgModal = getRequiredElement('close-org-modal');
 
 // Auth modal elements
-const authBtn = document.getElementById('auth-btn')!;
-const authModal = document.getElementById('auth-modal')!;
-const authStatusContent = document.getElementById('auth-status-content')!;
-const validateSessionBtn = document.getElementById('validate-session-btn')!;
-const showSessionKeyBtn = document.getElementById('show-session-key-btn')!;
-const closeAuthModal = document.getElementById('close-auth-modal')!
+const authBtn = getRequiredElement('auth-btn');
+const authModal = getRequiredElement('auth-modal');
+const authStatusContent = getRequiredElement('auth-status-content');
+const validateSessionBtn = getRequiredElement('validate-session-btn');
+const showSessionKeyBtn = getRequiredElement('show-session-key-btn');
+const closeAuthModal = getRequiredElement('close-auth-modal');
 
 // Projects elements
-const projectsGrid = document.getElementById('projects-grid')!;
-const projectsCount = document.getElementById('projects-count')!;
-const viewGridBtn = document.getElementById('view-grid')!;
-const viewListBtn = document.getElementById('view-list')!;
-const selectAllProjectsBtn = document.getElementById('select-all-projects')!;
-const bulkActionsProjectsBtn = document.getElementById('bulk-actions-projects')!;
-const newProjectBtn = document.getElementById('new-project')!;
-const sortProjects = document.getElementById('sort-projects') as HTMLSelectElement;
+const projectsGrid = getRequiredElement('projects-grid');
+const projectsCount = getRequiredElement('projects-count');
+const viewGridBtn = getRequiredElement('view-grid');
+const viewListBtn = getRequiredElement('view-list');
+const selectAllProjectsBtn = getRequiredElement('select-all-projects');
+const bulkActionsProjectsBtn = getRequiredElement('bulk-actions-projects');
+const newProjectBtn = getRequiredElement('new-project');
+const sortProjects = getRequiredElement<HTMLSelectElement>('sort-projects');
 
 // Files elements
-const selectAllFilesBtn = document.getElementById('select-all-files')!;
-const bulkActionsFilesBtn = document.getElementById('bulk-actions-files')!;
+const selectAllFilesBtn = getRequiredElement('select-all-files');
+const bulkActionsFilesBtn = getRequiredElement('bulk-actions-files');
 
 // Analytics elements
-const totalProjectsEl = document.getElementById('total-projects')!;
-const totalFilesEl = document.getElementById('total-files')!;
-const totalConversationsEl = document.getElementById('total-conversations')!;
-const totalStorageEl = document.getElementById('total-storage')!;
-const exportAllDataBtn = document.getElementById('export-all-data')!;
+const totalProjectsEl = getRequiredElement('total-projects');
+const totalFilesEl = getRequiredElement('total-files');
+const totalConversationsEl = getRequiredElement('total-conversations');
+const totalStorageEl = getRequiredElement('total-storage');
+const exportAllDataBtn = getRequiredElement('export-all-data');
 
 // Sync elements
-const syncNotConfigured = document.getElementById('sync-not-configured')!;
-const syncConfigured = document.getElementById('sync-configured')!;
-const setupWorkspaceBtn = document.getElementById('setup-workspace-btn')!;
-const configureWorkspaceBtn = document.getElementById('configure-workspace-btn')!;
-const syncNowBtn = document.getElementById('sync-now-btn')!;
-const previewDiffBtn = document.getElementById('preview-diff-btn')!;
-const openWorkspaceBtn = document.getElementById('open-workspace-btn')!;
-const autoSyncEnabledCheckbox = document.getElementById('auto-sync-enabled') as HTMLInputElement;
-const syncIntervalSelect = document.getElementById('sync-interval') as HTMLSelectElement;
-const bidirectionalSyncCheckbox = document.getElementById('bidirectional-sync') as HTMLInputElement;
-const syncChatsCheckbox = document.getElementById('sync-chats') as HTMLInputElement;
-const conflictStrategySelect = document.getElementById('conflict-strategy') as HTMLSelectElement;
-const syncStatusIndicator = document.getElementById('sync-status-indicator')!;
-const syncWorkspacePath = document.getElementById('sync-workspace-path')!;
-const syncLastSync = document.getElementById('sync-last-sync')!;
-const syncLogContent = document.getElementById('sync-log-content')!;
-const syncProgressOverlay = document.getElementById('sync-progress-overlay')!;
-const syncProgressBar = document.getElementById('sync-progress-bar')!;
-const syncProgressText = document.getElementById('sync-progress-text')!;
-const syncProgressDetails = document.getElementById('sync-progress-details')!;
-const cancelSyncBtn = document.getElementById('cancel-sync-btn')!;
+const syncNotConfigured = getRequiredElement('sync-not-configured');
+const syncConfigured = getRequiredElement('sync-configured');
+const setupWorkspaceBtn = getRequiredElement('setup-workspace-btn');
+const configureWorkspaceBtn = getRequiredElement('configure-workspace-btn');
+const syncNowBtn = getRequiredElement('sync-now-btn');
+const previewDiffBtn = getRequiredElement('preview-diff-btn');
+const openWorkspaceBtn = getRequiredElement('open-workspace-btn');
+const autoSyncEnabledCheckbox = getRequiredElement<HTMLInputElement>('auto-sync-enabled');
+const syncIntervalSelect = getRequiredElement<HTMLSelectElement>('sync-interval');
+const bidirectionalSyncCheckbox = getRequiredElement<HTMLInputElement>('bidirectional-sync');
+const syncChatsCheckbox = getRequiredElement<HTMLInputElement>('sync-chats');
+const conflictStrategySelect = getRequiredElement<HTMLSelectElement>('conflict-strategy');
+const syncStatusIndicator = getRequiredElement('sync-status-indicator');
+const syncWorkspacePath = getRequiredElement('sync-workspace-path');
+const syncLastSync = getRequiredElement('sync-last-sync');
+const syncLogContent = getRequiredElement('sync-log-content');
+const syncProgressOverlay = getRequiredElement('sync-progress-overlay');
+const syncProgressBar = getRequiredElement('sync-progress-bar');
+const syncProgressText = getRequiredElement('sync-progress-text');
+const syncProgressDetails = getRequiredElement('sync-progress-details');
+const cancelSyncBtn = getRequiredElement('cancel-sync-btn');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', initialize);
@@ -330,6 +339,51 @@ function setupEventListeners() {
 
   // Select all buttons
   selectAllProjectsBtn.addEventListener('click', toggleSelectAllProjects);
+
+  // Event delegation for project cards (prevents memory leaks from re-rendering)
+  projectsGrid.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const card = target.closest('.project-card');
+    if (!card) return;
+
+    const projectId = card.getAttribute('data-project-id');
+    if (!projectId) return;
+
+    // Handle checkbox clicks
+    if (target.classList.contains('project-checkbox')) {
+      toggleProjectSelection(projectId);
+      return;
+    }
+
+    // Handle favorite button clicks
+    if (target.classList.contains('favorite-btn')) {
+      toggleFavorite(projectId);
+      return;
+    }
+
+    // Handle expand button clicks
+    if (target.classList.contains('expand-btn')) {
+      const expandBtn = target as HTMLButtonElement;
+      toggleProjectExpand(projectId, card as HTMLElement, expandBtn);
+      return;
+    }
+
+    // Handle action button clicks
+    if (target.textContent === 'Open') {
+      openProject(projectId);
+      return;
+    }
+
+    if (target.textContent === 'Files') {
+      viewProjectFiles(projectId);
+      return;
+    }
+
+    if (target.textContent === '🏷️ Tags' || target.classList.contains('tags-btn')) {
+      handleProjectTagsClick(projectId);
+      return;
+    }
+  });
 
   // Bulk actions
   bulkActionsProjectsBtn.addEventListener('click', (e) => {
@@ -566,7 +620,7 @@ function renderProjects() {
     checkbox.type = 'checkbox';
     checkbox.className = 'project-checkbox';
     checkbox.checked = state.selectedProjects.has(project.uuid);
-    checkbox.addEventListener('change', () => toggleProjectSelection(project.uuid));
+    // Event handled by delegation in setupEventListeners
 
     const header = document.createElement('div');
     header.className = 'project-header';
@@ -577,14 +631,14 @@ function renderProjects() {
     const favorite = document.createElement('button');
     favorite.className = 'favorite-btn';
     favorite.textContent = '⭐';
-    favorite.addEventListener('click', () => toggleFavorite(project.uuid));
+    // Event handled by delegation in setupEventListeners
 
     // Expand/collapse button
     const expandBtn = document.createElement('button');
     expandBtn.className = 'expand-btn';
     expandBtn.textContent = '▶';
     expandBtn.title = 'Show files';
-    expandBtn.addEventListener('click', () => toggleProjectExpand(project.uuid, card, expandBtn));
+    // Event handled by delegation in setupEventListeners
 
     header.appendChild(checkbox);
     header.appendChild(title);
@@ -614,22 +668,17 @@ function renderProjects() {
     const openBtn = document.createElement('button');
     openBtn.className = 'action-btn small';
     openBtn.textContent = 'Open';
-    openBtn.addEventListener('click', () => openProject(project.uuid));
+    // Event handled by delegation in setupEventListeners
 
     const filesBtn = document.createElement('button');
     filesBtn.className = 'action-btn small';
     filesBtn.textContent = 'Files';
-    filesBtn.addEventListener('click', () => viewProjectFiles(project.uuid));
+    // Event handled by delegation in setupEventListeners
 
     const tagsBtn = document.createElement('button');
-    tagsBtn.className = 'action-btn small';
+    tagsBtn.className = 'action-btn small tags-btn';
     tagsBtn.textContent = '🏷️ Tags';
-    tagsBtn.addEventListener('click', async () => {
-      await showTagSelectionModal(project.uuid, 'project', projectTags);
-      await loadAllTags();
-      await indexAllData();
-      renderProjects();
-    });
+    // Event handled by delegation in setupEventListeners
 
     actions.appendChild(openBtn);
     actions.appendChild(filesBtn);
@@ -1384,6 +1433,14 @@ function toggleSelectAllProjects() {
 function toggleFavorite(uuid: string) {
   // TODO: Implement favorites storage
   console.log('Toggle favorite:', uuid);
+}
+
+async function handleProjectTagsClick(projectId: string) {
+  const projectTags = state.projectTags.get(projectId) || [];
+  await showTagSelectionModal(projectId, 'project', projectTags);
+  await loadAllTags();
+  await indexAllData();
+  renderProjects();
 }
 
 async function handleBulkAction(action: string) {
@@ -2687,9 +2744,15 @@ async function viewWorkspaceDiff() {
       }
     });
 
-    // Validate handle has methods before using it
-    if (!state.workspaceHandle || typeof state.workspaceHandle.values !== 'function') {
+    // Validate handle and verify permissions before using it
+    if (!state.workspaceHandle) {
       throw new Error('Invalid workspace handle. Please close and reopen the dashboard, then try again.');
+    }
+
+    // Verify we still have permissions to access the directory
+    const hasPermission = await verifyPermission(state.workspaceHandle, 'readwrite');
+    if (!hasPermission) {
+      throw new Error('Lost permissions to workspace directory. Please close and reopen the dashboard, then select the workspace folder again.');
     }
 
     // Compute diff
