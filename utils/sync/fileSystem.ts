@@ -16,7 +16,8 @@ export async function pickWorkspaceDirectory(): Promise<FileSystemDirectoryHandl
   try {
     const dirHandle = await window.showDirectoryPicker({
       mode: 'readwrite',
-      startIn: 'documents',
+      id: 'eidolon-workspace', // Browser uses this ID to remember the last location
+      // Removed startIn to let browser remember last selection
     });
     return dirHandle;
   } catch (error) {
