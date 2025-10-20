@@ -338,13 +338,189 @@ export class SyncManager {
   }
 
   /**
-   * Get workspace diff - TODO: Phase 2
+   * Get workspace diff - compare local workspace with remote Claude.ai
    */
   async getWorkspaceDiff(
     workspaceHandle: FileSystemDirectoryHandle,
     orgId: string
-  ): Promise<any> {
-    // TODO: Implement in Phase 2
-    throw new Error('Workspace diff not yet implemented');
+  ): Promise<import('./types').WorkspaceDiff> {
+    const config = await getWorkspaceConfig();
+
+    // Fetch remote projects
+    const remoteProjects = await this.apiClient.getProjects(orgId);
+
+    // Get local folders
+    const localFolders = new Set<string>();
+    for await (const entry of workspaceHandle.values()) {
+      if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
+        localFolders.add(entry.name);
+      }
+    }
+
+    // Build reverse map: folderName → projectId
+    const reverseMap = Object.fromEntries(
+      Object.entries(config.projectMap).map(([id, folder]) => [folder, id])
+    );
+
+    const remoteOnly: Array<{ id: string; name: string; sanitizedName: string; fileCount?: number }> = [];
+    const matched: import('./types').ProjectDiff[] = [];
+    const localOnlyFolders = new Set(localFolders);
+
+    // Process remote projects
+    for (const project of remoteProjects) {
+      const folderName = config.projectMap[project.uuid] || sanitizeProjectName(project.name);
+
+      if (localFolders.has(folderName)) {
+        // Project exists both remotely and locally
+        localOnlyFolders.delete(folderName);
+
+        try {
+          const projectHandle = await workspaceHandle.getDirectoryHandle(folderName);
+          const diff = await this.compareProject(projectHandle, orgId, project);
+          matched.push(diff);
+        } catch (error) {
+          console.error(`Error comparing project ${project.name}:`, error);
+        }
+      } else {
+        // Project only exists remotely
+        const files = await this.apiClient.getProjectFiles(orgId, project.uuid);
+        remoteOnly.push({
+          id: project.uuid,
+          name: project.name,
+          sanitizedName: folderName,
+          fileCount: files?.length || 0
+        });
+      }
+    }
+
+    return {
+      summary: {
+        remoteProjects: remoteProjects.length,
+        localFolders: localFolders.size,
+        matched: matched.length,
+        remoteOnly: remoteOnly.length,
+        localOnly: localOnlyFolders.size
+      },
+      remoteOnly,
+      localOnly: Array.from(localOnlyFolders),
+      matched
+    };
+  }
+
+  /**
+   * Compare single project between local and remote
+   */
+  private async compareProject(
+    projectHandle: FileSystemDirectoryHandle,
+    orgId: string,
+    remoteProject: any
+  ): Promise<import('./types').ProjectDiff> {
+    const metadata = await this.readProjectMetadata(projectHandle);
+    const config = await getWorkspaceConfig();
+
+    // Fetch remote files
+    const remoteFiles = await this.apiClient.getProjectFiles(orgId, remoteProject.uuid);
+    const remoteFileMap = new Map(
+      remoteFiles.map(f => [f.file_name, f])
+    );
+
+    // Get local files from context folder
+    let localFiles: string[] = [];
+    try {
+      const contextHandle = await projectHandle.getDirectoryHandle('context');
+      localFiles = await listFiles(contextHandle);
+    } catch {
+      // No context folder yet
+    }
+
+    const localFileSet = new Set(localFiles);
+    const remoteFileSet = new Set(remoteFiles.map(f => f.file_name));
+
+    // Check for AGENTS.md separately (lives in project root, not context/)
+    const hasLocalAgents = await readTextFile(projectHandle, 'AGENTS.md') !== null;
+    if (hasLocalAgents) {
+      localFileSet.add('AGENTS.md');
+    }
+
+    // Fetch remote instructions
+    let hasRemoteAgents = false;
+    try {
+      const instructionsData = await this.apiClient.getProjectInstructions(orgId, remoteProject.uuid);
+      if (instructionsData && instructionsData.content && instructionsData.content.trim()) {
+        hasRemoteAgents = true;
+        remoteFileSet.add('AGENTS.md');
+      }
+    } catch {
+      // No instructions
+    }
+
+    // Compute differences
+    const remoteOnlyFiles: string[] = [];
+    const localOnlyFiles: string[] = [];
+    const modifiedFiles: string[] = [];
+
+    // Files only in remote
+    for (const fileName of remoteFileSet) {
+      if (!localFileSet.has(fileName)) {
+        remoteOnlyFiles.push(fileName);
+      }
+    }
+
+    // Files only locally
+    for (const fileName of localFileSet) {
+      if (!remoteFileSet.has(fileName)) {
+        localOnlyFiles.push(fileName);
+      }
+    }
+
+    // Check for modifications in common files
+    for (const fileName of localFileSet) {
+      if (remoteFileSet.has(fileName)) {
+        try {
+          let localContent: string | null = null;
+          let remoteContent: string = '';
+
+          if (fileName === 'AGENTS.md') {
+            localContent = await readTextFile(projectHandle, 'AGENTS.md');
+            const instructionsData = await this.apiClient.getProjectInstructions(
+              orgId,
+              remoteProject.uuid
+            );
+            remoteContent = instructionsData?.content?.trim() || '';
+          } else {
+            const contextHandle = await projectHandle.getDirectoryHandle('context');
+            localContent = await readTextFile(contextHandle, fileName);
+            const remoteFile = remoteFileMap.get(fileName);
+            remoteContent = remoteFile?.content || '';
+          }
+
+          if (localContent !== null) {
+            const localHash = await computeFileHash(localContent);
+            const remoteHash = await computeFileHash(remoteContent);
+
+            if (localHash !== remoteHash) {
+              modifiedFiles.push(fileName);
+            }
+          }
+        } catch (error) {
+          console.error(`Error comparing file ${fileName}:`, error);
+        }
+      }
+    }
+
+    const hasDifferences =
+      remoteOnlyFiles.length > 0 ||
+      localOnlyFiles.length > 0 ||
+      modifiedFiles.length > 0;
+
+    return {
+      name: remoteProject.name,
+      id: remoteProject.uuid,
+      folder: config.projectMap[remoteProject.uuid] || sanitizeProjectName(remoteProject.name),
+      hasDifferences,
+      remoteOnlyFiles,
+      localOnlyFiles,
+      modifiedFiles
+    };
   }
 }

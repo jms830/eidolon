@@ -2116,10 +2116,237 @@ async function syncNow(dryRun: boolean = false) {
 }
 
 /**
- * View workspace diff (TODO: Phase 2)
+ * View workspace diff
  */
 async function viewWorkspaceDiff() {
-  alert('Workspace diff viewer coming in Phase 2!');
+  if (!state.workspaceHandle) {
+    alert('Workspace not configured');
+    return;
+  }
+
+  if (!state.currentOrg) {
+    alert('No organization selected');
+    return;
+  }
+
+  try {
+    // Show loading
+    const modalOverlay = document.getElementById('modal-overlay')!;
+    const modalContent = document.getElementById('modal-content')!;
+
+    modalContent.textContent = '';
+    const loadingTitle = document.createElement('h2');
+    loadingTitle.textContent = 'Computing Diff...';
+    const loadingText = document.createElement('p');
+    loadingText.textContent = 'Comparing local workspace with Claude.ai...';
+    modalContent.appendChild(loadingTitle);
+    modalContent.appendChild(loadingText);
+    modalOverlay.classList.remove('hidden');
+
+    // Validate session
+    const validationResponse = await browser.runtime.sendMessage({
+      action: 'validate-session'
+    });
+
+    if (!validationResponse.success) {
+      throw new Error('Session expired. Please refresh the page.');
+    }
+
+    // Get API session
+    const sessionResponse = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (!sessionResponse.success) {
+      throw new Error(sessionResponse.error || 'Failed to get API session');
+    }
+
+    const { sessionKey, orgId } = sessionResponse.data;
+    const apiClient = new ClaudeAPIClient(sessionKey);
+    const syncManager = new SyncManager(apiClient);
+
+    // Compute diff
+    const diff = await syncManager.getWorkspaceDiff(state.workspaceHandle, orgId);
+
+    // Build diff UI with DOM methods
+    modalContent.textContent = '';
+
+    const diffModal = document.createElement('div');
+    diffModal.className = 'diff-modal';
+    diffModal.style.cssText = 'max-height: 80vh; overflow-y: auto; padding: 20px;';
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;';
+    const title = document.createElement('h2');
+    title.textContent = '📊 Workspace Diff';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = 'background: none; border: none; font-size: 24px; cursor: pointer;';
+    closeBtn.onclick = () => modalOverlay.classList.add('hidden');
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    diffModal.appendChild(header);
+
+    // Summary stats
+    const summary = document.createElement('div');
+    summary.style.cssText = 'display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;';
+
+    const stats = [
+      { label: 'Remote Projects', value: diff.summary.remoteProjects },
+      { label: 'Local Folders', value: diff.summary.localFolders },
+      { label: 'Matched', value: diff.summary.matched }
+    ];
+
+    stats.forEach(stat => {
+      const statDiv = document.createElement('div');
+      statDiv.style.cssText = 'text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px;';
+      const value = document.createElement('div');
+      value.textContent = String(stat.value);
+      value.style.cssText = 'font-size: 32px; font-weight: bold; color: #2d3748;';
+      const label = document.createElement('div');
+      label.textContent = stat.label;
+      label.style.cssText = 'font-size: 14px; color: #718096; margin-top: 5px;';
+      statDiv.appendChild(value);
+      statDiv.appendChild(label);
+      summary.appendChild(statDiv);
+    });
+    diffModal.appendChild(summary);
+
+    // Remote only section
+    if (diff.remoteOnly.length > 0) {
+      const section = createDiffSection(
+        `⬇ Remote Only (${diff.remoteOnly.length})`,
+        'These projects exist on Claude.ai but not in your workspace'
+      );
+      diff.remoteOnly.forEach(p => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between;';
+        const name = document.createElement('span');
+        name.textContent = p.name;
+        const detail = document.createElement('span');
+        detail.textContent = `${p.fileCount || 0} files`;
+        detail.style.color = '#718096';
+        item.appendChild(name);
+        item.appendChild(detail);
+        section.appendChild(item);
+      });
+      diffModal.appendChild(section);
+    }
+
+    // Local only section
+    if (diff.localOnly.length > 0) {
+      const section = createDiffSection(
+        `⬆ Local Only (${diff.localOnly.length})`,
+        'These folders exist locally but are not matched to any remote project'
+      );
+      diff.localOnly.forEach(folder => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px;';
+        item.textContent = folder;
+        section.appendChild(item);
+      });
+      diffModal.appendChild(section);
+    }
+
+    // Projects with differences
+    const projectsWithDiff = diff.matched.filter(p => p.hasDifferences);
+    if (projectsWithDiff.length > 0) {
+      const section = createDiffSection(
+        `🔄 Projects with Differences (${projectsWithDiff.length})`,
+        'These projects have file differences between local and remote'
+      );
+      projectsWithDiff.forEach(p => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px;';
+        const name = document.createElement('div');
+        name.textContent = p.name;
+        name.style.fontWeight = 'bold';
+        item.appendChild(name);
+
+        const details = document.createElement('div');
+        details.style.cssText = 'margin-top: 8px; font-size: 13px; color: #718096;';
+        const detailParts: string[] = [];
+        if (p.remoteOnlyFiles.length > 0) detailParts.push(`${p.remoteOnlyFiles.length} remote`);
+        if (p.localOnlyFiles.length > 0) detailParts.push(`${p.localOnlyFiles.length} local`);
+        if (p.modifiedFiles.length > 0) detailParts.push(`${p.modifiedFiles.length} modified`);
+        details.textContent = detailParts.join(', ');
+        item.appendChild(details);
+
+        section.appendChild(item);
+      });
+      diffModal.appendChild(section);
+    }
+
+    // In sync projects
+    const inSyncProjects = diff.matched.filter(p => !p.hasDifferences);
+    if (inSyncProjects.length > 0) {
+      const section = createDiffSection(
+        `✅ In Sync (${inSyncProjects.length})`,
+        'These projects are identical locally and remotely'
+      );
+      inSyncProjects.forEach(p => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between;';
+        const name = document.createElement('span');
+        name.textContent = p.name;
+        const status = document.createElement('span');
+        status.textContent = '✓ Synced';
+        status.style.color = '#48bb78';
+        item.appendChild(name);
+        item.appendChild(status);
+        section.appendChild(item);
+      });
+      diffModal.appendChild(section);
+    }
+
+    // Action buttons
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;';
+
+    const syncBtn = document.createElement('button');
+    syncBtn.textContent = 'Sync Now';
+    syncBtn.className = 'primary-btn';
+    syncBtn.onclick = () => {
+      modalOverlay.classList.add('hidden');
+      syncNow(false);
+    };
+
+    const closeBtn2 = document.createElement('button');
+    closeBtn2.textContent = 'Close';
+    closeBtn2.className = 'action-btn';
+    closeBtn2.onclick = () => modalOverlay.classList.add('hidden');
+
+    actions.appendChild(syncBtn);
+    actions.appendChild(closeBtn2);
+    diffModal.appendChild(actions);
+
+    modalContent.appendChild(diffModal);
+
+    logSyncActivity('info', 'Workspace diff computed');
+  } catch (error) {
+    console.error('Failed to compute diff:', error);
+    alert(`Failed to compute diff: ${(error as Error).message}`);
+    document.getElementById('modal-overlay')?.classList.add('hidden');
+  }
+}
+
+function createDiffSection(title: string, description: string): HTMLElement {
+  const section = document.createElement('div');
+  section.style.cssText = 'margin-bottom: 25px;';
+
+  const titleEl = document.createElement('h3');
+  titleEl.textContent = title;
+  titleEl.style.cssText = 'font-size: 16px; font-weight: 600; margin-bottom: 5px;';
+
+  const desc = document.createElement('p');
+  desc.textContent = description;
+  desc.style.cssText = 'font-size: 14px; color: #718096; margin-bottom: 12px;';
+
+  section.appendChild(titleEl);
+  section.appendChild(desc);
+
+  return section;
 }
 
 /**
