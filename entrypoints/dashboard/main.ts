@@ -2213,6 +2213,11 @@ async function viewWorkspaceDiff() {
     const apiClient = new ClaudeAPIClient(sessionKey);
     const syncManager = new SyncManager(apiClient);
 
+    // Validate handle has methods before using it
+    if (!state.workspaceHandle || typeof state.workspaceHandle.values !== 'function') {
+      throw new Error('Invalid workspace handle. Please close and reopen the dashboard, then try again.');
+    }
+
     // Compute diff
     const diff = await syncManager.getWorkspaceDiff(state.workspaceHandle, orgId);
 
