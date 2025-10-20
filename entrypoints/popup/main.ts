@@ -171,6 +171,11 @@ function setupEventListeners() {
     browser.tabs.create({ url: 'https://claude.ai' });
   });
 
+  const settingsBtn = document.getElementById('settings-btn')!;
+  settingsBtn.addEventListener('click', () => {
+    showSettingsModal();
+  });
+
   searchInput.addEventListener('input', (e) => {
     const query = (e.target as HTMLInputElement).value.toLowerCase();
     filterProjects(query);
@@ -222,4 +227,111 @@ async function handlePendingUpload(upload: any) {
   console.log('Pending upload:', upload);
   // TODO: Implement upload dialog
   await browser.storage.local.remove('pendingUpload');
+}
+
+function showSettingsModal() {
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  `;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    width: 320px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  `;
+
+  const header = document.createElement('h3');
+  header.textContent = 'Settings';
+  header.style.cssText = 'margin: 0 0 20px; font-size: 18px; font-weight: 600;';
+
+  const content = document.createElement('div');
+  content.style.cssText = 'color: #666; font-size: 14px;';
+
+  // Create content elements safely
+  const title = document.createElement('p');
+  title.style.cssText = 'margin: 0 0 12px;';
+  const titleStrong = document.createElement('strong');
+  titleStrong.textContent = 'Eidolon Extension';
+  title.appendChild(titleStrong);
+
+  const version = document.createElement('p');
+  version.style.cssText = 'margin: 0 0 8px;';
+  version.textContent = 'Version: 1.0.0';
+
+  const status = document.createElement('p');
+  status.style.cssText = 'margin: 0 0 16px;';
+  status.textContent = 'Status: ';
+  const statusSpan = document.createElement('span');
+  statusSpan.textContent = isConnected ? 'Connected' : 'Not Connected';
+  statusSpan.style.color = isConnected ? '#48bb78' : '#f56565';
+  status.appendChild(statusSpan);
+
+  const openDashboardBtn = document.createElement('button');
+  openDashboardBtn.textContent = 'Open Dashboard';
+  openDashboardBtn.style.cssText = `
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-bottom: 8px;
+  `;
+  openDashboardBtn.addEventListener('click', () => {
+    browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html') });
+    overlay.remove();
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = `
+    width: 100%;
+    padding: 10px;
+    background: white;
+    color: #666;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  closeBtn.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  content.appendChild(title);
+  content.appendChild(version);
+  content.appendChild(status);
+  content.appendChild(openDashboardBtn);
+  content.appendChild(closeBtn);
+
+  modal.appendChild(header);
+  modal.appendChild(content);
+  overlay.appendChild(modal);
+
+  // Event listeners
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  document.body.appendChild(overlay);
 }

@@ -33,6 +33,7 @@
       <button class="nav-tab active" data-tab="projects">Projects</button>
       <button class="nav-tab" data-tab="files">Files</button>
       <button class="nav-tab" data-tab="conversations">Conversations</button>
+      <button class="nav-tab" data-tab="sync">Sync</button>
       <button class="nav-tab" data-tab="analytics">Analytics</button>
     </nav>
 
@@ -130,6 +131,135 @@
 
         <div id="conversations-list" class="conversations-list">
           <!-- Conversations will be rendered here -->
+        </div>
+      </section>
+
+      <!-- Sync Tab -->
+      <section id="sync-tab" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>Workspace Sync</h2>
+          </div>
+          <div class="tab-actions">
+            <button id="configure-workspace-btn" class="action-btn">⚙ Configure Workspace</button>
+          </div>
+        </div>
+
+        <!-- Not Configured State -->
+        <div id="sync-not-configured" class="empty-state">
+          <div class="empty-state-icon">📁</div>
+          <h3>Workspace Not Configured</h3>
+          <p>Configure a local workspace folder to sync your Claude.ai projects</p>
+          <button id="setup-workspace-btn" class="primary-btn">🚀 Setup Workspace</button>
+          <div class="sync-info">
+            <h4>What is Workspace Sync?</h4>
+            <p>Sync all your Claude.ai projects to a local folder, like Google Drive:</p>
+            <ul>
+              <li>Download all projects and knowledge files</li>
+              <li>Keep local and remote in sync</li>
+              <li>Work offline with your projects</li>
+              <li>Backup your Claude.ai data</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Configured State -->
+        <div id="sync-configured" class="sync-container" style="display: none;">
+          <div class="sync-status-card">
+            <div class="sync-status-header">
+              <div class="status-indicator" id="sync-status-indicator">●</div>
+              <div class="sync-status-info">
+                <div class="sync-workspace-path" id="sync-workspace-path">~/ClaudeProjects</div>
+                <div class="sync-last-sync" id="sync-last-sync">Never synced</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sync-actions-grid">
+            <button id="sync-now-btn" class="sync-action-btn primary">
+              <span class="btn-icon">↻</span>
+              <span class="btn-text">Sync Now</span>
+              <span class="btn-desc">Download all projects</span>
+            </button>
+            <button id="preview-changes-btn" class="sync-action-btn">
+              <span class="btn-icon">👁</span>
+              <span class="btn-text">Preview Changes</span>
+              <span class="btn-desc">See what will sync</span>
+            </button>
+            <button id="view-diff-btn" class="sync-action-btn">
+              <span class="btn-icon">📊</span>
+              <span class="btn-text">View Diff</span>
+              <span class="btn-desc">Compare local vs remote</span>
+            </button>
+            <button id="open-workspace-btn" class="sync-action-btn">
+              <span class="btn-icon">📂</span>
+              <span class="btn-text">Open Workspace</span>
+              <span class="btn-desc">View in file manager</span>
+            </button>
+          </div>
+
+          <div class="sync-settings-panel">
+            <h3>Sync Settings</h3>
+            <div class="setting-row">
+              <label>
+                <input type="checkbox" id="auto-sync-enabled">
+                Enable automatic sync
+              </label>
+            </div>
+            <div class="setting-row">
+              <label>
+                Sync interval:
+                <select id="sync-interval">
+                  <option value="5">Every 5 minutes</option>
+                  <option value="15" selected>Every 15 minutes</option>
+                  <option value="30">Every 30 minutes</option>
+                  <option value="60">Every hour</option>
+                </select>
+              </label>
+            </div>
+            <div class="setting-row">
+              <label>
+                <input type="checkbox" id="bidirectional-sync">
+                Bidirectional sync (upload local changes)
+              </label>
+            </div>
+            <div class="setting-row">
+              <label>
+                <input type="checkbox" id="sync-chats">
+                Include chat conversations
+              </label>
+            </div>
+            <div class="setting-row">
+              <label>
+                Conflict resolution:
+                <select id="conflict-strategy">
+                  <option value="remote" selected>Keep remote (safest)</option>
+                  <option value="local">Keep local</option>
+                  <option value="newer">Keep newer</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="sync-log-panel">
+            <h3>Sync Activity</h3>
+            <div id="sync-log-content" class="sync-log-list">
+              <!-- Sync log entries will be added here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Sync Progress Overlay -->
+        <div id="sync-progress-overlay" class="modal-overlay hidden">
+          <div class="modal-content sync-progress-modal">
+            <h3>Syncing Workspace...</h3>
+            <div class="progress-bar">
+              <div id="sync-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <div id="sync-progress-text" class="progress-text">Initializing...</div>
+            <div id="sync-progress-details" class="progress-details"></div>
+            <button id="cancel-sync-btn" class="action-btn">Cancel</button>
+          </div>
         </div>
       </section>
 

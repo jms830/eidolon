@@ -138,6 +138,28 @@ export class ClaudeAPIClient {
     );
   }
 
+  // Project Instructions
+  async getProjectInstructions(
+    orgId: string,
+    projectId: string
+  ): Promise<{ content: string } | null> {
+    try {
+      const project = await this.getProject(orgId, projectId);
+      return { content: project.description || '' };
+    } catch (error) {
+      console.error('Failed to get project instructions:', error);
+      return null;
+    }
+  }
+
+  async updateProjectInstructions(
+    orgId: string,
+    projectId: string,
+    instructions: string
+  ): Promise<void> {
+    await this.updateProject(orgId, projectId, { description: instructions });
+  }
+
   // Project Files
   async getProjectFiles(orgId: string, projectId: string): Promise<ProjectFile[]> {
     return this.request<ProjectFile[]>(

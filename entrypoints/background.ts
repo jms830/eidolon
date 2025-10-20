@@ -263,6 +263,29 @@ export default defineBackground(() => {
             }
             break;
 
+          // Sync API access (actual sync logic runs in dashboard with File System Access API)
+          case 'get-current-org':
+            if (currentOrg) {
+              sendResponse({ success: true, data: currentOrg });
+            } else {
+              sendResponse({ success: false, error: 'No organization selected' });
+            }
+            break;
+
+          case 'get-api-client-session':
+            if (sessionKey && currentOrg) {
+              sendResponse({
+                success: true,
+                data: {
+                  sessionKey,
+                  orgId: currentOrg.uuid,
+                },
+              });
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
           default:
             sendResponse({ success: false, error: 'Unknown action' });
         }

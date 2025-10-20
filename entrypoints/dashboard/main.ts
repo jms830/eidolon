@@ -8,6 +8,23 @@ import {
 } from '../../utils/search/searchService';
 import { getTagsService, type Tag } from '../../utils/tags/tagsService';
 import { createTagBadge, showTagSelectionModal, createTagFilter } from '../../utils/tags/tagsUI';
+import { ClaudeAPIClient } from '../../utils/api/client';
+import { SyncManager } from '../../utils/sync/SyncManager';
+import {
+  getWorkspaceConfig,
+  saveWorkspaceConfig,
+  updateSyncSettings,
+  updateLastSync,
+  isWorkspaceConfigured,
+  getWorkspaceHandle,
+  saveWorkspaceHandle,
+  clearWorkspaceHandle
+} from '../../utils/sync/workspaceConfig';
+import {
+  pickWorkspaceDirectory,
+  verifyPermission
+} from '../../utils/sync/fileSystem';
+import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
 
 // State
 interface AppState {
@@ -26,6 +43,10 @@ interface AppState {
   projectTags: Map<string, Tag[]>;
   fileTags: Map<string, Tag[]>;
   conversationTags: Map<string, Tag[]>;
+  currentOrg: any | null;
+  syncConfigured: boolean;
+  isSyncing: boolean;
+  workspaceHandle: FileSystemDirectoryHandle | null;
 }
 
 const state: AppState = {
@@ -44,6 +65,10 @@ const state: AppState = {
   projectTags: new Map(),
   fileTags: new Map(),
   conversationTags: new Map(),
+  currentOrg: null,
+  syncConfigured: false,
+  isSyncing: false,
+  workspaceHandle: null,
 };
 
 const searchService = getSearchService();
@@ -78,12 +103,48 @@ const totalConversationsEl = document.getElementById('total-conversations')!;
 const totalStorageEl = document.getElementById('total-storage')!;
 const exportAllDataBtn = document.getElementById('export-all-data')!;
 
+// Sync elements
+const syncNotConfigured = document.getElementById('sync-not-configured')!;
+const syncConfigured = document.getElementById('sync-configured')!;
+const setupWorkspaceBtn = document.getElementById('setup-workspace-btn')!;
+const configureWorkspaceBtn = document.getElementById('configure-workspace-btn')!;
+const syncNowBtn = document.getElementById('sync-now-btn')!;
+const previewChangesBtn = document.getElementById('preview-changes-btn')!;
+const viewDiffBtn = document.getElementById('view-diff-btn')!;
+const openWorkspaceBtn = document.getElementById('open-workspace-btn')!;
+const autoSyncEnabledCheckbox = document.getElementById('auto-sync-enabled') as HTMLInputElement;
+const syncIntervalSelect = document.getElementById('sync-interval') as HTMLSelectElement;
+const bidirectionalSyncCheckbox = document.getElementById('bidirectional-sync') as HTMLInputElement;
+const syncChatsCheckbox = document.getElementById('sync-chats') as HTMLInputElement;
+const conflictStrategySelect = document.getElementById('conflict-strategy') as HTMLSelectElement;
+const syncStatusIndicator = document.getElementById('sync-status-indicator')!;
+const syncWorkspacePath = document.getElementById('sync-workspace-path')!;
+const syncLastSync = document.getElementById('sync-last-sync')!;
+const syncLogContent = document.getElementById('sync-log-content')!;
+const syncProgressOverlay = document.getElementById('sync-progress-overlay')!;
+const syncProgressBar = document.getElementById('sync-progress-bar')!;
+const syncProgressText = document.getElementById('sync-progress-text')!;
+const syncProgressDetails = document.getElementById('sync-progress-details')!;
+const cancelSyncBtn = document.getElementById('cancel-sync-btn')!;
+
 // Initialize
 document.addEventListener('DOMContentLoaded', initialize);
 
 async function initialize() {
   await checkConnection();
+
+  // Load current organization
+  try {
+    const orgResponse = await browser.runtime.sendMessage({ action: 'get-current-org' });
+    if (orgResponse.success) {
+      state.currentOrg = orgResponse.data;
+    }
+  } catch (error) {
+    console.error('Failed to get current organization:', error);
+  }
+
   setupEventListeners();
+  await initSyncTab();
 
   if (state.isConnected) {
     await loadAllData();
@@ -312,6 +373,32 @@ function setupEventListeners() {
   exportAllDataBtn.addEventListener('click', () => {
     showExportModal();
   });
+
+  // Settings button
+  const settingsBtn = document.getElementById('settings-btn')!;
+  settingsBtn.addEventListener('click', () => {
+    showSettingsModal();
+  });
+
+  // Sync tab event listeners
+  setupWorkspaceBtn.addEventListener('click', setupWorkspace);
+  configureWorkspaceBtn.addEventListener('click', setupWorkspace);
+  syncNowBtn.addEventListener('click', () => syncNow(false));
+  previewChangesBtn.addEventListener('click', () => syncNow(true));
+  viewDiffBtn.addEventListener('click', viewWorkspaceDiff);
+  openWorkspaceBtn.addEventListener('click', openWorkspaceFolder);
+
+  // Sync settings
+  autoSyncEnabledCheckbox.addEventListener('change', saveSyncSettings);
+  syncIntervalSelect.addEventListener('change', saveSyncSettings);
+  bidirectionalSyncCheckbox.addEventListener('change', saveSyncSettings);
+  syncChatsCheckbox.addEventListener('change', saveSyncSettings);
+  conflictStrategySelect.addEventListener('change', saveSyncSettings);
+
+  cancelSyncBtn.addEventListener('click', () => {
+    state.isSyncing = false;
+    hideSyncProgress();
+  });
 }
 
 function switchTab(tabName: string) {
@@ -348,6 +435,9 @@ function renderCurrentTab() {
       break;
     case 'conversations':
       renderConversations();
+      break;
+    case 'sync':
+      // Sync tab renders itself based on state
       break;
     case 'analytics':
       updateAnalytics();
@@ -1552,5 +1642,504 @@ async function createProject(name: string) {
     }
   } catch (error) {
     console.error('Failed to create project:', error);
+  }
+}
+
+function showSettingsModal() {
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  `;
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-content';
+  modal.style.cssText = `
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 480px;
+    width: 90%;
+  `;
+
+  const header = document.createElement('h3');
+  header.textContent = 'Settings';
+  header.style.cssText = 'margin: 0 0 20px; font-size: 20px; font-weight: 600;';
+
+  const content = document.createElement('div');
+  content.style.cssText = 'color: #666; font-size: 14px;';
+
+  // Create content elements safely
+  const title = document.createElement('p');
+  title.style.cssText = 'margin: 0 0 12px; font-size: 16px;';
+  const titleStrong = document.createElement('strong');
+  titleStrong.textContent = 'Eidolon Dashboard';
+  title.appendChild(titleStrong);
+
+  const version = document.createElement('p');
+  version.style.cssText = 'margin: 0 0 8px;';
+  version.textContent = 'Version: 1.0.0';
+
+  const status = document.createElement('p');
+  status.style.cssText = 'margin: 0 0 8px;';
+  status.textContent = 'Status: ';
+  const statusSpan = document.createElement('span');
+  statusSpan.textContent = state.isConnected ? 'Connected' : 'Not Connected';
+  statusSpan.style.color = state.isConnected ? '#48bb78' : '#f56565';
+  status.appendChild(statusSpan);
+
+  const stats = document.createElement('p');
+  stats.style.cssText = 'margin: 16px 0; padding: 12px; background: #f7fafc; border-radius: 8px;';
+  stats.textContent = `${state.projects.length} Projects • ${state.files.length} Files • ${state.conversations.length} Conversations`;
+
+  const divider = document.createElement('hr');
+  divider.style.cssText = 'margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;';
+
+  const actionsTitle = document.createElement('p');
+  actionsTitle.style.cssText = 'margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #333;';
+  actionsTitle.textContent = 'Quick Actions';
+
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+
+  const clearCacheBtn = document.createElement('button');
+  clearCacheBtn.textContent = '🗑️ Clear Cache';
+  clearCacheBtn.style.cssText = `
+    width: 100%;
+    padding: 10px;
+    background: white;
+    color: #666;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  clearCacheBtn.addEventListener('click', async () => {
+    if (confirm('Clear all cached data? This will reload all data from Claude.ai.')) {
+      await searchService.clearIndex();
+      alert('Cache cleared! Reloading data...');
+      await loadAllData();
+      renderCurrentTab();
+      updateAnalytics();
+    }
+  });
+
+  const refreshBtn = document.createElement('button');
+  refreshBtn.textContent = '↻ Refresh All Data';
+  refreshBtn.style.cssText = `
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+  refreshBtn.addEventListener('click', async () => {
+    overlay.remove();
+    await loadAllData();
+    renderCurrentTab();
+    updateAnalytics();
+    alert('Data refreshed successfully!');
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = `
+    width: 100%;
+    padding: 10px;
+    background: white;
+    color: #666;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    margin-top: 4px;
+  `;
+  closeBtn.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  buttonContainer.appendChild(clearCacheBtn);
+  buttonContainer.appendChild(refreshBtn);
+  buttonContainer.appendChild(closeBtn);
+
+  content.appendChild(title);
+  content.appendChild(version);
+  content.appendChild(status);
+  content.appendChild(stats);
+  content.appendChild(divider);
+  content.appendChild(actionsTitle);
+  content.appendChild(buttonContainer);
+
+  modal.appendChild(header);
+  modal.appendChild(content);
+  overlay.appendChild(modal);
+
+  // Event listeners
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+
+  document.body.appendChild(overlay);
+}
+
+// Helper functions for other components
+function createProjectCard(project: any) {
+  const card = document.createElement('div');
+  card.className = 'project-card';
+  card.textContent = project.name;
+  return card;
+}
+
+function createFileItem(file: any) {
+  const item = document.createElement('div');
+  item.className = 'file-item';
+  item.textContent = file.file_name;
+  return item;
+}
+
+function createConversationItem(conversation: any) {
+  const item = document.createElement('div');
+  item.className = 'conversation-item';
+  item.textContent = conversation.name;
+  return item;
+}
+
+// ============================================
+// Workspace Sync Functions
+// ============================================
+
+/**
+ * Initialize sync tab on load
+ */
+async function initSyncTab() {
+  // Check if workspace is configured
+  state.syncConfigured = await isWorkspaceConfigured();
+
+  if (state.syncConfigured) {
+    // Load workspace handle from IndexedDB
+    state.workspaceHandle = await getWorkspaceHandle();
+
+    // Load configuration
+    const config = await getWorkspaceConfig();
+
+    // Update UI
+    syncNotConfigured.style.display = 'none';
+    syncConfigured.style.display = 'block';
+
+    // Update workspace path display
+    if (state.workspaceHandle) {
+      syncWorkspacePath.textContent = config.workspacePath || state.workspaceHandle.name;
+    }
+
+    // Update last sync display
+    if (config.lastSync) {
+      const lastSyncDate = new Date(config.lastSync);
+      syncLastSync.textContent = `Last synced: ${lastSyncDate.toLocaleString()}`;
+    } else {
+      syncLastSync.textContent = 'Never synced';
+    }
+
+    // Load sync settings
+    loadSyncSettings(config.settings);
+
+    // Update sync status indicator
+    syncStatusIndicator.style.color = '#48bb78'; // green
+  } else {
+    // Show not configured state
+    syncNotConfigured.style.display = 'block';
+    syncConfigured.style.display = 'none';
+  }
+}
+
+/**
+ * Load sync settings into UI
+ */
+function loadSyncSettings(settings: SyncSettings) {
+  autoSyncEnabledCheckbox.checked = settings.autoSync;
+  syncIntervalSelect.value = settings.syncInterval.toString();
+  bidirectionalSyncCheckbox.checked = settings.bidirectional;
+  syncChatsCheckbox.checked = settings.syncChats;
+  conflictStrategySelect.value = settings.conflictStrategy;
+}
+
+/**
+ * Setup workspace - pick directory and save
+ */
+async function setupWorkspace() {
+  try {
+    // Request directory picker
+    const dirHandle = await pickWorkspaceDirectory();
+
+    if (!dirHandle) {
+      return; // User cancelled
+    }
+
+    // Verify write permission
+    const hasPermission = await verifyPermission(dirHandle, 'readwrite');
+    if (!hasPermission) {
+      alert('Failed to get write permission for the selected directory');
+      return;
+    }
+
+    // Save handle to IndexedDB
+    await saveWorkspaceHandle(dirHandle);
+
+    // Save configuration
+    const config = await getWorkspaceConfig();
+    config.workspacePath = dirHandle.name;
+    await saveWorkspaceConfig(config);
+
+    // Update state
+    state.syncConfigured = true;
+    state.workspaceHandle = dirHandle;
+
+    // Update UI
+    await initSyncTab();
+
+    // Log activity
+    logSyncActivity('success', `Workspace configured: ${dirHandle.name}`);
+
+    alert('Workspace configured successfully!');
+  } catch (error) {
+    console.error('Failed to setup workspace:', error);
+    logSyncActivity('error', `Failed to configure workspace: ${(error as Error).message}`);
+    alert(`Failed to setup workspace: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Execute sync (download or dry-run)
+ */
+async function syncNow(dryRun: boolean = false) {
+  if (state.isSyncing) {
+    alert('Sync already in progress');
+    return;
+  }
+
+  if (!state.workspaceHandle) {
+    alert('Workspace not configured');
+    return;
+  }
+
+  if (!state.currentOrg) {
+    alert('No organization selected');
+    return;
+  }
+
+  try {
+    state.isSyncing = true;
+    showSyncProgress();
+
+    // Get session key and create API client
+    const sessionResponse = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (!sessionResponse.success) {
+      throw new Error('Failed to get API session');
+    }
+
+    const { sessionKey, orgId } = sessionResponse.data;
+    const apiClient = new ClaudeAPIClient(sessionKey);
+
+    // Create sync manager
+    const syncManager = new SyncManager(apiClient);
+
+    // Set progress callback
+    syncManager.setProgressCallback((progress: SyncProgress) => {
+      updateSyncProgress(progress);
+    });
+
+    // Execute sync
+    const result = await syncManager.downloadSync(
+      state.workspaceHandle,
+      orgId,
+      dryRun
+    );
+
+    // Hide progress overlay
+    hideSyncProgress();
+
+    // Show results
+    if (dryRun) {
+      alert(
+        `Dry Run Complete!\n\n` +
+        `Would create: ${result.stats.created}\n` +
+        `Would update: ${result.stats.updated}\n` +
+        `Would skip: ${result.stats.skipped}\n` +
+        `Errors: ${result.stats.errors}`
+      );
+    } else {
+      const successMessage = result.success
+        ? 'Sync completed successfully!'
+        : 'Sync completed with errors';
+
+      alert(
+        `${successMessage}\n\n` +
+        `Created: ${result.stats.created}\n` +
+        `Updated: ${result.stats.updated}\n` +
+        `Skipped: ${result.stats.skipped}\n` +
+        `Errors: ${result.stats.errors}`
+      );
+    }
+
+    // Log activity
+    if (result.success) {
+      logSyncActivity(
+        'success',
+        `Synced ${result.stats.created + result.stats.updated} project(s)`
+      );
+    } else {
+      logSyncActivity(
+        'error',
+        `Sync failed: ${result.errors.join(', ')}`
+      );
+    }
+
+    // Refresh sync tab
+    await initSyncTab();
+  } catch (error) {
+    console.error('Sync failed:', error);
+    hideSyncProgress();
+    logSyncActivity('error', `Sync failed: ${(error as Error).message}`);
+    alert(`Sync failed: ${(error as Error).message}`);
+  } finally {
+    state.isSyncing = false;
+  }
+}
+
+/**
+ * View workspace diff (TODO: Phase 2)
+ */
+async function viewWorkspaceDiff() {
+  alert('Workspace diff viewer coming in Phase 2!');
+}
+
+/**
+ * Open workspace folder in file manager
+ */
+async function openWorkspaceFolder() {
+  if (!state.workspaceHandle) {
+    alert('Workspace not configured');
+    return;
+  }
+
+  alert(
+    `Workspace location:\n\n${state.workspaceHandle.name}\n\n` +
+    `Note: Chrome extensions cannot directly open file manager. ` +
+    `Please navigate to the workspace folder manually.`
+  );
+}
+
+/**
+ * Save sync settings
+ */
+async function saveSyncSettings() {
+  const settings: Partial<SyncSettings> = {
+    autoSync: autoSyncEnabledCheckbox.checked,
+    syncInterval: parseInt(syncIntervalSelect.value),
+    bidirectional: bidirectionalSyncCheckbox.checked,
+    syncChats: syncChatsCheckbox.checked,
+    conflictStrategy: conflictStrategySelect.value as any
+  };
+
+  await updateSyncSettings(settings);
+  logSyncActivity('info', 'Sync settings updated');
+}
+
+/**
+ * Show sync progress overlay
+ */
+function showSyncProgress() {
+  syncProgressOverlay.classList.remove('hidden');
+  syncProgressBar.style.width = '0%';
+  syncProgressText.textContent = 'Initializing...';
+  syncProgressDetails.textContent = '';
+}
+
+/**
+ * Update sync progress
+ */
+function updateSyncProgress(progress: SyncProgress) {
+  syncProgressBar.style.width = `${progress.percentage}%`;
+  syncProgressText.textContent = progress.message;
+
+  if (progress.currentProject) {
+    syncProgressDetails.textContent = `Current: ${progress.currentProject}`;
+  }
+}
+
+/**
+ * Hide sync progress overlay
+ */
+function hideSyncProgress() {
+  syncProgressOverlay.classList.add('hidden');
+}
+
+/**
+ * Log sync activity
+ */
+function logSyncActivity(type: 'success' | 'error' | 'info', message: string) {
+  const entry = document.createElement('div');
+  entry.className = `sync-log-entry sync-log-${type}`;
+  entry.style.cssText = `
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  `;
+
+  // Set background based on type
+  const backgrounds = {
+    success: '#e6ffed',
+    error: '#ffe6e6',
+    info: '#e6f2ff'
+  };
+  entry.style.background = backgrounds[type];
+
+  // Icon
+  const icon = document.createElement('span');
+  icon.textContent = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+  icon.style.cssText = 'font-size: 16px; font-weight: bold;';
+  entry.appendChild(icon);
+
+  // Timestamp
+  const timestamp = document.createElement('span');
+  timestamp.textContent = new Date().toLocaleTimeString();
+  timestamp.style.cssText = 'color: #666; font-size: 12px; min-width: 80px;';
+  entry.appendChild(timestamp);
+
+  // Message
+  const messageEl = document.createElement('span');
+  messageEl.textContent = message;
+  entry.appendChild(messageEl);
+
+  // Prepend to log (newest first)
+  syncLogContent.insertBefore(entry, syncLogContent.firstChild);
+
+  // Limit to 50 entries
+  while (syncLogContent.children.length > 50) {
+    syncLogContent.removeChild(syncLogContent.lastChild!);
   }
 }
