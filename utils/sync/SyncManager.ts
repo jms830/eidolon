@@ -251,6 +251,7 @@ export class SyncManager {
 
     // Download files to context folder
     let filesUpdated = 0;
+    const fileErrors: string[] = [];
     for (const file of files) {
       // Skip AGENTS.md (already handled above)
       if (file.file_name === 'AGENTS.md') {
@@ -274,8 +275,17 @@ export class SyncManager {
         await writeTextFile(contextHandle, file.file_name, remoteContent);
         filesUpdated++;
       } catch (error) {
+        const errorMsg = `${file.file_name}: ${(error as Error).message}`;
         console.error(`Error syncing file ${file.file_name}:`, error);
+        fileErrors.push(errorMsg);
       }
+    }
+
+    // If any files failed to sync, throw error with details
+    if (fileErrors.length > 0) {
+      throw new Error(
+        `Failed to sync ${fileErrors.length} file(s) in ${projectName}: ${fileErrors.join(', ')}`
+      );
     }
 
     // Sync chat conversations if enabled
@@ -581,6 +591,7 @@ export class SyncManager {
     const projectId = projectDiff.id;
     let uploaded = 0;
     let conflicts = 0;
+    const fileErrors: string[] = [];
 
     // Get context folder handle
     let contextHandle: FileSystemDirectoryHandle;
@@ -617,7 +628,9 @@ export class SyncManager {
           }
         }
       } catch (error) {
+        const errorMsg = `Download ${fileName}: ${(error as Error).message}`;
         console.error(`Error downloading file ${fileName}:`, error);
+        fileErrors.push(errorMsg);
       }
     }
 
@@ -649,7 +662,9 @@ export class SyncManager {
           }
         }
       } catch (error) {
+        const errorMsg = `Upload ${fileName}: ${(error as Error).message}`;
         console.error(`Error uploading file ${fileName}:`, error);
+        fileErrors.push(errorMsg);
       }
     }
 
@@ -764,8 +779,17 @@ export class SyncManager {
           uploaded++;
         }
       } catch (error) {
+        const errorMsg = `Conflict ${fileName}: ${(error as Error).message}`;
         console.error(`Error resolving conflict for ${fileName}:`, error);
+        fileErrors.push(errorMsg);
       }
+    }
+
+    // If any files failed to sync, throw error with details
+    if (fileErrors.length > 0) {
+      throw new Error(
+        `Failed to sync ${fileErrors.length} file(s) in ${projectDiff.name}: ${fileErrors.join(', ')}`
+      );
     }
 
     return { uploaded, conflicts };
