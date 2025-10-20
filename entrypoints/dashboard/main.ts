@@ -22,7 +22,10 @@ import {
 } from '../../utils/sync/workspaceConfig';
 import {
   pickWorkspaceDirectory,
-  verifyPermission
+  verifyPermission,
+  readTextFile,
+  writeTextFile,
+  getOrCreateDirectory
 } from '../../utils/sync/fileSystem';
 import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
 
