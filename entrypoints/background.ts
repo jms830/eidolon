@@ -80,7 +80,6 @@ export default defineBackground(() => {
   let apiClient: ClaudeAPIClient | null = null;
   let currentOrg: Organization | null = null;
   let sessionKey: string | null = null;
-  let workspaceHandle: FileSystemDirectoryHandle | null = null;
 
   // Session management
   async function extractSessionKey(): Promise<string | null> {
@@ -285,18 +284,6 @@ export default defineBackground(() => {
             } else {
               sendResponse({ success: false, error: 'Not authenticated' });
             }
-            break;
-
-          case 'save-workspace-handle':
-            workspaceHandle = request.handle;
-            sendResponse({ success: true });
-            break;
-
-          case 'get-workspace-handle':
-            sendResponse({
-              success: true,
-              data: workspaceHandle
-            });
             break;
 
           default:

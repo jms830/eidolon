@@ -1914,16 +1914,9 @@ async function initSyncTab() {
   state.syncConfigured = await isWorkspaceConfigured();
 
   if (state.syncConfigured) {
-    // Try to retrieve handle from background service worker
-    try {
-      const response = await browser.runtime.sendMessage({
-        action: 'get-workspace-handle'
-      });
-      state.workspaceHandle = response.success ? response.data : null;
-    } catch (error) {
-      console.warn('Failed to retrieve handle from background:', error);
-      state.workspaceHandle = null;
-    }
+    // Note: FileSystemDirectoryHandle cannot be persisted due to structured cloning
+    // User will need to re-select on dashboard reload (browser remembers last choice)
+    state.workspaceHandle = null;
 
     // Load configuration
     const config = await getWorkspaceConfig();
@@ -1946,12 +1939,8 @@ async function initSyncTab() {
     // Load sync settings
     loadSyncSettings(config.settings);
 
-    // Update sync status indicator based on whether we have a handle
-    if (state.workspaceHandle) {
-      syncStatusIndicator.style.color = '#48bb78'; // green - ready
-    } else {
-      syncStatusIndicator.style.color = '#f6ad55'; // orange - needs selection
-    }
+    // Update sync status indicator (always orange until user clicks sync)
+    syncStatusIndicator.style.color = '#f6ad55'; // orange - will prompt for selection
   } else {
     // Show not configured state
     syncNotConfigured.style.display = 'block';
@@ -1999,16 +1988,6 @@ async function setupWorkspace() {
     state.syncConfigured = true;
     state.workspaceHandle = dirHandle;
 
-    // Save handle to background service worker (persists across dashboard reloads)
-    try {
-      await browser.runtime.sendMessage({
-        action: 'save-workspace-handle',
-        handle: dirHandle
-      });
-    } catch (error) {
-      console.warn('Failed to save handle to background:', error);
-    }
-
     // Update UI
     await initSyncTab();
 
@@ -2018,7 +1997,7 @@ async function setupWorkspace() {
     // Log activity
     logSyncActivity('success', `Workspace configured: ${dirHandle.name}`);
 
-    alert('Workspace configured successfully!\n\nNote: The directory selection will persist while your browser is open, but you may need to re-select after restarting your browser (browser security requirement).');
+    alert('Workspace configured successfully!\n\nNote: You\'ll need to confirm your folder selection each time you sync (browser security requirement). Your browser will remember your choice, so it\'s just a single click.');
   } catch (error) {
     console.error('Failed to setup workspace:', error);
     logSyncActivity('error', `Failed to configure workspace: ${(error as Error).message}`);
@@ -2055,23 +2034,13 @@ async function syncNow(dryRun: boolean = false) {
         return;
       }
 
-      // Store in memory for this session
+      // Store in memory for this session (until dashboard reload)
       state.workspaceHandle = dirHandle;
-
-      // Save to background service worker (persists across dashboard reloads)
-      try {
-        await browser.runtime.sendMessage({
-          action: 'save-workspace-handle',
-          handle: dirHandle
-        });
-      } catch (error) {
-        console.warn('Failed to save handle to background:', error);
-      }
 
       // Update status indicator to green
       syncStatusIndicator.style.color = '#48bb78'; // green
 
-      logSyncActivity('success', `Workspace re-selected: ${dirHandle.name}`);
+      logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
     } catch (error) {
       console.error('Failed to select workspace:', error);
       alert(`Failed to select workspace: ${(error as Error).message}`);
@@ -2194,23 +2163,13 @@ async function viewWorkspaceDiff() {
         return;
       }
 
-      // Store in memory for this session
+      // Store in memory for this session (until dashboard reload)
       state.workspaceHandle = dirHandle;
-
-      // Save to background service worker (persists across dashboard reloads)
-      try {
-        await browser.runtime.sendMessage({
-          action: 'save-workspace-handle',
-          handle: dirHandle
-        });
-      } catch (error) {
-        console.warn('Failed to save handle to background:', error);
-      }
 
       // Update status indicator to green
       syncStatusIndicator.style.color = '#48bb78'; // green
 
-      logSyncActivity('success', `Workspace re-selected: ${dirHandle.name}`);
+      logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
     } catch (error) {
       console.error('Failed to select workspace:', error);
       alert(`Failed to select workspace: ${(error as Error).message}`);
