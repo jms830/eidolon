@@ -278,6 +278,51 @@ export class SyncManager {
       }
     }
 
+    // Sync chat conversations if enabled
+    if (config.settings.syncChats) {
+      try {
+        // Fetch all conversations for this organization
+        const allConversations = await this.apiClient.getConversations(orgId);
+
+        // Filter conversations that belong to this project
+        const projectConversations = allConversations.filter(
+          conv => conv.project_uuid === projectId
+        );
+
+        if (projectConversations.length > 0) {
+          // Create chats folder
+          const chatsHandle = await getOrCreateDirectory(projectHandle, 'chats');
+
+          // Download each conversation with full message history
+          for (const conversation of projectConversations) {
+            try {
+              // Fetch full conversation with messages
+              const fullConversation = await this.apiClient.getConversation(
+                orgId,
+                conversation.uuid
+              );
+
+              // Format conversation as markdown
+              const markdown = this.formatConversationAsMarkdown(fullConversation);
+
+              // Sanitize conversation name for filename
+              const fileName = this.sanitizeFileName(conversation.name) + '.md';
+
+              // Write to chats folder
+              await writeTextFile(chatsHandle, fileName, markdown);
+            } catch (error) {
+              console.error(
+                `Error syncing conversation ${conversation.name}:`,
+                error
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Could not sync conversations for ${projectName}:`, error);
+      }
+    }
+
     // Save project metadata
     await this.saveProjectMetadata(projectHandle, {
       id: projectId,
@@ -315,6 +360,52 @@ export class SyncManager {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Format conversation with messages as markdown
+   */
+  private formatConversationAsMarkdown(
+    conversation: any & { chat_messages: any[] }
+  ): string {
+    const lines: string[] = [];
+
+    // Title and metadata
+    lines.push(`# ${conversation.name}\n`);
+    lines.push(`**Created:** ${new Date(conversation.created_at).toLocaleString()}`);
+    lines.push(`**Updated:** ${new Date(conversation.updated_at).toLocaleString()}`);
+    lines.push(`**Conversation ID:** ${conversation.uuid}\n`);
+    lines.push('---\n');
+
+    // Messages
+    if (conversation.chat_messages && conversation.chat_messages.length > 0) {
+      for (const message of conversation.chat_messages) {
+        const sender = message.sender === 'human' ? '👤 **You**' : '🤖 **Claude**';
+        const timestamp = new Date(message.created_at).toLocaleString();
+
+        lines.push(`## ${sender}`);
+        lines.push(`*${timestamp}*\n`);
+        lines.push(message.text);
+        lines.push('\n---\n');
+      }
+    } else {
+      lines.push('*No messages in this conversation*\n');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Sanitize conversation name for use as filename
+   */
+  private sanitizeFileName(name: string): string {
+    // Replace invalid filename characters with underscores
+    return name
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_{2,}/g, '_')
+      .replace(/^_|_$/g, '')
+      .substring(0, 200); // Limit length
   }
 
   /**
