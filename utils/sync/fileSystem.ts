@@ -47,7 +47,8 @@ export async function writeTextFile(
   fileName: string,
   content: string
 ): Promise<void> {
-  const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  const sanitizedName = sanitizeFileName(fileName);
+  const fileHandle = await dirHandle.getFileHandle(sanitizedName, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(content);
   await writable.close();
@@ -61,7 +62,8 @@ export async function readTextFile(
   fileName: string
 ): Promise<string | null> {
   try {
-    const fileHandle = await dirHandle.getFileHandle(fileName);
+    const sanitizedName = sanitizeFileName(fileName);
+    const fileHandle = await dirHandle.getFileHandle(sanitizedName);
     const file = await fileHandle.getFile();
     return await file.text();
   } catch (error) {
@@ -80,7 +82,8 @@ export async function fileExists(
   fileName: string
 ): Promise<boolean> {
   try {
-    await dirHandle.getFileHandle(fileName);
+    const sanitizedName = sanitizeFileName(fileName);
+    await dirHandle.getFileHandle(sanitizedName);
     return true;
   } catch (error) {
     if ((error as Error).name === 'NotFoundError') {
@@ -127,7 +130,8 @@ export async function deleteFile(
   dirHandle: FileSystemDirectoryHandle,
   fileName: string
 ): Promise<void> {
-  await dirHandle.removeEntry(fileName);
+  const sanitizedName = sanitizeFileName(fileName);
+  await dirHandle.removeEntry(sanitizedName);
 }
 
 /**
@@ -138,7 +142,8 @@ export async function getFileModifiedTime(
   fileName: string
 ): Promise<number | null> {
   try {
-    const fileHandle = await dirHandle.getFileHandle(fileName);
+    const sanitizedName = sanitizeFileName(fileName);
+    const fileHandle = await dirHandle.getFileHandle(sanitizedName);
     const file = await fileHandle.getFile();
     return file.lastModified;
   } catch (error) {
@@ -157,6 +162,37 @@ export function sanitizeProjectName(name: string): string {
   // Preserve emojis and Unicode
   const sanitized = name.replace(/[<>:"|?*/\\]+/g, '').trim();
   return sanitized || 'unnamed_project';
+}
+
+/**
+ * Sanitize filename for cross-platform filesystem compatibility
+ * Replaces invalid characters with safe alternatives
+ */
+export function sanitizeFileName(fileName: string): string {
+  // Windows/Unix invalid characters: < > : " / \ | ? *
+  // Replace with dash to maintain readability
+  let sanitized = fileName
+    .replace(/[<>:"|?*]/g, '-')         // Replace most invalid chars with dash
+    .replace(/[/\\]/g, '-')              // Replace path separators with dash
+    .replace(/\s+/g, ' ')                // Normalize whitespace
+    .trim();
+
+  // Windows reserved names (case-insensitive)
+  const reservedNames = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+  const namePart = sanitized.replace(/\.[^.]*$/, ''); // Remove extension
+  if (reservedNames.test(namePart)) {
+    sanitized = `_${sanitized}`;
+  }
+
+  // Remove trailing dots and spaces (Windows restriction)
+  sanitized = sanitized.replace(/[.\s]+$/, '');
+
+  // Ensure we have a valid filename
+  if (!sanitized || sanitized === '.') {
+    sanitized = 'unnamed_file';
+  }
+
+  return sanitized;
 }
 
 /**
