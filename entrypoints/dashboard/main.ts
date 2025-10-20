@@ -2523,13 +2523,6 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
     diffModal.appendChild(actions);
 
     modalContent.appendChild(diffModal);
-
-    logSyncActivity('info', 'Workspace diff computed');
-  } catch (error) {
-    console.error('Failed to compute diff:', error);
-    alert(`Failed to compute diff: ${(error as Error).message}`);
-    document.getElementById('modal-overlay')?.classList.add('hidden');
-  }
 }
 
 function createDiffSection(title: string, description: string): HTMLElement {
