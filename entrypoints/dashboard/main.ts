@@ -48,6 +48,8 @@ interface AppState {
   isSyncing: boolean;
   workspaceHandle: FileSystemDirectoryHandle | null;
   fileFilter: { projectId: string; projectName: string } | null;
+  lastDiffResult: any | null;
+  lastDiffTimestamp: number | null;
 }
 
 const state: AppState = {
@@ -71,6 +73,8 @@ const state: AppState = {
   isSyncing: false,
   workspaceHandle: null,
   fileFilter: null,
+  lastDiffResult: null,
+  lastDiffTimestamp: null,
 };
 
 const searchService = getSearchService();
@@ -2081,12 +2085,23 @@ async function syncNow(dryRun: boolean = false) {
       updateSyncProgress(progress);
     });
 
-    // Execute sync
-    const result = await syncManager.downloadSync(
-      state.workspaceHandle,
-      orgId,
-      dryRun
-    );
+    // Get current sync settings
+    const config = await getWorkspaceConfig();
+    const useBidirectional = config.settings.bidirectional;
+
+    // Execute sync based on settings
+    const result = useBidirectional
+      ? await syncManager.bidirectionalSync(
+          state.workspaceHandle,
+          orgId,
+          config.settings.conflictStrategy,
+          dryRun
+        )
+      : await syncManager.downloadSync(
+          state.workspaceHandle,
+          orgId,
+          dryRun
+        );
 
     // Hide progress overlay
     hideSyncProgress();
@@ -2178,11 +2193,31 @@ async function viewWorkspaceDiff() {
   }
 
   try {
-    // Show loading
     const modalOverlay = document.getElementById('modal-overlay')!;
     const modalContent = document.getElementById('modal-content')!;
 
+    // Check if there's a cached diff result
+    if (state.lastDiffResult && state.lastDiffTimestamp) {
+      const timeSinceLastDiff = Date.now() - state.lastDiffTimestamp;
+      const minutesSince = Math.floor(timeSinceLastDiff / 60000);
+
+      const useCache = confirm(
+        `A diff was computed ${minutesSince} minute(s) ago.\n\n` +
+        `Do you want to view the cached result?\n\n` +
+        `Click OK to view cached result, or Cancel to compute a new diff.`
+      );
+
+      if (useCache) {
+        // Render cached diff
+        renderDiffUI(state.lastDiffResult, modalContent, modalOverlay);
+        logSyncActivity('info', 'Viewing cached workspace diff');
+        return;
+      }
+    }
+
+    // Show loading
     modalContent.textContent = '';
+    modalContent.classList.remove('diff-modal-container'); // Remove class during loading
     const loadingTitle = document.createElement('h2');
     loadingTitle.textContent = 'Computing Diff...';
     const loadingText = document.createElement('p');
@@ -2221,8 +2256,28 @@ async function viewWorkspaceDiff() {
     // Compute diff
     const diff = await syncManager.getWorkspaceDiff(state.workspaceHandle, orgId);
 
-    // Build diff UI with DOM methods
-    modalContent.textContent = '';
+    // Cache the diff result
+    state.lastDiffResult = diff;
+    state.lastDiffTimestamp = Date.now();
+
+    // Render the diff UI
+    renderDiffUI(diff, modalContent, modalOverlay);
+
+    logSyncActivity('info', 'Workspace diff computed');
+  } catch (error) {
+    console.error('Failed to compute diff:', error);
+    alert(`Failed to compute diff: ${(error as Error).message}`);
+    document.getElementById('modal-overlay')?.classList.add('hidden');
+  }
+}
+
+/**
+ * Render diff UI
+ */
+function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLElement) {
+  // Clear and apply diff-modal-container class to fix double scrollbar
+  modalContent.textContent = '';
+  modalContent.classList.add('diff-modal-container');
 
     const diffModal = document.createElement('div');
     diffModal.className = 'diff-modal';
@@ -2302,31 +2357,124 @@ async function viewWorkspaceDiff() {
       diffModal.appendChild(section);
     }
 
-    // Projects with differences
-    const projectsWithDiff = diff.matched.filter(p => p.hasDifferences);
+    // Projects with differences - EXPANDABLE
+    const projectsWithDiff = diff.matched.filter((p: any) => p.hasDifferences);
     if (projectsWithDiff.length > 0) {
       const section = createDiffSection(
         `🔄 Projects with Differences (${projectsWithDiff.length})`,
-        'These projects have file differences between local and remote'
+        'Click on a project to see which files differ'
       );
-      projectsWithDiff.forEach(p => {
-        const item = document.createElement('div');
-        item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px;';
-        const name = document.createElement('div');
-        name.textContent = p.name;
-        name.style.fontWeight = 'bold';
-        item.appendChild(name);
 
+      projectsWithDiff.forEach((p: any) => {
+        // Create expandable container
+        const expandable = document.createElement('div');
+        expandable.className = 'diff-project-expandable';
+
+        // Create header (clickable)
+        const header = document.createElement('div');
+        header.className = 'diff-project-header';
+
+        const projectName = document.createElement('span');
+        projectName.className = 'diff-project-name';
+        projectName.textContent = p.name;
+
+        const summary = document.createElement('span');
+        summary.className = 'diff-project-summary';
+        const summaryParts: string[] = [];
+        if (p.remoteOnlyFiles.length > 0) summaryParts.push(`${p.remoteOnlyFiles.length} remote`);
+        if (p.localOnlyFiles.length > 0) summaryParts.push(`${p.localOnlyFiles.length} local`);
+        if (p.modifiedFiles.length > 0) summaryParts.push(`${p.modifiedFiles.length} modified`);
+        summary.textContent = summaryParts.join(', ');
+
+        const expandIcon = document.createElement('span');
+        expandIcon.className = 'diff-expand-icon';
+        expandIcon.textContent = '▶';
+
+        header.appendChild(projectName);
+        header.appendChild(summary);
+        header.appendChild(expandIcon);
+
+        // Create details (hidden by default)
         const details = document.createElement('div');
-        details.style.cssText = 'margin-top: 8px; font-size: 13px; color: #718096;';
-        const detailParts: string[] = [];
-        if (p.remoteOnlyFiles.length > 0) detailParts.push(`${p.remoteOnlyFiles.length} remote`);
-        if (p.localOnlyFiles.length > 0) detailParts.push(`${p.localOnlyFiles.length} local`);
-        if (p.modifiedFiles.length > 0) detailParts.push(`${p.modifiedFiles.length} modified`);
-        details.textContent = detailParts.join(', ');
-        item.appendChild(details);
+        details.className = 'diff-project-details';
 
-        section.appendChild(item);
+        // Remote-only files
+        if (p.remoteOnlyFiles.length > 0) {
+          const category = document.createElement('div');
+          category.className = 'diff-file-category';
+
+          const title = document.createElement('div');
+          title.className = 'diff-file-category-title';
+          title.textContent = `⬇ Remote Only (${p.remoteOnlyFiles.length})`;
+          category.appendChild(title);
+
+          p.remoteOnlyFiles.forEach((file: string) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'diff-file-item remote-only';
+            fileItem.textContent = file;
+            category.appendChild(fileItem);
+          });
+
+          details.appendChild(category);
+        }
+
+        // Local-only files
+        if (p.localOnlyFiles.length > 0) {
+          const category = document.createElement('div');
+          category.className = 'diff-file-category';
+
+          const title = document.createElement('div');
+          title.className = 'diff-file-category-title';
+          title.textContent = `⬆ Local Only (${p.localOnlyFiles.length})`;
+          category.appendChild(title);
+
+          p.localOnlyFiles.forEach((file: string) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'diff-file-item local-only';
+            fileItem.textContent = file;
+            category.appendChild(fileItem);
+          });
+
+          details.appendChild(category);
+        }
+
+        // Modified files
+        if (p.modifiedFiles.length > 0) {
+          const category = document.createElement('div');
+          category.className = 'diff-file-category';
+
+          const title = document.createElement('div');
+          title.className = 'diff-file-category-title';
+          title.textContent = `🔄 Modified (${p.modifiedFiles.length})`;
+          category.appendChild(title);
+
+          p.modifiedFiles.forEach((file: string) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'diff-file-item modified';
+            fileItem.textContent = file;
+            category.appendChild(fileItem);
+          });
+
+          details.appendChild(category);
+        }
+
+        // Add click handler to toggle expansion
+        header.addEventListener('click', () => {
+          const isExpanded = details.classList.contains('expanded');
+          if (isExpanded) {
+            details.classList.remove('expanded');
+            header.classList.remove('expanded');
+            expandIcon.classList.remove('expanded');
+          } else {
+            details.classList.add('expanded');
+            header.classList.add('expanded');
+            expandIcon.classList.add('expanded');
+          }
+        });
+
+        expandable.appendChild(header);
+        expandable.appendChild(details);
+        section.appendChild(expandable);
       });
       diffModal.appendChild(section);
     }

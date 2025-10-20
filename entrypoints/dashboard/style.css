@@ -616,6 +616,116 @@ body {
   overflow-y: auto;
 }
 
+/* Diff modal gets special treatment - wider and no padding on modal-content */
+.modal-content.diff-modal-container {
+  max-width: 900px;
+  padding: 0;
+  overflow-y: hidden; /* Let the inner diff-modal handle scrolling */
+}
+
+/* Expandable diff sections */
+.diff-project-expandable {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.diff-project-header {
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.diff-project-header:hover {
+  background: #f7fafc;
+}
+
+.diff-project-header.expanded {
+  background: #f7fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.diff-project-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.diff-project-summary {
+  font-size: 13px;
+  color: #718096;
+  margin-right: 12px;
+}
+
+.diff-expand-icon {
+  font-size: 12px;
+  color: #718096;
+  transition: transform 0.2s;
+}
+
+.diff-expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.diff-project-details {
+  padding: 16px;
+  background: #f8f9fa;
+  display: none;
+}
+
+.diff-project-details.expanded {
+  display: block;
+}
+
+.diff-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diff-file-category {
+  margin-bottom: 16px;
+}
+
+.diff-file-category:last-child {
+  margin-bottom: 0;
+}
+
+.diff-file-category-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diff-file-item {
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+}
+
+.diff-file-item.remote-only {
+  border-left: 3px solid #667eea;
+}
+
+.diff-file-item.local-only {
+  border-left: 3px solid #48bb78;
+}
+
+.diff-file-item.modified {
+  border-left: 3px solid #ed8936;
+}
+
 /* Sync Tab Styles */
 .sync-container {
   display: flex;

@@ -409,7 +409,7 @@ export class SyncManager {
   }
 
   /**
-   * Bidirectional sync - TODO: Phase 2
+   * Bidirectional sync - sync changes in both directions
    */
   async bidirectionalSync(
     workspaceHandle: FileSystemDirectoryHandle,
@@ -417,8 +417,358 @@ export class SyncManager {
     conflictStrategy: ConflictStrategy,
     dryRun: boolean = false
   ): Promise<SyncResult> {
-    // TODO: Implement in Phase 2
-    throw new Error('Bidirectional sync not yet implemented');
+    const stats: SyncStats = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      uploaded: 0,
+      conflicts: 0,
+    };
+    const errors: string[] = [];
+
+    try {
+      this.reportProgress({
+        phase: 'fetching',
+        message: 'Analyzing differences...',
+        percentage: 0,
+      });
+
+      // Get workspace diff to identify all changes
+      const diff = await this.getWorkspaceDiff(workspaceHandle, orgId);
+      const config = await getWorkspaceConfig();
+
+      // Total work: matched projects + remoteOnly projects
+      const totalProjects = diff.matched.length + diff.remoteOnly.length;
+
+      this.reportProgress({
+        phase: 'syncing',
+        totalProjects,
+        completedProjects: 0,
+        percentage: 0,
+        message: `Syncing ${totalProjects} projects...`,
+      });
+
+      let completed = 0;
+
+      // Sync matched projects with differences
+      for (const projectDiff of diff.matched) {
+        if (!projectDiff.hasDifferences) {
+          stats.skipped++;
+          completed++;
+          continue;
+        }
+
+        try {
+          const projectHandle = await workspaceHandle.getDirectoryHandle(
+            projectDiff.folder
+          );
+
+          const result = await this.syncProjectBidirectional(
+            projectHandle,
+            orgId,
+            projectDiff,
+            conflictStrategy,
+            config,
+            dryRun
+          );
+
+          stats.updated++;
+          if (result.uploaded > 0) {
+            stats.uploaded = (stats.uploaded || 0) + result.uploaded;
+          }
+          if (result.conflicts > 0) {
+            stats.conflicts = (stats.conflicts || 0) + result.conflicts;
+          }
+
+          completed++;
+          this.reportProgress({
+            phase: 'syncing',
+            currentProject: projectDiff.name,
+            totalProjects,
+            completedProjects: completed,
+            percentage: Math.round((completed / totalProjects) * 100),
+            message: `Synced ${completed}/${totalProjects} projects`,
+          });
+        } catch (error) {
+          stats.errors++;
+          errors.push(`${projectDiff.name}: ${(error as Error).message}`);
+          console.error(`Error syncing project ${projectDiff.name}:`, error);
+          completed++;
+        }
+      }
+
+      // Download remote-only projects
+      for (const remoteProject of diff.remoteOnly) {
+        try {
+          const projects = await this.apiClient.getProjects(orgId);
+          const project = projects.find(p => p.uuid === remoteProject.id);
+          if (project) {
+            await this.syncProject(
+              workspaceHandle,
+              orgId,
+              project,
+              config,
+              dryRun
+            );
+            stats.created++;
+          }
+
+          completed++;
+          this.reportProgress({
+            phase: 'syncing',
+            currentProject: remoteProject.name,
+            totalProjects,
+            completedProjects: completed,
+            percentage: Math.round((completed / totalProjects) * 100),
+            message: `Synced ${completed}/${totalProjects} projects`,
+          });
+        } catch (error) {
+          stats.errors++;
+          errors.push(`${remoteProject.name}: ${(error as Error).message}`);
+          console.error(`Error syncing project ${remoteProject.name}:`, error);
+          completed++;
+        }
+      }
+
+      // Save updated config
+      if (!dryRun) {
+        await saveWorkspaceConfig(config);
+        await updateLastSync();
+      }
+
+      this.reportProgress({
+        phase: 'complete',
+        totalProjects,
+        completedProjects: completed,
+        percentage: 100,
+        message: 'Bidirectional sync complete!',
+      });
+
+      return {
+        success: stats.errors === 0,
+        stats,
+        errors,
+      };
+    } catch (error) {
+      this.reportProgress({
+        phase: 'error',
+        totalProjects: 0,
+        completedProjects: 0,
+        percentage: 0,
+        message: `Sync failed: ${(error as Error).message}`,
+      });
+
+      return {
+        success: false,
+        stats,
+        errors: [(error as Error).message],
+      };
+    }
+  }
+
+  /**
+   * Sync individual project bidirectionally
+   */
+  private async syncProjectBidirectional(
+    projectHandle: FileSystemDirectoryHandle,
+    orgId: string,
+    projectDiff: ProjectDiff,
+    conflictStrategy: ConflictStrategy,
+    config: WorkspaceConfig,
+    dryRun: boolean
+  ): Promise<{ uploaded: number; conflicts: number }> {
+    const projectId = projectDiff.id;
+    let uploaded = 0;
+    let conflicts = 0;
+
+    // Get context folder handle
+    let contextHandle: FileSystemDirectoryHandle;
+    try {
+      contextHandle = await projectHandle.getDirectoryHandle('context');
+    } catch {
+      contextHandle = await getOrCreateDirectory(projectHandle, 'context');
+    }
+
+    // 1. Handle remote-only files: Download them
+    for (const fileName of projectDiff.remoteOnlyFiles) {
+      if (dryRun) continue;
+
+      try {
+        if (fileName === 'AGENTS.md') {
+          // Handle AGENTS.md from project instructions
+          const instructionsData = await this.apiClient.getProjectInstructions(
+            orgId,
+            projectId
+          );
+          if (instructionsData?.content) {
+            await writeTextFile(
+              projectHandle,
+              'AGENTS.md',
+              instructionsData.content.trim()
+            );
+          }
+        } else {
+          // Handle regular files from project files
+          const files = await this.apiClient.getProjectFiles(orgId, projectId);
+          const file = files.find(f => f.file_name === fileName);
+          if (file) {
+            await writeTextFile(contextHandle, fileName, file.content);
+          }
+        }
+      } catch (error) {
+        console.error(`Error downloading file ${fileName}:`, error);
+      }
+    }
+
+    // 2. Handle local-only files: Upload them
+    for (const fileName of projectDiff.localOnlyFiles) {
+      if (dryRun) {
+        uploaded++;
+        continue;
+      }
+
+      try {
+        if (fileName === 'AGENTS.md') {
+          // Upload AGENTS.md as project instructions
+          const content = await readTextFile(projectHandle, 'AGENTS.md');
+          if (content) {
+            await this.apiClient.updateProjectInstructions(
+              orgId,
+              projectId,
+              content
+            );
+            uploaded++;
+          }
+        } else {
+          // Upload regular files
+          const content = await readTextFile(contextHandle, fileName);
+          if (content) {
+            await this.apiClient.uploadFile(orgId, projectId, fileName, content);
+            uploaded++;
+          }
+        }
+      } catch (error) {
+        console.error(`Error uploading file ${fileName}:`, error);
+      }
+    }
+
+    // 3. Handle modified files: Apply conflict strategy
+    for (const fileName of projectDiff.modifiedFiles) {
+      conflicts++;
+
+      if (dryRun) continue;
+
+      try {
+        // Get local and remote content
+        let localContent: string | null = null;
+        let remoteContent: string = '';
+        let localModifiedTime = 0;
+        let remoteModifiedTime = 0;
+
+        if (fileName === 'AGENTS.md') {
+          localContent = await readTextFile(projectHandle, 'AGENTS.md');
+          const instructionsData = await this.apiClient.getProjectInstructions(
+            orgId,
+            projectId
+          );
+          remoteContent = instructionsData?.content?.trim() || '';
+
+          // Get file timestamps
+          try {
+            const fileHandle = await projectHandle.getFileHandle('AGENTS.md');
+            const file = await fileHandle.getFile();
+            localModifiedTime = file.lastModified;
+          } catch {
+            // Couldn't get timestamp
+          }
+        } else {
+          localContent = await readTextFile(contextHandle, fileName);
+          const files = await this.apiClient.getProjectFiles(orgId, projectId);
+          const remoteFile = files.find(f => f.file_name === fileName);
+          remoteContent = remoteFile?.content || '';
+
+          // Get file timestamps
+          try {
+            const fileHandle = await contextHandle.getFileHandle(fileName);
+            const file = await fileHandle.getFile();
+            localModifiedTime = file.lastModified;
+          } catch {
+            // Couldn't get timestamp
+          }
+
+          // Remote timestamp from API (if available in updated_at field)
+          if (remoteFile && (remoteFile as any).updated_at) {
+            remoteModifiedTime = new Date((remoteFile as any).updated_at).getTime();
+          }
+        }
+
+        if (!localContent) continue;
+
+        // Apply conflict strategy
+        let shouldUpload = false;
+
+        switch (conflictStrategy) {
+          case 'local':
+            // Always keep local version
+            shouldUpload = true;
+            break;
+
+          case 'remote':
+            // Always keep remote version (download)
+            if (fileName === 'AGENTS.md') {
+              await writeTextFile(projectHandle, 'AGENTS.md', remoteContent);
+            } else {
+              await writeTextFile(contextHandle, fileName, remoteContent);
+            }
+            break;
+
+          case 'newer':
+            // Keep the newer version based on timestamp
+            if (localModifiedTime > remoteModifiedTime) {
+              shouldUpload = true;
+            } else {
+              // Download remote version
+              if (fileName === 'AGENTS.md') {
+                await writeTextFile(projectHandle, 'AGENTS.md', remoteContent);
+              } else {
+                await writeTextFile(contextHandle, fileName, remoteContent);
+              }
+            }
+            break;
+
+          case 'prompt':
+            // Skip - would require UI interaction
+            console.log(
+              `Conflict detected for ${fileName} - skipping (prompt strategy not supported)`
+            );
+            break;
+        }
+
+        // Upload if needed
+        if (shouldUpload) {
+          if (fileName === 'AGENTS.md') {
+            await this.apiClient.updateProjectInstructions(
+              orgId,
+              projectId,
+              localContent
+            );
+          } else {
+            await this.apiClient.uploadFile(
+              orgId,
+              projectId,
+              fileName,
+              localContent
+            );
+          }
+          uploaded++;
+        }
+      } catch (error) {
+        console.error(`Error resolving conflict for ${fileName}:`, error);
+      }
+    }
+
+    return { uploaded, conflicts };
   }
 
   /**
