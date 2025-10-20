@@ -1914,8 +1914,8 @@ async function initSyncTab() {
   state.syncConfigured = await isWorkspaceConfigured();
 
   if (state.syncConfigured) {
-    // Load workspace handle from IndexedDB
-    state.workspaceHandle = await getWorkspaceHandle();
+    // Note: workspace handle cannot be persisted, always null on load
+    state.workspaceHandle = null;
 
     // Load configuration
     const config = await getWorkspaceConfig();
@@ -1925,9 +1925,7 @@ async function initSyncTab() {
     syncConfigured.style.display = 'block';
 
     // Update workspace path display
-    if (state.workspaceHandle) {
-      syncWorkspacePath.textContent = config.workspacePath || state.workspaceHandle.name;
-    }
+    syncWorkspacePath.textContent = config.workspacePath || 'Workspace configured';
 
     // Update last sync display
     if (config.lastSync) {
@@ -1940,8 +1938,8 @@ async function initSyncTab() {
     // Load sync settings
     loadSyncSettings(config.settings);
 
-    // Update sync status indicator
-    syncStatusIndicator.style.color = '#48bb78'; // green
+    // Update sync status indicator to yellow (needs re-selection)
+    syncStatusIndicator.style.color = '#f6ad55'; // orange - needs action
   } else {
     // Show not configured state
     syncNotConfigured.style.display = 'block';
@@ -1961,7 +1959,8 @@ function loadSyncSettings(settings: SyncSettings) {
 }
 
 /**
- * Setup workspace - pick directory and save
+ * Setup workspace - pick directory and save config
+ * Note: The handle itself is not persisted, only workspace metadata
  */
 async function setupWorkspace() {
   try {
@@ -1972,17 +1971,14 @@ async function setupWorkspace() {
       return; // User cancelled
     }
 
-    // Verify write permission
+    // Verify write permission (fresh handle should work)
     const hasPermission = await verifyPermission(dirHandle, 'readwrite');
     if (!hasPermission) {
       alert('Failed to get write permission for the selected directory');
       return;
     }
 
-    // Save handle to IndexedDB
-    await saveWorkspaceHandle(dirHandle);
-
-    // Save configuration
+    // Save configuration (not the handle - handles can't be persisted)
     const config = await getWorkspaceConfig();
     config.workspacePath = dirHandle.name;
     await saveWorkspaceConfig(config);
@@ -1994,10 +1990,13 @@ async function setupWorkspace() {
     // Update UI
     await initSyncTab();
 
+    // Update status indicator to green
+    syncStatusIndicator.style.color = '#48bb78'; // green
+
     // Log activity
     logSyncActivity('success', `Workspace configured: ${dirHandle.name}`);
 
-    alert('Workspace configured successfully!');
+    alert('Workspace configured successfully!\n\nNote: You will need to re-select this directory when you reload the page (browser security requirement).');
   } catch (error) {
     console.error('Failed to setup workspace:', error);
     logSyncActivity('error', `Failed to configure workspace: ${(error as Error).message}`);
@@ -2014,14 +2013,38 @@ async function syncNow(dryRun: boolean = false) {
     return;
   }
 
-  if (!state.workspaceHandle) {
-    alert('Workspace not configured');
-    return;
-  }
-
   if (!state.currentOrg) {
     alert('No organization selected');
     return;
+  }
+
+  // If workspace handle is null, prompt user to select directory
+  if (!state.workspaceHandle) {
+    try {
+      const dirHandle = await pickWorkspaceDirectory();
+      if (!dirHandle) {
+        return; // User cancelled
+      }
+
+      // Verify fresh handle has permission (should work since it's fresh)
+      const hasPermission = await verifyPermission(dirHandle, 'readwrite');
+      if (!hasPermission) {
+        alert('Failed to get write permission for the selected directory');
+        return;
+      }
+
+      // Store in memory for this session
+      state.workspaceHandle = dirHandle;
+
+      // Update status indicator to green
+      syncStatusIndicator.style.color = '#48bb78'; // green
+
+      logSyncActivity('success', `Workspace re-selected: ${dirHandle.name}`);
+    } catch (error) {
+      console.error('Failed to select workspace:', error);
+      alert(`Failed to select workspace: ${(error as Error).message}`);
+      return;
+    }
   }
 
   try {
@@ -2119,14 +2142,38 @@ async function syncNow(dryRun: boolean = false) {
  * View workspace diff
  */
 async function viewWorkspaceDiff() {
-  if (!state.workspaceHandle) {
-    alert('Workspace not configured');
-    return;
-  }
-
   if (!state.currentOrg) {
     alert('No organization selected');
     return;
+  }
+
+  // If workspace handle is null, prompt user to select directory
+  if (!state.workspaceHandle) {
+    try {
+      const dirHandle = await pickWorkspaceDirectory();
+      if (!dirHandle) {
+        return; // User cancelled
+      }
+
+      // Verify fresh handle has permission
+      const hasPermission = await verifyPermission(dirHandle, 'readwrite');
+      if (!hasPermission) {
+        alert('Failed to get permission for the selected directory');
+        return;
+      }
+
+      // Store in memory for this session
+      state.workspaceHandle = dirHandle;
+
+      // Update status indicator to green
+      syncStatusIndicator.style.color = '#48bb78'; // green
+
+      logSyncActivity('success', `Workspace re-selected: ${dirHandle.name}`);
+    } catch (error) {
+      console.error('Failed to select workspace:', error);
+      alert(`Failed to select workspace: ${(error as Error).message}`);
+      return;
+    }
   }
 
   try {

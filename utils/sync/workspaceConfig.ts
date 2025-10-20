@@ -106,79 +106,38 @@ export async function getAllProjectMappings(): Promise<Record<string, string>> {
 }
 
 /**
- * Store workspace directory handle in IndexedDB
- * Note: FileSystemDirectoryHandle can be stored in IndexedDB for persistence
+ * NOTE: FileSystemDirectoryHandle objects CANNOT be reliably persisted.
+ * When stored in IndexedDB, they undergo structured cloning which strips
+ * all prototype methods. The handles must be re-acquired via user interaction
+ * (showDirectoryPicker) each session.
+ *
+ * These functions are kept for config management only.
+ */
+
+/**
+ * Store workspace directory handle - NO-OP
+ * Handles cannot be persisted. This is kept for backwards compatibility.
+ * @deprecated Use session-based handle management instead
  */
 export async function saveWorkspaceHandle(handle: FileSystemDirectoryHandle): Promise<void> {
-  // Store handle in IndexedDB (not chrome.storage as it can't serialize handles)
-  const db = await openHandleDB();
-  const tx = db.transaction('handles', 'readwrite');
-  const store = tx.objectStore('handles');
-  await store.put(handle, WORKSPACE_HANDLE_KEY);
-  await tx.done;
+  // No-op: handles cannot be persisted reliably
+  console.warn('saveWorkspaceHandle called but handles cannot be persisted. User will need to re-select directory each session.');
 }
 
 /**
- * Retrieve workspace directory handle from IndexedDB
- * Automatically requests permission to "refresh" the handle methods
+ * Retrieve workspace directory handle - always returns null
+ * Handles cannot be retrieved. User must re-select via showDirectoryPicker.
+ * @deprecated Use session-based handle management instead
  */
 export async function getWorkspaceHandle(): Promise<FileSystemDirectoryHandle | null> {
-  try {
-    const db = await openHandleDB();
-    const tx = db.transaction('handles', 'readonly');
-    const store = tx.objectStore('handles');
-    const handle = await store.get(WORKSPACE_HANDLE_KEY);
-
-    if (!handle) {
-      return null;
-    }
-
-    // Request permission to "refresh" the handle and restore its methods
-    // This is required when retrieving handles from IndexedDB
-    try {
-      const permission = await handle.requestPermission({ mode: 'readwrite' });
-      if (permission !== 'granted') {
-        console.warn('Permission not granted for workspace handle');
-        return null;
-      }
-      return handle;
-    } catch (permError) {
-      console.error('Failed to request permission for handle:', permError);
-      // Return null so the UI can prompt user to re-select workspace
-      return null;
-    }
-  } catch (error) {
-    console.error('Failed to get workspace handle:', error);
-    return null;
-  }
+  // Always return null - user must re-select directory
+  return null;
 }
 
 /**
- * Clear workspace handle
+ * Clear workspace handle - NO-OP
+ * @deprecated No longer storing handles
  */
 export async function clearWorkspaceHandle(): Promise<void> {
-  const db = await openHandleDB();
-  const tx = db.transaction('handles', 'readwrite');
-  const store = tx.objectStore('handles');
-  await store.delete(WORKSPACE_HANDLE_KEY);
-  await tx.done;
-}
-
-/**
- * Open IndexedDB for storing file system handles
- */
-async function openHandleDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('EidolonHandles', 1);
-
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains('handles')) {
-        db.createObjectStore('handles');
-      }
-    };
-  });
+  // No-op: not storing handles anymore
 }
