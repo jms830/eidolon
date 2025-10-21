@@ -247,14 +247,23 @@ export default defineBackground(() => {
             break;
 
           case 'get-project-files':
-            if (apiClient && currentOrg) {
-              const files = await apiClient.getProjectFiles(
-                currentOrg.uuid,
+            // Ensure session is valid before fetching files
+            if (!apiClient || !currentOrg) {
+              const isValid = await validateSession();
+              if (!isValid) {
+                sendResponse({ success: false, error: 'Not authenticated' });
+                break;
+              }
+            }
+
+            try {
+              const files = await apiClient!.getProjectFiles(
+                currentOrg!.uuid,
                 request.projectId
               );
               sendResponse({ success: true, data: files });
-            } else {
-              sendResponse({ success: false, error: 'Not authenticated' });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message || 'Failed to fetch project files' });
             }
             break;
 
