@@ -1127,8 +1127,7 @@ export class SyncManager {
 
     const localFolders = new Set<string>();
     for await (const entry of workspaceHandle.values()) {
-      // Exclude system folders (dot-prefixed and "Claude" folder for standalone chats)
-      if (entry.kind === 'directory' && !entry.name.startsWith('.') && entry.name !== 'Claude') {
+      if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
         localFolders.add(entry.name);
       }
     }
@@ -1186,6 +1185,41 @@ export class SyncManager {
         totalProjects: remoteProjects.length,
         completedProjects: i + 1,
       });
+    }
+
+    // Handle "Claude" system folder for standalone chats
+    if (localOnlyFolders.has('Claude')) {
+      localOnlyFolders.delete('Claude');
+
+      try {
+        const claudeHandle = await workspaceHandle.getDirectoryHandle('Claude');
+        // Count chats in Claude/chats folder
+        let chatCount = 0;
+        try {
+          const chatsHandle = await claudeHandle.getDirectoryHandle('chats');
+          for await (const entry of chatsHandle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.md')) {
+              chatCount++;
+            }
+          }
+        } catch (error) {
+          // chats folder doesn't exist yet
+        }
+
+        // Add Claude folder to matched section with special annotation
+        matched.push({
+          name: 'Claude (Standalone Chats)',
+          id: 'system-claude',
+          folder: 'Claude',
+          hasDifferences: false,
+          remoteOnlyFiles: [],
+          localOnlyFiles: chatCount > 0 ? [`${chatCount} standalone chat(s)`] : [],
+          modifiedFiles: []
+        });
+      } catch (error) {
+        // Claude folder couldn't be accessed
+        console.warn('Could not access Claude folder:', error);
+      }
     }
 
     this.reportProgress({
