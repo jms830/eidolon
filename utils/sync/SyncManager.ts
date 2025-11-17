@@ -1127,7 +1127,8 @@ export class SyncManager {
 
     const localFolders = new Set<string>();
     for await (const entry of workspaceHandle.values()) {
-      if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
+      // Exclude system folders (dot-prefixed and "Claude" folder for standalone chats)
+      if (entry.kind === 'directory' && !entry.name.startsWith('.') && entry.name !== 'Claude') {
         localFolders.add(entry.name);
       }
     }
