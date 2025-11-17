@@ -4,6 +4,12 @@
  */
 
 import type { WorkspaceConfig, SyncSettings } from './types';
+import {
+  saveWorkspaceHandle as saveHandleToIDB,
+  getWorkspaceHandle as getHandleFromIDB,
+  clearWorkspaceHandle as clearHandleFromIDB,
+  verifyHandlePermission
+} from './handleStorage';
 
 const WORKSPACE_CONFIG_KEY = 'workspaceConfig';
 const WORKSPACE_HANDLE_KEY = 'workspaceHandle';
@@ -13,6 +19,7 @@ const DEFAULT_SETTINGS: SyncSettings = {
   syncInterval: 15, // 15 minutes
   bidirectional: false,
   syncChats: false,
+  autoAddMdExtension: true, // Automatically add .md extension to files without extensions
   conflictStrategy: 'remote',
 };
 
@@ -106,38 +113,43 @@ export async function getAllProjectMappings(): Promise<Record<string, string>> {
 }
 
 /**
- * NOTE: FileSystemDirectoryHandle objects CANNOT be reliably persisted.
- * When stored in IndexedDB, they undergo structured cloning which strips
- * all prototype methods. The handles must be re-acquired via user interaction
- * (showDirectoryPicker) each session.
- *
- * These functions are kept for config management only.
+ * NOTE: FileSystemDirectoryHandle objects CAN be persisted in IndexedDB.
+ * They are stored directly in IndexedDB (not chrome.storage) which preserves
+ * the handle properly. Permission must be re-verified on retrieval.
  */
 
 /**
- * Store workspace directory handle - NO-OP
- * Handles cannot be persisted. This is kept for backwards compatibility.
- * @deprecated Use session-based handle management instead
+ * Store workspace directory handle in IndexedDB
  */
 export async function saveWorkspaceHandle(handle: FileSystemDirectoryHandle): Promise<void> {
-  // No-op: handles cannot be persisted reliably
-  console.warn('saveWorkspaceHandle called but handles cannot be persisted. User will need to re-select directory each session.');
+  return saveHandleToIDB(handle);
 }
 
 /**
- * Retrieve workspace directory handle - always returns null
- * Handles cannot be retrieved. User must re-select via showDirectoryPicker.
- * @deprecated Use session-based handle management instead
+ * Retrieve workspace directory handle from IndexedDB
+ * Returns null if not stored or permission denied
  */
 export async function getWorkspaceHandle(): Promise<FileSystemDirectoryHandle | null> {
-  // Always return null - user must re-select directory
-  return null;
+  const handle = await getHandleFromIDB();
+
+  if (!handle) {
+    return null;
+  }
+
+  // Verify permission still valid
+  const hasPermission = await verifyHandlePermission(handle);
+  if (!hasPermission) {
+    // Permission lost, clear the handle
+    await clearHandleFromIDB();
+    return null;
+  }
+
+  return handle;
 }
 
 /**
- * Clear workspace handle - NO-OP
- * @deprecated No longer storing handles
+ * Clear workspace handle from IndexedDB
  */
 export async function clearWorkspaceHandle(): Promise<void> {
-  // No-op: not storing handles anymore
+  return clearHandleFromIDB();
 }

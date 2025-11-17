@@ -25,7 +25,8 @@ import {
   verifyPermission,
   readTextFile,
   writeTextFile,
-  getOrCreateDirectory
+  getOrCreateDirectory,
+  deleteFile
 } from '../../utils/sync/fileSystem';
 import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
 
@@ -143,11 +144,13 @@ const setupWorkspaceBtn = getRequiredElement('setup-workspace-btn');
 const configureWorkspaceBtn = getRequiredElement('configure-workspace-btn');
 const syncNowBtn = getRequiredElement('sync-now-btn');
 const previewDiffBtn = getRequiredElement('preview-diff-btn');
-const openWorkspaceBtn = getRequiredElement('open-workspace-btn');
+const syncChatsOnlyBtn = getRequiredElement('sync-chats-only-btn');
+const copyPathBtn = getRequiredElement('copy-path-btn');
 const autoSyncEnabledCheckbox = getRequiredElement<HTMLInputElement>('auto-sync-enabled');
 const syncIntervalSelect = getRequiredElement<HTMLSelectElement>('sync-interval');
 const bidirectionalSyncCheckbox = getRequiredElement<HTMLInputElement>('bidirectional-sync');
 const syncChatsCheckbox = getRequiredElement<HTMLInputElement>('sync-chats');
+const autoAddMdExtensionCheckbox = getRequiredElement<HTMLInputElement>('auto-add-md-extension');
 const conflictStrategySelect = getRequiredElement<HTMLSelectElement>('conflict-strategy');
 const syncStatusIndicator = getRequiredElement('sync-status-indicator');
 const syncWorkspacePath = getRequiredElement('sync-workspace-path');
@@ -159,10 +162,208 @@ const syncProgressText = getRequiredElement('sync-progress-text');
 const syncProgressDetails = getRequiredElement('sync-progress-details');
 const cancelSyncBtn = getRequiredElement('cancel-sync-btn');
 
+// Setup Wizard Elements
+const setupWizardModal = getRequiredElement('setup-wizard-modal');
+const setupAuthStatus = getRequiredElement('setup-auth-status');
+const setupValidateAuthBtn = getRequiredElement('setup-validate-auth');
+const setupWorkspaceStatus = getRequiredElement('setup-workspace-status');
+const setupChooseFolderBtn = getRequiredElement('setup-choose-folder');
+const setupBidirectionalCheckbox = getRequiredElement<HTMLInputElement>('setup-bidirectional');
+const setupSyncChatsCheckbox = getRequiredElement<HTMLInputElement>('setup-sync-chats');
+const setupAutoAddMdCheckbox = getRequiredElement<HTMLInputElement>('setup-auto-add-md');
+const setupConflictStrategySelect = getRequiredElement<HTMLSelectElement>('setup-conflict-strategy');
+const setupPrevBtn = getRequiredElement('setup-prev-btn');
+const setupNextBtn = getRequiredElement('setup-next-btn');
+const setupFinishBtn = getRequiredElement('setup-finish-btn');
+const setupSkipBtn = getRequiredElement('setup-skip-btn');
+
+// Setup Wizard State
+let wizardCurrentStep = 1;
+let wizardTotalSteps = 4;
+let wizardAuthValid = false;
+let wizardWorkspaceHandle: FileSystemDirectoryHandle | null = null;
+
+// Setup Wizard Functions
+function showSetupWizard() {
+  setupWizardModal.classList.remove('hidden');
+  wizardCurrentStep = 1;
+  goToWizardStep(1);
+  setupWizardEventListeners();
+}
+
+function goToWizardStep(step: number) {
+  // Hide all steps
+  for (let i = 1; i <= wizardTotalSteps; i++) {
+    const stepElement = document.getElementById(`setup-step-${i}`);
+    if (stepElement) {
+      stepElement.classList.add('hidden');
+    }
+  }
+
+  // Show current step
+  const currentStepElement = document.getElementById(`setup-step-${step}`);
+  if (currentStepElement) {
+    currentStepElement.classList.remove('hidden');
+  }
+
+  wizardCurrentStep = step;
+
+  // Update button visibility
+  setupPrevBtn.classList.toggle('hidden', step === 1);
+  setupNextBtn.classList.toggle('hidden', step === wizardTotalSteps);
+  setupFinishBtn.classList.toggle('hidden', step !== wizardTotalSteps);
+
+  // Auto-validate auth on step 1
+  if (step === 1) {
+    validateWizardAuth();
+  }
+}
+
+function setupWizardEventListeners() {
+  // Previous button
+  setupPrevBtn.onclick = () => {
+    if (wizardCurrentStep > 1) {
+      goToWizardStep(wizardCurrentStep - 1);
+    }
+  };
+
+  // Next button
+  setupNextBtn.onclick = () => {
+    if (wizardCurrentStep < wizardTotalSteps) {
+      // Validate before moving forward
+      if (wizardCurrentStep === 1 && !wizardAuthValid) {
+        alert('Please validate your session before continuing');
+        return;
+      }
+      if (wizardCurrentStep === 2 && !wizardWorkspaceHandle) {
+        alert('Please select a workspace folder before continuing');
+        return;
+      }
+      goToWizardStep(wizardCurrentStep + 1);
+    }
+  };
+
+  // Finish button
+  setupFinishBtn.onclick = async () => {
+    await finishWizardSetup();
+  };
+
+  // Skip button
+  setupSkipBtn.onclick = () => {
+    skipWizardSetup();
+  };
+
+  // Validate auth button
+  setupValidateAuthBtn.onclick = async () => {
+    await validateWizardAuth();
+  };
+
+  // Choose folder button
+  setupChooseFolderBtn.onclick = async () => {
+    await chooseWizardWorkspace();
+  };
+}
+
+async function validateWizardAuth() {
+  setupAuthStatus.innerHTML = '<div class="setup-loading">Checking authentication...</div>';
+
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'validate-session' });
+    wizardAuthValid = response.success;
+
+    if (wizardAuthValid) {
+      setupAuthStatus.innerHTML = '<div class="setup-success">✓ Authenticated successfully</div>';
+    } else {
+      setupAuthStatus.innerHTML = '<div class="setup-error">✗ Not authenticated - Please log in to Claude.ai</div>';
+    }
+  } catch (error) {
+    console.error('Auth validation failed:', error);
+    wizardAuthValid = false;
+    setupAuthStatus.innerHTML = '<div class="setup-error">✗ Connection error</div>';
+  }
+}
+
+async function chooseWizardWorkspace() {
+  try {
+    const handle = await pickWorkspaceDirectory();
+    if (handle) {
+      wizardWorkspaceHandle = handle;
+      setupWorkspaceStatus.innerHTML = `<div class="setup-success">✓ Folder selected: ${handle.name}</div>`;
+    }
+  } catch (error) {
+    console.error('Failed to select workspace:', error);
+    setupWorkspaceStatus.innerHTML = '<div class="setup-error">✗ Failed to select folder</div>';
+  }
+}
+
+async function finishWizardSetup() {
+  try {
+    // Save workspace handle to IndexedDB
+    if (wizardWorkspaceHandle) {
+      await saveWorkspaceHandle(wizardWorkspaceHandle);
+      state.workspaceHandle = wizardWorkspaceHandle;
+    }
+
+    // Get current config or create new one
+    const config = await getWorkspaceConfig();
+
+    // Update workspace path
+    config.workspacePath = wizardWorkspaceHandle?.name || '';
+
+    // Update settings from wizard
+    config.settings = {
+      autoSync: false, // Default to manual sync
+      syncInterval: config.settings?.syncInterval || 15,
+      bidirectional: setupBidirectionalCheckbox.checked,
+      syncChats: setupSyncChatsCheckbox.checked,
+      autoAddMdExtension: setupAutoAddMdCheckbox.checked,
+      conflictStrategy: setupConflictStrategySelect.value as 'remote' | 'local' | 'newer'
+    };
+
+    // Save config
+    await saveWorkspaceConfig(config);
+
+    // Mark setup as complete
+    await browser.storage.local.set({ setupComplete: true });
+
+    // Close wizard
+    setupWizardModal.classList.add('hidden');
+
+    // Reload sync tab to reflect new settings
+    await initSyncTab();
+
+    console.log('Setup wizard completed successfully');
+  } catch (error) {
+    console.error('Failed to complete setup:', error);
+    alert('Failed to save setup. Please try again.');
+  }
+}
+
+function skipWizardSetup() {
+  // Mark setup as skipped (so we don't show it again)
+  browser.storage.local.set({ setupComplete: true });
+  setupWizardModal.classList.add('hidden');
+  console.log('Setup wizard skipped');
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', initialize);
 
 async function initialize() {
+  // Check if this is first-time setup
+  const storage = await browser.storage.local.get('setupComplete');
+  const isSetupComplete = storage.setupComplete === true;
+
+  // Check if workspace is already configured
+  const isConfigured = await isWorkspaceConfigured();
+  const hasHandle = await getWorkspaceHandle();
+
+  // Show wizard if not complete and not configured
+  if (!isSetupComplete && !isConfigured && !hasHandle) {
+    showSetupWizard();
+    // Still initialize the rest of the dashboard in the background
+  }
+
   await checkConnection();
 
   // Load current organization
@@ -525,8 +726,28 @@ function setupEventListeners() {
   setupWorkspaceBtn.addEventListener('click', setupWorkspace);
   configureWorkspaceBtn.addEventListener('click', setupWorkspace);
   syncNowBtn.addEventListener('click', () => syncNow(false));
+  syncChatsOnlyBtn.addEventListener('click', () => syncChatsOnly(false));
   previewDiffBtn.addEventListener('click', viewWorkspaceDiff);
-  openWorkspaceBtn.addEventListener('click', openWorkspaceFolder);
+
+  // Copy workspace path to clipboard
+  copyPathBtn.addEventListener('click', async () => {
+    const config = await getWorkspaceConfig();
+    const pathToCopy = config.workspacePath || 'Workspace path not available';
+
+    try {
+      await navigator.clipboard.writeText(pathToCopy);
+      const originalText = copyPathBtn.textContent;
+      copyPathBtn.textContent = '✓ Copied!';
+      copyPathBtn.style.background = '#48bb78';
+      setTimeout(() => {
+        copyPathBtn.textContent = originalText;
+        copyPathBtn.style.background = '';
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      alert('Failed to copy path to clipboard');
+    }
+  });
 
   // Sync settings
   autoSyncEnabledCheckbox.addEventListener('change', saveSyncSettings);
@@ -924,6 +1145,15 @@ async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLEle
       throw new Error('No organization selected');
     }
 
+    // Validate session before attempting deletion
+    const validationResponse = await browser.runtime.sendMessage({
+      action: 'validate-session'
+    });
+
+    if (!validationResponse.success) {
+      throw new Error('Session validation failed. Please reconnect to Claude.ai.');
+    }
+
     const apiClient = new ClaudeAPIClient(await getSessionKey());
     await apiClient.deleteFile(state.currentOrg.uuid, projectId, file.uuid);
 
@@ -1098,6 +1328,92 @@ function renderFiles() {
   });
 }
 
+/**
+ * Export conversation to Markdown or JSON format
+ */
+async function exportConversation(conversationId: string, conversationName: string, format: 'markdown' | 'json') {
+  try {
+    if (!state.currentOrg) {
+      alert('No organization selected');
+      return;
+    }
+
+    // Get API session
+    const sessionResponse = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (!sessionResponse.success) {
+      throw new Error('Failed to get API session');
+    }
+
+    const { sessionKey, orgId } = sessionResponse.data;
+    const apiClient = new ClaudeAPIClient(sessionKey);
+
+    // Fetch full conversation with messages
+    const fullConversation = await apiClient.getConversation(orgId, conversationId);
+
+    // Sanitize filename
+    const sanitizedName = conversationName
+      .replace(/[^a-z0-9\s-]/gi, '_')
+      .replace(/\s+/g, '_')
+      .substring(0, 100);
+
+    let content: string;
+    let filename: string;
+    let mimeType: string;
+
+    if (format === 'markdown') {
+      // Format as Markdown
+      const lines: string[] = [];
+      lines.push(`# ${fullConversation.name}\n`);
+      lines.push(`**Created:** ${new Date(fullConversation.created_at).toLocaleString()}`);
+      lines.push(`**Updated:** ${new Date(fullConversation.updated_at).toLocaleString()}`);
+      lines.push(`**Conversation ID:** ${fullConversation.uuid}\n`);
+      lines.push('---\n');
+
+      if (fullConversation.chat_messages && fullConversation.chat_messages.length > 0) {
+        for (const message of fullConversation.chat_messages) {
+          const sender = message.sender === 'human' ? '👤 **You**' : '🤖 **Claude**';
+          const timestamp = new Date(message.created_at).toLocaleString();
+
+          lines.push(`## ${sender}`);
+          lines.push(`*${timestamp}*\n`);
+          lines.push(message.text);
+          lines.push('\n---\n');
+        }
+      } else {
+        lines.push('*No messages in this conversation*\n');
+      }
+
+      content = lines.join('\n');
+      filename = `${sanitizedName}.md`;
+      mimeType = 'text/markdown';
+    } else {
+      // Format as JSON
+      content = JSON.stringify(fullConversation, null, 2);
+      filename = `${sanitizedName}.json`;
+      mimeType = 'application/json';
+    }
+
+    // Trigger download
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    logSyncActivity('success', `Exported conversation "${conversationName}" as ${format.toUpperCase()}`);
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert(`Failed to export conversation: ${(error as Error).message}`);
+  }
+}
+
 function renderConversations() {
   const conversationsList = document.getElementById('conversations-list')!;
   const conversationsCount = document.getElementById('conversations-count')!;
@@ -1137,13 +1453,34 @@ function renderConversations() {
 
     const actions = document.createElement('div');
     actions.className = 'conversation-actions';
+    actions.style.cssText = 'display: flex; gap: 8px;';
 
     const openBtn = document.createElement('button');
     openBtn.className = 'action-btn small';
     openBtn.textContent = 'Open';
     openBtn.addEventListener('click', () => openConversation(conv.uuid));
 
+    const exportMdBtn = document.createElement('button');
+    exportMdBtn.className = 'action-btn small';
+    exportMdBtn.textContent = '📄 Export MD';
+    exportMdBtn.style.cssText = 'background: #48bb78;';
+    exportMdBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportConversation(conv.uuid, conv.name, 'markdown');
+    });
+
+    const exportJsonBtn = document.createElement('button');
+    exportJsonBtn.className = 'action-btn small';
+    exportJsonBtn.textContent = '📋 Export JSON';
+    exportJsonBtn.style.cssText = 'background: #4299e1;';
+    exportJsonBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportConversation(conv.uuid, conv.name, 'json');
+    });
+
     actions.appendChild(openBtn);
+    actions.appendChild(exportMdBtn);
+    actions.appendChild(exportJsonBtn);
 
     item.appendChild(icon);
     item.appendChild(info);
@@ -2415,6 +2752,7 @@ function loadSyncSettings(settings: SyncSettings) {
   syncIntervalSelect.value = settings.syncInterval.toString();
   bidirectionalSyncCheckbox.checked = settings.bidirectional;
   syncChatsCheckbox.checked = settings.syncChats;
+  autoAddMdExtensionCheckbox.checked = settings.autoAddMdExtension;
   conflictStrategySelect.value = settings.conflictStrategy;
 }
 
@@ -2568,6 +2906,7 @@ async function syncNow(dryRun: boolean = false) {
         `Would create: ${result.stats.created}\n` +
         `Would update: ${result.stats.updated}\n` +
         `Would skip: ${result.stats.skipped}\n` +
+        `Chats synced: ${result.stats.chats || 0}\n` +
         `Errors: ${result.stats.errors}`
       );
     } else {
@@ -2580,6 +2919,7 @@ async function syncNow(dryRun: boolean = false) {
         `Created: ${result.stats.created}\n` +
         `Updated: ${result.stats.updated}\n` +
         `Skipped: ${result.stats.skipped}\n` +
+        `Chats synced: ${result.stats.chats || 0}\n` +
         `Errors: ${result.stats.errors}`
       );
     }
@@ -2604,6 +2944,136 @@ async function syncNow(dryRun: boolean = false) {
     hideSyncProgress();
     logSyncActivity('error', `Sync failed: ${(error as Error).message}`);
     alert(`Sync failed: ${(error as Error).message}`);
+  } finally {
+    state.isSyncing = false;
+  }
+}
+
+/**
+ * Sync chats only (no files)
+ */
+async function syncChatsOnly(dryRun: boolean = false) {
+  if (state.isSyncing) {
+    alert('Sync already in progress');
+    return;
+  }
+
+  if (!state.currentOrg) {
+    alert('No organization selected');
+    return;
+  }
+
+  // If workspace handle is null, prompt user to select directory
+  if (!state.workspaceHandle) {
+    try {
+      const dirHandle = await pickWorkspaceDirectory();
+      if (!dirHandle) {
+        return; // User cancelled
+      }
+
+      // Verify fresh handle has permission (should work since it's fresh)
+      const hasPermission = await verifyPermission(dirHandle, 'readwrite');
+      if (!hasPermission) {
+        alert('Failed to get write permission for the selected directory');
+        return;
+      }
+
+      // Store in memory for this session (until dashboard reload)
+      state.workspaceHandle = dirHandle;
+
+      // Update status indicator to green
+      syncStatusIndicator.style.color = '#48bb78'; // green
+
+      logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
+    } catch (error) {
+      console.error('Failed to select workspace:', error);
+      alert(`Failed to select workspace: ${(error as Error).message}`);
+      return;
+    }
+  }
+
+  try {
+    state.isSyncing = true;
+    showSyncProgress();
+
+    // First validate the session is still active
+    const validationResponse = await browser.runtime.sendMessage({
+      action: 'validate-session'
+    });
+
+    if (!validationResponse.success) {
+      throw new Error('Session expired or invalid. Please log in to Claude.ai and refresh this page.');
+    }
+
+    // Get session key and create API client
+    const sessionResponse = await browser.runtime.sendMessage({
+      action: 'get-api-client-session'
+    });
+
+    if (!sessionResponse.success) {
+      throw new Error(sessionResponse.error || 'Failed to get API session. Please refresh the page and try again.');
+    }
+
+    const { sessionKey, orgId } = sessionResponse.data;
+    const apiClient = new ClaudeAPIClient(sessionKey);
+
+    // Create sync manager
+    const syncManager = new SyncManager(apiClient);
+
+    // Set progress callback
+    syncManager.setProgressCallback((progress: SyncProgress) => {
+      updateSyncProgress(progress);
+    });
+
+    // Execute chats-only sync
+    const result = await syncManager.chatsOnlySync(
+      state.workspaceHandle,
+      orgId,
+      dryRun
+    );
+
+    // Hide progress overlay
+    hideSyncProgress();
+
+    // Show results
+    if (dryRun) {
+      alert(
+        `Dry Run Complete!\n\n` +
+        `Chats synced: ${result.stats.chats || 0}\n` +
+        `Errors: ${result.stats.errors}`
+      );
+    } else {
+      const successMessage = result.success
+        ? 'Chats sync completed successfully!'
+        : 'Chats sync completed with errors';
+
+      alert(
+        `${successMessage}\n\n` +
+        `Chats synced: ${result.stats.chats || 0}\n` +
+        `Errors: ${result.stats.errors}`
+      );
+    }
+
+    // Log activity
+    if (result.success) {
+      logSyncActivity(
+        'success',
+        `Synced ${result.stats.chats || 0} conversation(s)`
+      );
+    } else {
+      logSyncActivity(
+        'error',
+        `Chats sync failed: ${result.errors.join(', ')}`
+      );
+    }
+
+    // Refresh sync tab
+    await initSyncTab();
+  } catch (error) {
+    console.error('Chats sync failed:', error);
+    hideSyncProgress();
+    logSyncActivity('error', `Chats sync failed: ${(error as Error).message}`);
+    alert(`Chats sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
   }
@@ -2656,18 +3126,19 @@ async function viewWorkspaceDiff() {
       const timeSinceLastDiff = Date.now() - state.lastDiffTimestamp;
       const minutesSince = Math.floor(timeSinceLastDiff / 60000);
 
-      const useCache = confirm(
+      const computeNew = confirm(
         `A diff was computed ${minutesSince} minute(s) ago.\n\n` +
-        `Do you want to view the cached result?\n\n` +
-        `Click OK to view cached result, or Cancel to compute a new diff.`
+        `Do you want to compute a NEW diff?\n\n` +
+        `Click OK to compute a NEW diff, or Cancel to view the cached result.`
       );
 
-      if (useCache) {
-        // Render cached diff
+      if (!computeNew) {
+        // User clicked Cancel - show cached diff
         renderDiffUI(state.lastDiffResult, modalContent, modalOverlay);
         logSyncActivity('info', 'Viewing cached workspace diff');
         return;
       }
+      // User clicked OK - continue to compute new diff
     }
 
     // Show loading with progress bar
@@ -2774,9 +3245,68 @@ async function viewWorkspaceDiff() {
 }
 
 /**
- * Sync individual file
+ * Helper to check if file needs .md extension added
  */
-async function syncSingleFile(fileName: string, fileType: string, projectInfo: any) {
+function needsMdExtension(fileName: string): boolean {
+  // Skip AGENTS.md and files that already have extensions
+  if (fileName === 'AGENTS.md' || fileName.includes('.')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Auto-rename files without extensions to add .md
+ * Only runs if autoAddMdExtension setting is enabled
+ */
+async function autoRenameFileIfNeeded(
+  fileName: string,
+  projectInfo: any,
+  apiClient: any,
+  orgId: string
+): Promise<string> {
+  const config = await getWorkspaceConfig();
+
+  // Check if setting is enabled
+  if (!config.settings.autoAddMdExtension) {
+    return fileName;
+  }
+
+  // Check if file needs .md extension
+  if (!needsMdExtension(fileName)) {
+    return fileName;
+  }
+
+  const newFileName = `${fileName}.md`;
+
+  try {
+    // Get the file content
+    const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+    const file = files.find((f: any) => f.file_name === fileName);
+
+    if (!file) {
+      return fileName; // File not found, skip
+    }
+
+    // Upload with new name
+    await apiClient.uploadFile(orgId, projectInfo.id, newFileName, file.content);
+
+    // Delete old file
+    await apiClient.deleteFile(orgId, projectInfo.id, file.uuid);
+
+    logSyncActivity('info', `Auto-renamed "${fileName}" to "${newFileName}"`);
+
+    return newFileName;
+  } catch (error) {
+    console.warn(`Failed to auto-rename ${fileName}:`, error);
+    return fileName; // Return original name if rename fails
+  }
+}
+
+/**
+ * Sync individual file with direction control
+ */
+async function syncSingleFile(fileName: string, fileType: string, projectInfo: any, direction?: 'push' | 'pull') {
   if (!state.currentOrg || !state.workspaceHandle) {
     throw new Error('Workspace not configured');
   }
@@ -2807,6 +3337,11 @@ async function syncSingleFile(fileName: string, fileType: string, projectInfo: a
   const { sessionKey, orgId } = sessionResponse.data;
   const apiClient = new ClaudeAPIClient(sessionKey);
 
+  // Auto-rename file if it needs .md extension (before any other operations)
+  if (direction === 'pull' || !direction) {
+    fileName = await autoRenameFileIfNeeded(fileName, projectInfo, apiClient, orgId);
+  }
+
   // Get project folder handle
   const projectHandle = await state.workspaceHandle.getDirectoryHandle(projectInfo.folder);
   const contextHandle = await projectHandle.getDirectoryHandle('context').catch(() =>
@@ -2814,190 +3349,497 @@ async function syncSingleFile(fileName: string, fileType: string, projectInfo: a
   );
 
   if (fileType === 'remote-only') {
-    // Download file from remote
-    if (fileName === 'AGENTS.md') {
-      const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
-      if (instructionsData?.content) {
-        await writeTextFile(projectHandle, 'AGENTS.md', instructionsData.content.trim());
+    if (direction === 'push') {
+      // Delete remote file (user deleted it locally and wants to sync that deletion)
+      if (fileName === 'AGENTS.md') {
+        await apiClient.updateProjectInstructions(orgId, projectInfo.id, '');
+      } else {
+        try {
+          const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+          let file = files.find((f: any) => f.file_name === fileName);
+
+          // If not found and filename ends with .md, try without .md
+          if (!file && fileName.endsWith('.md')) {
+            const nameWithoutMd = fileName.slice(0, -3);
+            file = files.find((f: any) => f.file_name === nameWithoutMd);
+            if (file) {
+              console.log(`Found file to delete as "${nameWithoutMd}" instead of "${fileName}"`);
+            }
+          }
+
+          if (file) {
+            await apiClient.deleteFile(orgId, projectInfo.id, file.uuid);
+          } else {
+            // File not found on remote - already deleted or never existed
+            console.warn(`File ${fileName} not found on remote during delete operation - already gone`);
+          }
+        } catch (error) {
+          // If error is "not found", that's fine - file is already deleted
+          if ((error as any).statusCode === 404 || (error as Error).message.includes('not found')) {
+            console.warn(`File ${fileName} already deleted from remote`);
+          } else {
+            throw error; // Re-throw other errors
+          }
+        }
       }
     } else {
-      const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
-      const file = files.find((f: any) => f.file_name === fileName);
-      if (file) {
-        await writeTextFile(contextHandle, fileName, file.content);
+      // Pull: Download file from remote (restore deleted file)
+      if (fileName === 'AGENTS.md') {
+        const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+        if (instructionsData !== null) {
+          await writeTextFile(projectHandle, 'AGENTS.md', instructionsData.content.trim());
+        } else {
+          throw new Error('Failed to fetch AGENTS.md content from remote');
+        }
+      } else {
+        const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+        let file = files.find((f: any) => f.file_name === fileName);
+
+        // If not found and filename ends with .md, try without .md
+        if (!file && fileName.endsWith('.md')) {
+          const nameWithoutMd = fileName.slice(0, -3);
+          file = files.find((f: any) => f.file_name === nameWithoutMd);
+          if (file) {
+            console.log(`Found file as "${nameWithoutMd}" instead of "${fileName}"`);
+          }
+        }
+
+        if (file) {
+          await writeTextFile(contextHandle, fileName, file.content);
+        } else {
+          throw new Error(`File ${fileName} not found in remote project`);
+        }
       }
     }
   } else if (fileType === 'local-only') {
-    // Upload file to remote
-    if (fileName === 'AGENTS.md') {
-      const content = await readTextFile(projectHandle, 'AGENTS.md');
-      if (content) {
-        await apiClient.updateProjectInstructions(orgId, projectInfo.id, content);
+    if (direction === 'pull') {
+      // Delete local file (user wants to remove it locally to match remote)
+      if (fileName === 'AGENTS.md') {
+        await deleteFile(projectHandle, 'AGENTS.md');
+      } else {
+        await deleteFile(contextHandle, fileName);
       }
     } else {
-      const content = await readTextFile(contextHandle, fileName);
-      if (content) {
-        await apiClient.uploadFile(orgId, projectInfo.id, fileName, content);
+      // Push: Upload file to remote
+      if (fileName === 'AGENTS.md') {
+        const content = await readTextFile(projectHandle, 'AGENTS.md');
+        if (content) {
+          await apiClient.updateProjectInstructions(orgId, projectInfo.id, content);
+        }
+      } else {
+        const content = await readTextFile(contextHandle, fileName);
+        if (content) {
+          await apiClient.uploadFile(orgId, projectInfo.id, fileName, content);
+        }
       }
     }
   } else if (fileType === 'modified') {
-    // Handle modified file based on conflict strategy
-    const config = await getWorkspaceConfig();
-    const strategy = config.settings.conflictStrategy || 'remote';
-
-    let localContent: string | null = null;
-    let remoteContent: string = '';
-
-    if (fileName === 'AGENTS.md') {
-      localContent = await readTextFile(projectHandle, 'AGENTS.md');
-      const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
-      remoteContent = instructionsData?.content?.trim() || '';
-    } else {
-      localContent = await readTextFile(contextHandle, fileName);
-      const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
-      const remoteFile = files.find((f: any) => f.file_name === fileName);
-      remoteContent = remoteFile?.content || '';
-    }
-
-    if (!localContent) {
-      throw new Error('Could not read local file');
-    }
-
-    // Apply strategy
-    if (strategy === 'local') {
-      // Upload local version
+    if (direction === 'push') {
+      // Push local version to remote
       if (fileName === 'AGENTS.md') {
-        await apiClient.updateProjectInstructions(orgId, projectInfo.id, localContent);
+        const content = await readTextFile(projectHandle, 'AGENTS.md');
+        if (content) {
+          await apiClient.updateProjectInstructions(orgId, projectInfo.id, content);
+        }
       } else {
-        await apiClient.uploadFile(orgId, projectInfo.id, fileName, localContent);
+        const content = await readTextFile(contextHandle, fileName);
+        if (content) {
+          await apiClient.uploadFile(orgId, projectInfo.id, fileName, content);
+        }
       }
-    } else if (strategy === 'remote') {
-      // Download remote version
+    } else {
+      // Pull remote version to local
       if (fileName === 'AGENTS.md') {
+        const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+        const remoteContent = instructionsData?.content?.trim() || '';
         await writeTextFile(projectHandle, 'AGENTS.md', remoteContent);
       } else {
-        await writeTextFile(contextHandle, fileName, remoteContent);
+        const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+        const remoteFile = files.find((f: any) => f.file_name === fileName);
+        if (remoteFile) {
+          await writeTextFile(contextHandle, fileName, remoteFile.content);
+        }
+      }
+    }
+  } else if (fileType === 'renamed') {
+    const renameInfo = projectInfo.renameInfo;
+    if (!renameInfo) {
+      throw new Error('Rename information not provided');
+    }
+
+    if (direction === 'push') {
+      // Push rename to remote: delete old remote file, upload new file
+      try {
+        if (renameInfo.oldName === 'AGENTS.md') {
+          await apiClient.updateProjectInstructions(orgId, projectInfo.id, '');
+        } else {
+          const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+          const oldFile = files.find((f: any) => f.file_name === renameInfo.oldName);
+          if (oldFile) {
+            await apiClient.deleteFile(orgId, projectInfo.id, oldFile.uuid);
+          } else {
+            console.warn(`Old file ${renameInfo.oldName} not found on remote - may already be deleted`);
+          }
+        }
+      } catch (error) {
+        // If old file doesn't exist, that's fine - continue with upload
+        if ((error as any).statusCode === 404 || (error as Error).message.includes('not found')) {
+          console.warn(`Old file ${renameInfo.oldName} not found during delete - continuing with upload`);
+        } else {
+          throw error;
+        }
+      }
+
+      // Upload file with new name
+      if (renameInfo.newName === 'AGENTS.md') {
+        const content = await readTextFile(projectHandle, 'AGENTS.md');
+        if (content) {
+          await apiClient.updateProjectInstructions(orgId, projectInfo.id, content);
+        } else {
+          throw new Error(`Local file ${renameInfo.newName} not found or empty`);
+        }
+      } else {
+        const content = await readTextFile(contextHandle, renameInfo.newName);
+        if (content) {
+          await apiClient.uploadFile(orgId, projectInfo.id, renameInfo.newName, content);
+        } else {
+          throw new Error(`Local file ${renameInfo.newName} not found or empty`);
+        }
       }
     } else {
-      // For 'newer' strategy, just use local for now (would need timestamp comparison)
-      if (fileName === 'AGENTS.md') {
-        await apiClient.updateProjectInstructions(orgId, projectInfo.id, localContent);
+      // Pull rename from remote: delete old local file, download new one
+      try {
+        if (renameInfo.oldName === 'AGENTS.md') {
+          await deleteFile(projectHandle, 'AGENTS.md');
+        } else {
+          await deleteFile(contextHandle, renameInfo.oldName);
+        }
+      } catch (error) {
+        // Old file may not exist locally - that's fine
+        console.warn(`Old file ${renameInfo.oldName} not found locally - may already be deleted`);
+      }
+
+      // Download the new file from remote
+      if (renameInfo.newName === 'AGENTS.md') {
+        const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+        if (instructionsData !== null && instructionsData.content) {
+          await writeTextFile(projectHandle, 'AGENTS.md', instructionsData.content.trim());
+        } else {
+          throw new Error(`Remote file ${renameInfo.newName} not found or empty`);
+        }
       } else {
-        await apiClient.uploadFile(orgId, projectInfo.id, fileName, localContent);
+        const files = await apiClient.getProjectFiles(orgId, projectInfo.id);
+        const file = files.find((f: any) => f.file_name === renameInfo.newName);
+        if (file && file.content) {
+          await writeTextFile(contextHandle, renameInfo.newName, file.content);
+        } else {
+          throw new Error(`Remote file ${renameInfo.newName} not found in project`);
+        }
       }
     }
   }
 }
 
 /**
- * Create file item with sync button
+ * Intelligently sync a renamed file by detecting which direction to sync
+ * - If local has newName and remote has oldName → push (update remote)
+ * - If remote has newName and local has oldName → pull (update local)
+ */
+async function syncRenameWithAutoDirection(
+  rename: { oldName: string; newName: string },
+  projectInfo: any
+): Promise<void> {
+  try {
+    // Validate session with retry logic
+    let sessionResponse;
+    let retries = 3;
+    while (retries > 0) {
+      sessionResponse = await browser.runtime.sendMessage({
+        action: 'get-api-client-session'
+      });
+
+      if (sessionResponse && sessionResponse.success) {
+        break;
+      }
+
+      retries--;
+      if (retries > 0) {
+        console.log(`Session validation failed, retrying... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
+      }
+    }
+
+    if (!sessionResponse || !sessionResponse.success) {
+      throw new Error('Failed to get API session after multiple attempts');
+    }
+
+    const { sessionKey, orgId } = sessionResponse.data;
+    const apiClient = new ClaudeAPIClient(sessionKey);
+
+    // Check what exists locally
+    const projectHandle = await state.workspaceHandle.getDirectoryHandle(projectInfo.folder);
+    let contextHandle: FileSystemDirectoryHandle | null = null;
+    try {
+      contextHandle = await projectHandle.getDirectoryHandle('context');
+    } catch {
+      // No context folder yet
+    }
+
+    let hasLocalOld = false;
+    let hasLocalNew = false;
+
+    if (rename.oldName === 'AGENTS.md') {
+      hasLocalOld = await readTextFile(projectHandle, 'AGENTS.md') !== null;
+    } else if (contextHandle) {
+      hasLocalOld = await readTextFile(contextHandle, rename.oldName) !== null;
+    }
+
+    if (rename.newName === 'AGENTS.md') {
+      hasLocalNew = await readTextFile(projectHandle, 'AGENTS.md') !== null;
+    } else if (contextHandle) {
+      hasLocalNew = await readTextFile(contextHandle, rename.newName) !== null;
+    }
+
+    // Check what exists remotely
+    const remoteFiles = await apiClient.getProjectFiles(orgId, projectInfo.id);
+    const remoteFileNames = new Set(remoteFiles.map((f: any) => f.file_name));
+
+    // Check for AGENTS.md remotely
+    let hasRemoteOld = remoteFileNames.has(rename.oldName);
+    let hasRemoteNew = remoteFileNames.has(rename.newName);
+
+    if (rename.oldName === 'AGENTS.md' || rename.newName === 'AGENTS.md') {
+      const instructionsData = await apiClient.getProjectInstructions(orgId, projectInfo.id);
+      const hasInstructions = instructionsData !== null && instructionsData.content.trim() !== '';
+      if (rename.oldName === 'AGENTS.md') {
+        hasRemoteOld = hasInstructions;
+      }
+      if (rename.newName === 'AGENTS.md') {
+        hasRemoteNew = hasInstructions;
+      }
+    }
+
+    // Determine direction based on which combination exists
+    let direction: 'push' | 'pull';
+
+    if (hasLocalNew && hasRemoteOld) {
+      // Local was renamed → push to remote
+      direction = 'push';
+      console.log(`Rename detected: local has ${rename.newName}, remote has ${rename.oldName} → pushing`);
+    } else if (hasLocalOld && hasRemoteNew) {
+      // Remote was renamed → pull from remote
+      direction = 'pull';
+      console.log(`Rename detected: remote has ${rename.newName}, local has ${rename.oldName} → pulling`);
+    } else if (hasLocalNew && !hasRemoteOld && !hasRemoteNew) {
+      // Local has new name, remote has neither → push
+      direction = 'push';
+      console.log(`Rename detected: local has ${rename.newName}, remote has nothing → pushing`);
+    } else if (hasRemoteNew && !hasLocalOld && !hasLocalNew) {
+      // Remote has new name, local has neither → pull
+      direction = 'pull';
+      console.log(`Rename detected: remote has ${rename.newName}, local has nothing → pulling`);
+    } else {
+      // Ambiguous or both renamed - default to push
+      console.warn(`Ambiguous rename state, defaulting to push. Local: old=${hasLocalOld}, new=${hasLocalNew}; Remote: old=${hasRemoteOld}, new=${hasRemoteNew}`);
+      direction = 'push';
+    }
+
+    // Perform the sync
+    await syncSingleFile(rename.newName, 'renamed', { ...projectInfo, renameInfo: rename }, direction);
+
+  } catch (error) {
+    console.error('Error in syncRenameWithAutoDirection:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create file item with bidirectional sync buttons
  */
 function createFileItemWithSyncButton(
   fileName: string,
   fileType: 'remote-only' | 'local-only' | 'modified',
   projectInfo: any,
-  onSync: (fileName: string, fileType: string, projectInfo: any) => Promise<void>
+  onSync: (fileName: string, fileType: string, projectInfo: any, direction?: 'push' | 'pull') => Promise<void>,
+  timestampInfo?: { localTime?: number; remoteTime?: number; isLocalNewer?: boolean }
 ): HTMLElement {
   const fileItem = document.createElement('div');
   fileItem.className = `diff-file-item ${fileType}`;
   fileItem.style.cssText = `
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
     padding: 8px 12px;
     background: ${fileType === 'remote-only' ? '#e6f7ff' : fileType === 'local-only' ? '#fff7e6' : '#fff0f0'};
     border-radius: 4px;
     margin-bottom: 4px;
+    gap: 6px;
   `;
+
+  // Top row: file name and buttons
+  const topRow = document.createElement('div');
+  topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
   const fileNameSpan = document.createElement('span');
   fileNameSpan.textContent = fileName;
   fileNameSpan.style.cssText = 'flex: 1;';
 
-  const syncButton = document.createElement('button');
-  syncButton.textContent = fileType === 'remote-only' ? '⬇ Download' : fileType === 'local-only' ? '⬆ Upload' : '🔄 Sync';
-  syncButton.style.cssText = `
-    padding: 4px 12px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
-    margin-left: 10px;
-  `;
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = 'display: flex; gap: 8px; margin-left: 10px;';
 
-  syncButton.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    syncButton.disabled = true;
-    syncButton.textContent = 'Syncing...';
-    try {
-      await onSync(fileName, fileType, projectInfo);
-      syncButton.textContent = '✓ Done';
-      syncButton.style.background = '#48bb78';
-      setTimeout(() => {
-        fileItem.style.opacity = '0.5';
-        fileItem.style.pointerEvents = 'none';
-      }, 1000);
-    } catch (error) {
-      console.error('Sync failed:', error);
-      syncButton.textContent = '✗ Failed';
-      syncButton.style.background = '#f56565';
-      syncButton.disabled = false;
+  // Helper to create sync button with direction
+  const createButton = (label: string, direction: 'push' | 'pull', isPrimary: boolean = false) => {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.style.cssText = `
+      padding: 4px 12px;
+      background: ${isPrimary ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#718096'};
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    `;
 
-      // Check if it's an authentication error
-      if ((error as any).authenticationRequired) {
-        const retry = confirm(
-          `Authentication required to sync ${fileName}.\n\n` +
-          `Click OK to validate your session and try again, or Cancel to abort.`
-        );
+    button.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      button.disabled = true;
+      button.textContent = 'Syncing...';
+      try {
+        await onSync(fileName, fileType, projectInfo, direction);
+        button.textContent = '✓ Done';
+        button.style.background = '#48bb78';
+        setTimeout(() => {
+          fileItem.style.opacity = '0.5';
+          fileItem.style.pointerEvents = 'none';
+        }, 1000);
+      } catch (error) {
+        console.error('Sync failed:', error);
+        button.textContent = '✗ Failed';
+        button.style.background = '#f56565';
+        button.disabled = false;
 
-        if (retry) {
-          // Attempt to validate session
-          syncButton.textContent = 'Authenticating...';
-          syncButton.disabled = true;
+        // Check if it's an authentication error
+        if ((error as any).authenticationRequired) {
+          const retry = confirm(
+            `Authentication required to sync ${fileName}.\n\n` +
+            `Click OK to validate your session and try again, or Cancel to abort.`
+          );
 
-          try {
-            const validationResponse = await browser.runtime.sendMessage({
-              action: 'validate-session'
-            });
+          if (retry) {
+            button.textContent = 'Authenticating...';
+            button.disabled = true;
 
-            if (validationResponse.success) {
-              // Retry the sync
-              syncButton.textContent = 'Retrying...';
-              await onSync(fileName, fileType, projectInfo);
-              syncButton.textContent = '✓ Done';
-              syncButton.style.background = '#48bb78';
-              setTimeout(() => {
-                fileItem.style.opacity = '0.5';
-                fileItem.style.pointerEvents = 'none';
-              }, 1000);
-            } else {
-              alert(
-                'Session validation failed. Please:\n' +
-                '1. Make sure you are logged into Claude.ai in this browser\n' +
-                '2. Click the Eidolon extension icon to reconnect\n' +
-                '3. Try syncing again'
-              );
-              syncButton.textContent = '✗ Not Auth';
-              syncButton.disabled = false;
+            try {
+              const validationResponse = await browser.runtime.sendMessage({
+                action: 'validate-session'
+              });
+
+              if (validationResponse.success) {
+                button.textContent = 'Retrying...';
+                await onSync(fileName, fileType, projectInfo, direction);
+                button.textContent = '✓ Done';
+                button.style.background = '#48bb78';
+                setTimeout(() => {
+                  fileItem.style.opacity = '0.5';
+                  fileItem.style.pointerEvents = 'none';
+                }, 1000);
+              } else {
+                alert(
+                  'Session validation failed. Please:\n' +
+                  '1. Make sure you are logged into Claude.ai in this browser\n' +
+                  '2. Click the Eidolon extension icon to reconnect\n' +
+                  '3. Try syncing again'
+                );
+                button.textContent = '✗ Not Auth';
+                button.disabled = false;
+              }
+            } catch (authError) {
+              console.error('Authentication error:', authError);
+              alert('Failed to authenticate. Please click the extension icon to reconnect.');
+              button.textContent = '✗ Auth Failed';
+              button.disabled = false;
             }
-          } catch (authError) {
-            console.error('Authentication error:', authError);
-            alert('Failed to authenticate. Please click the extension icon to reconnect.');
-            syncButton.textContent = '✗ Auth Failed';
-            syncButton.disabled = false;
           }
+        } else {
+          // Regular error
+          alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
         }
-      } else {
-        // Regular error
-        alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
       }
-    }
-  });
+    });
 
-  fileItem.appendChild(fileNameSpan);
-  fileItem.appendChild(syncButton);
+    return button;
+  };
+
+  // Create appropriate buttons based on file type
+  if (fileType === 'remote-only') {
+    // File exists remotely but not locally
+    // Push = delete remote (user deleted it locally)
+    // Pull = download to local (restore deleted file)
+    buttonContainer.appendChild(createButton('🗑 Delete Remote', 'push'));
+    buttonContainer.appendChild(createButton('⬇ Restore Local', 'pull', true));
+  } else if (fileType === 'local-only') {
+    // File exists locally but not remotely
+    // Push = upload to remote (user created it locally)
+    // Pull = delete local (match remote state)
+    buttonContainer.appendChild(createButton('⬆ Upload', 'push', true));
+    buttonContainer.appendChild(createButton('🗑 Delete Local', 'pull'));
+  } else if (fileType === 'modified') {
+    // File exists in both but content differs
+    // Push = overwrite remote with local
+    // Pull = overwrite local with remote
+    buttonContainer.appendChild(createButton('⬆ Push Local', 'push'));
+    buttonContainer.appendChild(createButton('⬇ Pull Remote', 'pull', true));
+  }
+
+  topRow.appendChild(fileNameSpan);
+  topRow.appendChild(buttonContainer);
+  fileItem.appendChild(topRow);
+
+  // Add timestamp information for modified files if available
+  if (fileType === 'modified' && timestampInfo && (timestampInfo.localTime || timestampInfo.remoteTime)) {
+    const timestampRow = document.createElement('div');
+    timestampRow.style.cssText = `
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+      color: #718096;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+    `;
+
+    const formatTimestamp = (timestamp: number) => {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+
+    if (timestampInfo.localTime) {
+      const localTimeSpan = document.createElement('span');
+      localTimeSpan.innerHTML = `💻 Local: <strong>${formatTimestamp(timestampInfo.localTime)}</strong>`;
+      if (timestampInfo.isLocalNewer === true) {
+        localTimeSpan.innerHTML += ' <span style="color: #48bb78; font-weight: bold;">✓ Newer</span>';
+      }
+      timestampRow.appendChild(localTimeSpan);
+    }
+
+    if (timestampInfo.remoteTime) {
+      const remoteTimeSpan = document.createElement('span');
+      remoteTimeSpan.innerHTML = `☁️ Remote: <strong>${formatTimestamp(timestampInfo.remoteTime)}</strong>`;
+      if (timestampInfo.isLocalNewer === false) {
+        remoteTimeSpan.innerHTML += ' <span style="color: #48bb78; font-weight: bold;">✓ Newer</span>';
+      }
+      timestampRow.appendChild(remoteTimeSpan);
+    }
+
+    fileItem.appendChild(timestampRow);
+  }
+
   return fileItem;
 }
 
@@ -3176,7 +4018,8 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
           category.appendChild(title);
 
           p.modifiedFiles.forEach((file: string) => {
-            const fileItem = createFileItemWithSyncButton(file, 'modified', p, syncSingleFile);
+            const timestampInfo = p.modifiedFilesInfo?.[file];
+            const fileItem = createFileItemWithSyncButton(file, 'modified', p, syncSingleFile, timestampInfo);
             category.appendChild(fileItem);
           });
 
@@ -3197,6 +4040,9 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
             const renameItem = document.createElement('div');
             renameItem.className = 'diff-file-item renamed';
             renameItem.style.cssText = `
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
               padding: 8px 12px;
               background: #f0f9ff;
               border-radius: 4px;
@@ -3205,8 +4051,45 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
 
             const renameText = document.createElement('span');
             renameText.innerHTML = `<span style="text-decoration: line-through; color: #999;">${rename.oldName}</span> → <span style="font-weight: 500;">${rename.newName}</span>`;
+            renameText.style.cssText = 'flex: 1;';
+
+            const syncButton = document.createElement('button');
+            syncButton.textContent = '🔄 Sync Rename';
+            syncButton.style.cssText = `
+              padding: 4px 12px;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              border: none;
+              border-radius: 4px;
+              font-size: 12px;
+              cursor: pointer;
+              margin-left: 10px;
+            `;
+
+            syncButton.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              syncButton.disabled = true;
+              syncButton.textContent = 'Syncing...';
+              try {
+                // Smart direction: check which file exists and sync accordingly
+                // If local has newName → push (rename remote)
+                // If remote has newName → pull (rename local)
+                await syncRenameWithAutoDirection(rename, p);
+                syncButton.textContent = '✓ Done';
+                syncButton.style.background = '#48bb78';
+                setTimeout(() => {
+                  renameItem.style.opacity = '0.5';
+                  syncButton.disabled = true;
+                }, 500);
+              } catch (error) {
+                alert(`Failed to sync rename: ${(error as Error).message}`);
+                syncButton.disabled = false;
+                syncButton.textContent = '🔄 Sync Rename';
+              }
+            });
 
             renameItem.appendChild(renameText);
+            renameItem.appendChild(syncButton);
             category.appendChild(renameItem);
           });
 
@@ -3301,24 +4184,7 @@ function createDiffSection(title: string, description: string): HTMLElement {
 /**
  * Open workspace folder in file manager
  */
-async function openWorkspaceFolder() {
-  if (!state.workspaceHandle) {
-    alert('Workspace not configured');
-    return;
-  }
-
-  // Load config to get workspace path
-  const config = await getWorkspaceConfig();
-  const workspaceName = config.workspacePath || state.workspaceHandle.name;
-
-  alert(
-    `Workspace location: ${workspaceName}\n\n` +
-    `Note: Due to browser security restrictions, Chrome extensions cannot:\n` +
-    `• Display the full filesystem path\n` +
-    `• Directly open the file manager\n\n` +
-    `Please navigate to your workspace folder manually.`
-  );
-}
+// Removed: openWorkspaceFolder() - replaced with copy button functionality
 
 /**
  * Save sync settings
@@ -3329,6 +4195,7 @@ async function saveSyncSettings() {
     syncInterval: parseInt(syncIntervalSelect.value),
     bidirectional: bidirectionalSyncCheckbox.checked,
     syncChats: syncChatsCheckbox.checked,
+    autoAddMdExtension: autoAddMdExtensionCheckbox.checked,
     conflictStrategy: conflictStrategySelect.value as any
   };
 

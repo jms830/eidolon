@@ -23,88 +23,142 @@ export interface SearchFilters {
 }
 
 export class SearchService {
-  private worker: Worker | null = null;
-  private indexedCount = 0;
-  private messageHandlers: Map<string, (data: any) => void> = new Map();
+  private items: SearchableItem[] = [];
+  private termMap: Map<string, Set<string>> = new Map();
 
   constructor() {
-    this.initWorker();
+    // No worker needed - using inline search
   }
 
-  private initWorker(): void {
-    try {
-      // Create worker from the indexWorker file
-      this.worker = new Worker(
-        new URL('./indexWorker.ts', import.meta.url),
-        { type: 'module' }
-      );
+  private tokenize(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(term => term.length > 1);
+  }
 
-      this.worker.onmessage = (e: MessageEvent) => {
-        const { action, ...data } = e.data;
-        const handler = this.messageHandlers.get(action);
-        if (handler) {
-          handler(data);
+  private buildIndex(items: SearchableItem[]): void {
+    this.items = items;
+    this.termMap.clear();
+
+    items.forEach(item => {
+      const searchableText = [
+        item.title,
+        item.content || '',
+        item.description || '',
+        item.metadata.projectName || '',
+        ...(item.metadata.tags || [])
+      ].join(' ');
+
+      const terms = this.tokenize(searchableText);
+      terms.forEach(term => {
+        if (!this.termMap.has(term)) {
+          this.termMap.set(term, new Set());
         }
-      };
-
-      this.worker.onerror = (error) => {
-        console.error('Search worker error:', error);
-      };
-    } catch (error) {
-      console.error('Failed to initialize search worker:', error);
-    }
+        this.termMap.get(term)!.add(item.id);
+      });
+    });
   }
 
   /**
    * Index items for searching
    */
   async indexItems(items: SearchableItem[]): Promise<void> {
-    return new Promise((resolve) => {
-      this.messageHandlers.set('indexed', (data) => {
-        this.indexedCount = data.itemCount;
-        this.messageHandlers.delete('indexed');
-        resolve();
-      });
-
-      this.worker?.postMessage({
-        action: 'index',
-        data: { items }
-      });
-    });
+    this.buildIndex(items);
   }
 
   /**
    * Search indexed items
    */
   async search(query: string, filters?: SearchFilters): Promise<SearchableItem[]> {
-    return new Promise((resolve) => {
-      this.messageHandlers.set('results', (data) => {
-        this.messageHandlers.delete('results');
-        resolve(data.results);
+    if (!query.trim()) return [];
+
+    const queryTerms = this.tokenize(query);
+    const itemScores = new Map<string, number>();
+
+    // Find items matching query terms
+    queryTerms.forEach(term => {
+      // Exact matches
+      const exactIds = this.termMap.get(term) || new Set();
+      exactIds.forEach(id => {
+        itemScores.set(id, (itemScores.get(id) || 0) + 10);
       });
 
-      this.worker?.postMessage({
-        action: 'search',
-        data: { query, filters }
+      // Partial matches (substring)
+      this.termMap.forEach((ids, indexedTerm) => {
+        if (indexedTerm.includes(term) || term.includes(indexedTerm)) {
+          ids.forEach(id => {
+            if (!exactIds.has(id)) {
+              itemScores.set(id, (itemScores.get(id) || 0) + 5);
+            }
+          });
+        }
       });
     });
+
+    // Get items and apply filters
+    let results = Array.from(itemScores.entries())
+      .map(([id, score]) => ({
+        item: this.items.find(item => item.id === id)!,
+        score
+      }))
+      .filter(result => result.item);
+
+    // Apply filters
+    if (filters) {
+      if (filters.type && filters.type.length > 0) {
+        results = results.filter(r => filters.type!.includes(r.item.type));
+      }
+
+      if (filters.tags && filters.tags.length > 0) {
+        results = results.filter(r =>
+          filters.tags!.some(tag => r.item.metadata.tags?.includes(tag))
+        );
+      }
+
+      if (filters.projectId) {
+        results = results.filter(r => r.item.metadata.projectId === filters.projectId);
+      }
+
+      if (filters.dateRange) {
+        results = results.filter(r => {
+          const itemDate = r.item.metadata.updatedAt || r.item.metadata.createdAt;
+          if (!itemDate) return true;
+
+          if (filters.dateRange!.start && itemDate < filters.dateRange!.start) {
+            return false;
+          }
+          if (filters.dateRange!.end && itemDate > filters.dateRange!.end) {
+            return false;
+          }
+          return true;
+        });
+      }
+    }
+
+    // Sort by score (highest first)
+    results.sort((a, b) => b.score - a.score);
+
+    return results.map(r => r.item);
   }
 
   /**
    * Add a single item to the index
    */
   async addItem(item: SearchableItem): Promise<void> {
-    return new Promise((resolve) => {
-      this.messageHandlers.set('item-added', () => {
-        this.indexedCount++;
-        this.messageHandlers.delete('item-added');
-        resolve();
-      });
+    this.items.push(item);
+    const terms = this.tokenize([
+      item.title,
+      item.content || '',
+      item.description || ''
+    ].join(' '));
 
-      this.worker?.postMessage({
-        action: 'add-item',
-        data: { item }
-      });
+    terms.forEach(term => {
+      if (!this.termMap.has(term)) {
+        this.termMap.set(term, new Set());
+      }
+      this.termMap.get(term)!.add(item.id);
     });
   }
 
@@ -112,51 +166,36 @@ export class SearchService {
    * Remove an item from the index
    */
   async removeItem(itemId: string): Promise<void> {
-    return new Promise((resolve) => {
-      this.messageHandlers.set('item-removed', () => {
-        this.indexedCount--;
-        this.messageHandlers.delete('item-removed');
-        resolve();
-      });
-
-      this.worker?.postMessage({
-        action: 'remove-item',
-        data: { itemId }
-      });
+    this.items = this.items.filter(item => item.id !== itemId);
+    this.termMap.forEach((ids, term) => {
+      ids.delete(itemId);
+      if (ids.size === 0) {
+        this.termMap.delete(term);
+      }
     });
   }
 
   /**
    * Clear the entire index
    */
-  async clear(): Promise<void> {
-    return new Promise((resolve) => {
-      this.messageHandlers.set('cleared', () => {
-        this.indexedCount = 0;
-        this.messageHandlers.delete('cleared');
-        resolve();
-      });
-
-      this.worker?.postMessage({
-        action: 'clear'
-      });
-    });
+  async clearIndex(): Promise<void> {
+    this.items = [];
+    this.termMap.clear();
   }
 
   /**
    * Get the number of indexed items
    */
   getIndexedCount(): number {
-    return this.indexedCount;
+    return this.items.length;
   }
 
   /**
-   * Cleanup worker
+   * Cleanup (no-op since no worker)
    */
   destroy(): void {
-    this.worker?.terminate();
-    this.worker = null;
-    this.messageHandlers.clear();
+    this.items = [];
+    this.termMap.clear();
   }
 }
 

@@ -39,7 +39,9 @@ When asked to backup Memory Bank System files, you will copy the core context fi
 
 Eidolon is a Chrome extension (Manifest V3) that integrates with Claude.ai for project and knowledge management. Built using the **WXT framework** for streamlined web extension development.
 
-**Stack:** WXT (next-gen web extension framework), TypeScript, Preact, Tailwind CSS
+**Stack:** WXT (next-gen web extension framework), TypeScript, Preact, Custom CSS (Tailwind-inspired)
+
+**Note:** The project uses custom CSS with Tailwind-like utility patterns but does not have an official `tailwind.config.js` configuration file.
 
 ## Development Commands
 
@@ -63,7 +65,7 @@ npm run build:firefox
 npm run zip
 npm run zip:firefox
 
-# Run tests
+# Run tests (note: Vitest configured but no test files exist yet)
 npm test
 
 # Run tests with UI
@@ -85,35 +87,101 @@ npm run postinstall
 WXT uses a **file-based entrypoint system** where files in `entrypoints/` directory automatically become extension components.
 
 **Key Directories:**
-- `entrypoints/` - Extension entry points (background, popup, content scripts, etc.)
-- `components/` - Shared UI components
-- `utils/` - Shared utilities and helpers
+- `entrypoints/` - Extension entry points (background, popup, content scripts, dashboard)
+- `components/` - Shared UI components (currently unused)
+- `utils/` - Shared utilities and helpers (api, search, sync, tags)
 - `public/` - Static assets (icons, etc.)
 - `.output/` - Build output directory
 
+**Legacy Code Note:** The `/src/` directory contains pre-WXT migration artifacts and can be removed. The old `manifest.json` in root is also legacy - WXT auto-generates the real manifest in `.output/`.
+
 ### Extension Components
 
-1. **Background Script** (`entrypoints/background.ts` or `entrypoints/background/index.ts`)
+1. **Background Script** (`entrypoints/background.ts`)
    - Uses `defineBackground()` from WXT
    - Handles authentication, API communication, and message routing
    - Manages session state and Claude.ai API client singleton
    - Creates context menus and handles keyboard shortcuts
    - Monitors cookie changes for session invalidation
 
-2. **Popup UI** (`entrypoints/popup/` or `entrypoints/popup.html`)
-   - Browser action popup with `index.html`, component files, and styles
+2. **Popup UI** (`entrypoints/popup/`)
+   - Browser action popup with `index.html`, main.ts, and styles
    - Displays projects list, recent conversations, and quick actions
    - Communicates with background script via `browser.runtime.sendMessage()`
 
-3. **Content Scripts** (`entrypoints/*.content.ts`)
+3. **Content Script** (`entrypoints/claude.content.ts`)
    - Uses `defineContentScript()` from WXT
-   - Specify matches, main function, and other options
-   - Can create Shadow Root UIs for isolated components
+   - Integrates with Claude.ai pages
+   - Injects UI elements and quick actions
+   - Captures conversation context
 
-4. **API Client** (`utils/api/` or similar)
+4. **Dashboard** (`entrypoints/dashboard/`)
+   - Full-page interface (index.html, main.ts, style.css)
+   - Advanced project/file management with grid/list views
+   - Workspace sync configuration and controls
+   - Authentication status modal with session validation
+   - Bulk operations and search functionality
+   - **Note:** Dashboard main.ts is 4,000+ lines - substantial UI logic
+
+5. **API Client** (`utils/api/`)
    - TypeScript client for Claude.ai REST API
    - Type definitions for Organizations, Projects, Files, Conversations
    - Implements exponential backoff retry logic and rate limit handling
+
+### Dual API Client Implementations
+
+**Two ClaudeAPIClient implementations exist:**
+
+1. **Background Script** (`entrypoints/background.ts`) - Embedded client for message passing
+2. **Standalone Client** (`utils/api/client.ts`) - Used by SyncManager and other utilities
+
+Both implement the same interface but the standalone client has more sophisticated retry logic. When adding features:
+- Use background script client for popup/dashboard message passing
+- Use standalone client for direct API calls in utilities (sync, search, tags)
+
+### Workspace Sync System (FULLY IMPLEMENTED)
+
+**Location:** `utils/sync/`
+
+A fully-implemented bidirectional sync system between Claude.ai projects and local filesystem:
+
+**Key Components:**
+- **SyncManager** (`SyncManager.ts`) - Core sync orchestration with conflict resolution (38KB)
+- **WorkspaceConfig** (`workspaceConfig.ts`) - Workspace settings and preferences
+- **FileSystem API** (`fileSystem.ts`) - Native browser File System Access API wrappers
+- **Hash Utils** (`hashUtils.ts`) - MD5-based change detection for efficient diffing
+- **Handle Storage** (`handleStorage.ts`) - IndexedDB persistence for FileSystemDirectoryHandle
+- **Types** (`types.ts`) - Comprehensive sync-related type definitions
+
+**Sync Features:**
+- **Bidirectional sync** - Upload to Claude.ai or download to local filesystem
+- **Change detection** - MD5 hashing compares local vs remote file states
+- **Conflict resolution** - Strategies: remote wins, local wins, newer wins, prompt user
+- **Workspace management** - Designated local folder syncs all projects
+- **Progress tracking** - Real-time callbacks for sync progress
+- **Dry-run mode** - Preview changes before applying
+- **Incremental sync** - Only sync changed files based on hash comparison
+
+**IndexedDB Usage:**
+FileSystemDirectoryHandle references are stored in IndexedDB (via `handleStorage.ts`) to persist workspace folder access across browser sessions. This allows the extension to re-access the workspace directory without re-prompting the user.
+
+**Sync API Example:**
+```typescript
+// Initialize sync manager
+const syncManager = new SyncManager(apiClient);
+
+// Configure workspace
+await syncManager.setWorkspaceDirectory(directoryHandle);
+
+// Perform bidirectional sync
+await syncManager.syncAll('bidirectional', {
+  conflictResolution: 'newer',
+  onProgress: (progress) => console.log(progress)
+});
+
+// Diff before syncing (preview changes)
+const diff = await syncManager.diffWorkspace();
+```
 
 ### WXT Configuration
 
@@ -146,6 +214,7 @@ All handlers return `{ success: boolean, data?: any, error?: string }`
 ### Storage Schema
 
 ```typescript
+// chrome.storage.local
 chrome.storage.local: {
   sessionKey: string,
   currentOrg: Organization,
@@ -154,8 +223,18 @@ chrome.storage.local: {
     type: 'text' | 'page',
     content: string,
     source: string
+  },
+  workspaceConfig: {
+    directoryName: string,
+    conflictResolution: 'remote' | 'local' | 'newer' | 'prompt',
+    lastSync: number
   }
 }
+
+// IndexedDB (via handleStorage.ts)
+// Stores FileSystemDirectoryHandle for workspace persistence
+// Database: 'eidolon-handles'
+// Store: 'directory-handles'
 ```
 
 ### ClaudeAPIClient Key Methods
@@ -185,104 +264,36 @@ chrome.storage.local: {
 - `Ctrl+Shift+E` (Mac: `MacCtrl+Shift+E`) - Open extension popup
 - `Ctrl+Shift+U` (Mac: `MacCtrl+Shift+U`) - Quick upload
 
-## UX/UI Insights & Feature Ideas
+## Implemented Features & Current State
 
-### Learnings from Echoes Extension
-
-Echoes is a successful multi-AI platform extension supporting ChatGPT, Claude, Gemini, DeepSeek, and Grok. Key patterns to adopt:
-
-**Dual Interface Pattern:**
-- **Popup UI** - Quick access for common actions (what Eidolon currently has)
-- **Full Dashboard Page** (`entrypoints/dashboard.html`) - Dedicated full-page interface for power features:
-  - Advanced search across all projects/conversations
-  - Bulk operations (multi-select projects/files)
-  - Analytics and usage insights
-  - Comprehensive settings
-  - File/project management grid views
+**Core Functionality (COMPLETE):**
+- ✅ Full Dashboard page with advanced UI (4,000+ lines in dashboard/main.ts)
+- ✅ Content script integration on Claude.ai pages
+- ✅ Workspace sync system (bidirectional, change detection, conflict resolution)
+- ✅ Local search across projects/files (inline SearchService)
+- ✅ Bulk operations and multi-select
+- ✅ Tagging system for projects (`utils/tags/`)
+- ✅ Authentication status modal with session validation
 
 **Search & Indexing:**
-- Client-side full-text search using Web Worker (`SearchIndexWorker`)
-- Index projects, files, and conversation metadata locally for instant search
-- Non-blocking search operations via dedicated worker thread
-- Filter by date, tags, platform, project
+- Client-side search using `SearchService` (`utils/search/searchService.ts`)
+- Inline search implementation (not Web Worker)
+- Filter projects, files, and conversations
+- Web Worker implementation exists (`indexWorker.ts`) but currently unused
 
-**Content Script Integration:**
-- Inject UI elements directly into Claude.ai pages
-- Add quick-action buttons in conversation sidebar
-- Capture conversation context for local search index
-- Use `createShadowRootUi()` for isolated styling
+**Testing Gap:**
+- ⚠️ Vitest configured but **no test files exist yet**
+- Need to create `vitest.config.ts` and add tests for:
+  - SyncManager (sync logic, conflict resolution, change detection)
+  - SearchService (search/filter functionality)
+  - ClaudeAPIClient (API operations, error handling, retries)
 
-**Conversation Management Features:**
-- **Labels/Tags System** - Organize conversations with custom labels
-- **Bulk Actions** - Multi-select with checkboxes for batch operations
-- **Export Functionality** - Export conversations to CSV/JSON/Markdown
-- **Summarization** - AI-powered summaries of long conversations
-
-**Multi-Platform Architecture:**
-- Content scripts for each supported platform
-- Platform-specific branding (logos, icons)
-- Unified data model across platforms
-- Consider supporting: ChatGPT Projects API, Google Gemini
-
-**Privacy & Permissions:**
-- Minimal permissions model (no broad `<all_urls>`)
-- Specific host permissions only for required domains
-- Local-first data storage (no cloud sync by default)
-- Optional telemetry with clear opt-in
-
-### Priority Features to Implement
-
-**Phase 1 - Essential:**
-1. **Full Dashboard Page** - Create `entrypoints/dashboard.html` for advanced features
-2. **Content Script** - Inject UI into Claude.ai pages (`entrypoints/claude.content.ts`)
-3. **Local Search** - Web Worker-based search across projects/files
-4. **Bulk Operations** - Multi-select for projects and files
-
-**Phase 2 - Enhanced:**
-5. **Tagging System** - Label projects and conversations
-6. **Export Functionality** - Export to multiple formats
-7. **Advanced Filters** - By date, tags, file type, etc.
-8. **Usage Analytics** - Track API usage, project sizes, activity
-
-**Phase 3 - Advanced:**
-9. **Multi-Platform Support** - ChatGPT, Gemini integration
-10. **Conversation Summarization** - AI-powered summaries
-11. **Offline Mode** - Cached project data for offline access
-12. **Sync Options** - Optional cloud backup/sync
-
-### Implementation Notes
-
-**Dashboard Page Structure:**
-```typescript
-// entrypoints/dashboard/index.html
-// Full-page interface with:
-// - Search bar with filters
-// - Project grid/list view toggle
-// - Bulk action toolbar
-// - Stats/analytics widgets
-```
-
-**Search Worker Pattern:**
-```typescript
-// utils/search/indexWorker.ts
-// Web Worker for non-blocking search
-// - Index project names, descriptions, file contents
-// - Full-text search with fuzzy matching
-// - Return ranked results
-```
-
-**Content Script Injection:**
-```typescript
-// entrypoints/claude.content.ts
-export default defineContentScript({
-  matches: ['https://claude.ai/*'],
-  main(ctx) {
-    // Inject quick-action buttons
-    // Add "Save to Project" button to conversations
-    // Capture conversation metadata
-  }
-});
-```
+**Potential Enhancements:**
+- Export functionality (conversations to CSV/JSON/Markdown)
+- Conversation summarization with AI
+- Multi-platform support (ChatGPT, Gemini)
+- Switch to Web Worker for search (indexWorker.ts exists but unused)
+- Analytics/usage insights
 
 ## Critical Implementation Notes
 
@@ -291,8 +302,8 @@ export default defineContentScript({
 **Entrypoint Definition:**
 - Background: `export default defineBackground(() => { ... })`
 - Content Script: `export default defineContentScript({ matches, main: (ctx) => { ... } })`
-- Popup: Create `entrypoints/popup/index.html` with accompanying `.ts` files
-- Use file naming: `*.content.ts` for content scripts (e.g., `google.content.ts`)
+- Dashboard/Popup: Create `entrypoints/dashboard/index.html` or `entrypoints/popup/index.html` with accompanying `.ts` files
+- Use file naming: `*.content.ts` for content scripts (e.g., `claude.content.ts`)
 
 **Browser API Access:**
 - Use `browser` namespace (auto-imported by WXT) - works cross-browser
@@ -348,21 +359,34 @@ export default defineContentScript({
 
 ```
 entrypoints/
-├── background.ts              # or background/index.ts
+├── background.ts              # Service worker
 ├── popup/
 │   ├── index.html
-│   ├── App.tsx               # Main component
-│   ├── main.tsx              # Entry point
+│   ├── main.ts               # Entry point
 │   └── style.css
-└── google.content.ts         # Content script for Google
-
-components/
-└── Button.tsx                # Shared components
+├── dashboard/
+│   ├── index.html
+│   ├── main.ts               # Entry point (4,000+ lines)
+│   └── style.css
+└── claude.content.ts         # Content script for Claude.ai
 
 utils/
-└── api/
-    ├── client.ts             # API client
-    └── types.ts              # Type definitions
+├── api/
+│   ├── client.ts             # ClaudeAPIClient
+│   └── types.ts              # Type definitions
+├── sync/
+│   ├── SyncManager.ts        # Sync orchestration
+│   ├── workspaceConfig.ts    # Config management
+│   ├── fileSystem.ts         # FileSystem Access API
+│   ├── hashUtils.ts          # MD5 hashing
+│   ├── handleStorage.ts      # IndexedDB storage
+│   └── types.ts              # Sync types
+├── search/
+│   ├── searchService.ts      # Search functionality
+│   └── indexWorker.ts        # Web Worker (unused)
+└── tags/
+    ├── tagsService.ts        # Tag CRUD
+    └── tagsUI.ts             # Tag UI components
 
 public/
 └── icon-*.png                # Icons
@@ -416,7 +440,7 @@ const value = await sessionKey.getValue();
 
 - Use `@webext-core/fake-browser` for unit testing browser APIs
 - WXT provides `fakeBrowser` import for testing
-- Configure Vitest in `vitest.config.ts`
+- **Note:** Vitest is configured but no test files exist yet - testing infrastructure needs to be created
 
 ## ALWAYS START WITH THESE COMMANDS FOR COMMON TASKS
 
@@ -463,30 +487,30 @@ ls -la              # OK for single directory view
 ### Use These Faster Tools Instead
 
 ```bash
-# ripgrep (rg) - content search 
+# ripgrep (rg) - content search
 rg "search_term"                # Search in all files
 rg -i "case_insensitive"        # Case-insensitive
 rg "pattern" -t py              # Only Python files
 rg "pattern" -g "*.md"          # Only Markdown
 rg -1 "pattern"                 # Filenames with matches
 rg -c "pattern"                 # Count matches per file
-rg -n "pattern"                 # Show line numbers 
+rg -n "pattern"                 # Show line numbers
 rg -A 3 -B 3 "error"            # Context lines
 rg " (TODO| FIXME | HACK)"      # Multiple patterns
 
-# ripgrep (rg) - file listing 
+# ripgrep (rg) - file listing
 rg --files                      # List files (respects •gitignore)
-rg --files | rg "pattern"       # Find files by name 
-rg --files -t md                # Only Markdown files 
+rg --files | rg "pattern"       # Find files by name
+rg --files -t md                # Only Markdown files
 
-# fd - file finding 
-fd -e js                        # All •js files (fast find) 
-fd -x command {}                # Exec per-file 
-fd -e md -x ls -la {}           # Example with ls 
+# fd - file finding
+fd -e js                        # All •js files (fast find)
+fd -x command {}                # Exec per-file
+fd -e md -x ls -la {}           # Example with ls
 
-# jq - JSON processing 
-jq. data.json                   # Pretty-print 
-jq -r .name file.json           # Extract field 
+# jq - JSON processing
+jq. data.json                   # Pretty-print
+jq -r .name file.json           # Extract field
 jq '.id = 0' x.json             # Modify field
 ```
 

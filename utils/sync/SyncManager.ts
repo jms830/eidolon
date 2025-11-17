@@ -71,6 +71,7 @@ export class SyncManager {
       updated: 0,
       skipped: 0,
       errors: 0,
+      chats: 0,
     };
     const errors: string[] = [];
 
@@ -113,7 +114,8 @@ export class SyncManager {
             dryRun
           );
 
-          stats[result]++;
+          stats[result.status]++;
+          stats.chats! += result.chatsCount;
 
           this.reportProgress({
             phase: 'syncing',
@@ -127,6 +129,29 @@ export class SyncManager {
           stats.errors++;
           errors.push(`${project.name}: ${(error as Error).message}`);
           console.error(`Error syncing project ${project.name}:`, error);
+        }
+      }
+
+      // Sync standalone chats (chats without projects) if enabled
+      if (config.settings.syncChats) {
+        try {
+          this.reportProgress({
+            phase: 'syncing',
+            message: 'Syncing standalone conversations...',
+            percentage: 95,
+          });
+
+          const standaloneChats = await this.syncConversations(
+            workspaceHandle,
+            orgId,
+            null, // null projectId = standalone chats
+            null, // null projectName = standalone chats
+            dryRun
+          );
+
+          stats.chats! += standaloneChats;
+        } catch (error) {
+          console.warn('Could not sync standalone conversations:', error);
         }
       }
 
@@ -167,6 +192,128 @@ export class SyncManager {
   }
 
   /**
+   * Sync only conversations/chats - no file sync
+   */
+  async chatsOnlySync(
+    workspaceHandle: FileSystemDirectoryHandle,
+    orgId: string,
+    dryRun: boolean = false
+  ): Promise<SyncResult> {
+    const stats: SyncStats = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: 0,
+      chats: 0,
+    };
+    const errors: string[] = [];
+
+    try {
+      this.reportProgress({
+        phase: 'fetching',
+        message: 'Fetching conversations from Claude.ai...',
+        percentage: 0,
+      });
+
+      // Fetch all projects to sync their chats
+      const projects = await this.apiClient.getProjects(orgId);
+      const totalItems = (projects?.length || 0) + 1; // +1 for standalone chats
+      let completed = 0;
+
+      const config = await getWorkspaceConfig();
+
+      // Sync chats for each project
+      if (projects && projects.length > 0) {
+        for (const project of projects) {
+          try {
+            this.reportProgress({
+              phase: 'syncing',
+              currentProject: project.name,
+              totalProjects: totalItems,
+              completedProjects: completed,
+              percentage: Math.round((completed / totalItems) * 100),
+              message: `Syncing chats for ${project.name}...`,
+            });
+
+            const chatCount = await this.syncConversations(
+              workspaceHandle,
+              orgId,
+              project.uuid,
+              project.name,
+              dryRun
+            );
+
+            stats.chats! += chatCount;
+            completed++;
+          } catch (error) {
+            stats.errors++;
+            errors.push(`${project.name} chats: ${(error as Error).message}`);
+            console.error(`Error syncing chats for ${project.name}:`, error);
+          }
+        }
+      }
+
+      // Sync standalone chats
+      try {
+        this.reportProgress({
+          phase: 'syncing',
+          message: 'Syncing standalone conversations...',
+          totalProjects: totalItems,
+          completedProjects: completed,
+          percentage: Math.round((completed / totalItems) * 100),
+        });
+
+        const standaloneChats = await this.syncConversations(
+          workspaceHandle,
+          orgId,
+          null,
+          null,
+          dryRun
+        );
+
+        stats.chats! += standaloneChats;
+        completed++;
+      } catch (error) {
+        stats.errors++;
+        errors.push(`Standalone chats: ${(error as Error).message}`);
+        console.warn('Could not sync standalone conversations:', error);
+      }
+
+      if (!dryRun) {
+        await updateLastSync();
+      }
+
+      this.reportProgress({
+        phase: 'complete',
+        totalProjects: totalItems,
+        completedProjects: completed,
+        percentage: 100,
+        message: 'Chat sync complete!',
+      });
+
+      return {
+        success: stats.errors === 0,
+        stats,
+        errors,
+      };
+    } catch (error) {
+      this.reportProgress({
+        phase: 'error',
+        totalProjects: 0,
+        completedProjects: 0,
+        percentage: 0,
+        message: `Chat sync failed: ${(error as Error).message}`,
+      });
+
+      return {
+        success: false,
+        stats,
+        errors: [(error as Error).message],
+      };
+    }
+  }
+
+  /**
    * Sync individual project
    */
   private async syncProject(
@@ -175,7 +322,7 @@ export class SyncManager {
     project: any,
     config: WorkspaceConfig,
     dryRun: boolean
-  ): Promise<'created' | 'updated' | 'skipped'> {
+  ): Promise<{ status: 'created' | 'updated' | 'skipped'; chatsCount: number }> {
     const projectId = project.uuid;
     const projectName = project.name;
 
@@ -201,12 +348,23 @@ export class SyncManager {
     }
 
     if (dryRun) {
-      // Just report what would happen
+      // Just report what would happen - also count chats for dry run
+      let chatCount = 0;
+      if (config.settings.syncChats) {
+        chatCount = await this.syncConversations(
+          workspaceHandle,
+          orgId,
+          projectId,
+          projectName,
+          true // dry run
+        );
+      }
+
       try {
         await workspaceHandle.getDirectoryHandle(folderName);
-        return 'updated';
+        return { status: 'updated', chatsCount: chatCount };
       } catch {
-        return 'created';
+        return { status: 'created', chatsCount: chatCount };
       }
     }
 
@@ -236,6 +394,18 @@ export class SyncManager {
     // Fetch project files
     const files = await this.apiClient.getProjectFiles(orgId, projectId);
     if (!files || files.length === 0) {
+      // Sync chats even if no files
+      let chatsSynced = 0;
+      if (config.settings.syncChats) {
+        chatsSynced = await this.syncConversations(
+          workspaceHandle,
+          orgId,
+          projectId,
+          projectName,
+          dryRun
+        );
+      }
+
       // Save metadata even if no files
       await this.saveProjectMetadata(projectHandle, {
         id: projectId,
@@ -243,7 +413,7 @@ export class SyncManager {
         orgId,
         syncedAt: new Date().toISOString(),
       });
-      return isNew ? 'created' : 'skipped';
+      return { status: isNew ? 'created' : 'skipped', chatsCount: chatsSynced };
     }
 
     // Create context folder for knowledge files
@@ -289,48 +459,15 @@ export class SyncManager {
     }
 
     // Sync chat conversations if enabled
+    let chatsSynced = 0;
     if (config.settings.syncChats) {
-      try {
-        // Fetch all conversations for this organization
-        const allConversations = await this.apiClient.getConversations(orgId);
-
-        // Filter conversations that belong to this project
-        const projectConversations = allConversations.filter(
-          conv => conv.project_uuid === projectId
-        );
-
-        if (projectConversations.length > 0) {
-          // Create chats folder
-          const chatsHandle = await getOrCreateDirectory(projectHandle, 'chats');
-
-          // Download each conversation with full message history
-          for (const conversation of projectConversations) {
-            try {
-              // Fetch full conversation with messages
-              const fullConversation = await this.apiClient.getConversation(
-                orgId,
-                conversation.uuid
-              );
-
-              // Format conversation as markdown
-              const markdown = this.formatConversationAsMarkdown(fullConversation);
-
-              // Sanitize conversation name for filename
-              const fileName = this.sanitizeFileName(conversation.name) + '.md';
-
-              // Write to chats folder
-              await writeTextFile(chatsHandle, fileName, markdown);
-            } catch (error) {
-              console.error(
-                `Error syncing conversation ${conversation.name}:`,
-                error
-              );
-            }
-          }
-        }
-      } catch (error) {
-        console.warn(`Could not sync conversations for ${projectName}:`, error);
-      }
+      chatsSynced = await this.syncConversations(
+        workspaceHandle,
+        orgId,
+        projectId,
+        projectName,
+        dryRun
+      );
     }
 
     // Save project metadata
@@ -341,7 +478,8 @@ export class SyncManager {
       syncedAt: new Date().toISOString(),
     });
 
-    return isNew ? 'created' : filesUpdated > 0 ? 'updated' : 'skipped';
+    const status = isNew ? 'created' : filesUpdated > 0 ? 'updated' : 'skipped';
+    return { status, chatsCount: chatsSynced };
   }
 
   /**
@@ -370,6 +508,84 @@ export class SyncManager {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Sync conversations for a project or standalone conversations
+   * @returns Number of conversations synced
+   */
+  private async syncConversations(
+    workspaceHandle: FileSystemDirectoryHandle,
+    orgId: string,
+    projectId: string | null,
+    projectName: string | null,
+    dryRun: boolean = false
+  ): Promise<number> {
+    let chatsSynced = 0;
+
+    try {
+      // Fetch all conversations for this organization
+      const allConversations = await this.apiClient.getConversations(orgId);
+
+      // Filter conversations based on project
+      const conversations = projectId
+        ? allConversations.filter(conv => conv.project_uuid === projectId)
+        : allConversations.filter(conv => !conv.project_uuid);
+
+      if (conversations.length === 0) {
+        return 0;
+      }
+
+      // Get or create the target directory
+      let chatsHandle: FileSystemDirectoryHandle;
+
+      if (projectId && projectName) {
+        // Chats belong to a project - save in project/chats/
+        const config = await getWorkspaceConfig();
+        const folderName = config.projectMap[projectId] || sanitizeProjectName(projectName);
+        const projectHandle = await workspaceHandle.getDirectoryHandle(folderName);
+        chatsHandle = await getOrCreateDirectory(projectHandle, 'chats');
+      } else {
+        // Standalone chats - save in Claude/chats/
+        const claudeHandle = await getOrCreateDirectory(workspaceHandle, 'Claude');
+        chatsHandle = await getOrCreateDirectory(claudeHandle, 'chats');
+      }
+
+      if (dryRun) {
+        return conversations.length;
+      }
+
+      // Download each conversation with full message history
+      for (const conversation of conversations) {
+        try {
+          // Fetch full conversation with messages
+          const fullConversation = await this.apiClient.getConversation(
+            orgId,
+            conversation.uuid
+          );
+
+          // Format conversation as markdown
+          const markdown = this.formatConversationAsMarkdown(fullConversation);
+
+          // Sanitize conversation name for filename
+          const fileName = this.sanitizeFileName(conversation.name) + '.md';
+
+          // Write to chats folder
+          await writeTextFile(chatsHandle, fileName, markdown);
+          chatsSynced++;
+        } catch (error) {
+          console.error(
+            `Error syncing conversation ${conversation.name}:`,
+            error
+          );
+        }
+      }
+    } catch (error) {
+      const target = projectName || 'standalone chats';
+      console.warn(`Could not sync conversations for ${target}:`, error);
+    }
+
+    return chatsSynced;
   }
 
   /**
@@ -434,6 +650,7 @@ export class SyncManager {
       errors: 0,
       uploaded: 0,
       conflicts: 0,
+      chats: 0,
     };
     const errors: string[] = [];
 
@@ -490,6 +707,9 @@ export class SyncManager {
           if (result.conflicts > 0) {
             stats.conflicts = (stats.conflicts || 0) + result.conflicts;
           }
+          if (result.chatsCount > 0) {
+            stats.chats! += result.chatsCount;
+          }
 
           completed++;
           this.reportProgress({
@@ -514,7 +734,7 @@ export class SyncManager {
           const projects = await this.apiClient.getProjects(orgId);
           const project = projects.find(p => p.uuid === remoteProject.id);
           if (project) {
-            await this.syncProject(
+            const result = await this.syncProject(
               workspaceHandle,
               orgId,
               project,
@@ -522,6 +742,7 @@ export class SyncManager {
               dryRun
             );
             stats.created++;
+            stats.chats! += result.chatsCount;
           }
 
           completed++;
@@ -538,6 +759,29 @@ export class SyncManager {
           errors.push(`${remoteProject.name}: ${(error as Error).message}`);
           console.error(`Error syncing project ${remoteProject.name}:`, error);
           completed++;
+        }
+      }
+
+      // Sync standalone chats (chats without projects) if enabled
+      if (config.settings.syncChats) {
+        try {
+          this.reportProgress({
+            phase: 'syncing',
+            message: 'Syncing standalone conversations...',
+            percentage: 95,
+          });
+
+          const standaloneChats = await this.syncConversations(
+            workspaceHandle,
+            orgId,
+            null,
+            null,
+            dryRun
+          );
+
+          stats.chats! += standaloneChats;
+        } catch (error) {
+          console.warn('Could not sync standalone conversations:', error);
         }
       }
 
@@ -587,7 +831,7 @@ export class SyncManager {
     conflictStrategy: ConflictStrategy,
     config: WorkspaceConfig,
     dryRun: boolean
-  ): Promise<{ uploaded: number; conflicts: number }> {
+  ): Promise<{ uploaded: number; conflicts: number; chatsCount: number }> {
     const projectId = projectDiff.id;
     let uploaded = 0;
     let conflicts = 0;
@@ -829,6 +1073,22 @@ export class SyncManager {
       }
     }
 
+    // Sync chat conversations if enabled (do this before error check so chats sync even if files fail)
+    let chatsSynced = 0;
+    if (!dryRun && config.settings.syncChats) {
+      // Get workspace handle from project handle
+      const workspaceHandle = await projectHandle.getParent();
+      if (workspaceHandle) {
+        chatsSynced = await this.syncConversations(
+          workspaceHandle,
+          orgId,
+          projectId,
+          projectDiff.name,
+          dryRun
+        );
+      }
+    }
+
     // If any files failed to sync, throw error with details
     if (fileErrors.length > 0) {
       throw new Error(
@@ -836,7 +1096,7 @@ export class SyncManager {
       );
     }
 
-    return { uploaded, conflicts };
+    return { uploaded, conflicts, chatsCount: chatsSynced };
   }
 
   /**
@@ -998,6 +1258,11 @@ export class SyncManager {
     const remoteOnlyFiles: string[] = [];
     const localOnlyFiles: string[] = [];
     const modifiedFiles: string[] = [];
+    const modifiedFilesInfo: Record<string, {
+      localTime?: number;
+      remoteTime?: number;
+      isLocalNewer?: boolean;
+    }> = {};
     const renamedFiles: Array<{ oldName: string; newName: string }> = [];
 
     // Files only in remote
@@ -1089,6 +1354,8 @@ export class SyncManager {
         try {
           let localContent: string | null = null;
           let remoteContent: string = '';
+          let localModifiedTime: number | undefined = undefined;
+          let remoteModifiedTime: number | undefined = undefined;
 
           if (fileName === 'AGENTS.md') {
             localContent = await readTextFile(projectHandle, 'AGENTS.md');
@@ -1097,11 +1364,39 @@ export class SyncManager {
               remoteProject.uuid
             );
             remoteContent = instructionsData?.content?.trim() || '';
+
+            // Get local file timestamp
+            try {
+              const fileHandle = await projectHandle.getFileHandle('AGENTS.md');
+              const file = await fileHandle.getFile();
+              localModifiedTime = file.lastModified;
+            } catch {
+              // Couldn't get timestamp
+            }
+
+            // Remote timestamp for AGENTS.md (if available in instructionsData)
+            if (instructionsData && (instructionsData as any).updated_at) {
+              remoteModifiedTime = new Date((instructionsData as any).updated_at).getTime();
+            }
           } else {
             const contextHandle = await projectHandle.getDirectoryHandle('context');
             localContent = await readTextFile(contextHandle, fileName);
             const remoteFile = remoteFileMap.get(fileName);
             remoteContent = remoteFile?.content || '';
+
+            // Get local file timestamp
+            try {
+              const fileHandle = await contextHandle.getFileHandle(fileName);
+              const file = await fileHandle.getFile();
+              localModifiedTime = file.lastModified;
+            } catch {
+              // Couldn't get timestamp
+            }
+
+            // Remote timestamp from API
+            if (remoteFile && (remoteFile as any).updated_at) {
+              remoteModifiedTime = new Date((remoteFile as any).updated_at).getTime();
+            }
           }
 
           if (localContent !== null) {
@@ -1110,6 +1405,15 @@ export class SyncManager {
 
             if (localHash !== remoteHash) {
               modifiedFiles.push(fileName);
+
+              // Store timestamp info
+              modifiedFilesInfo[fileName] = {
+                localTime: localModifiedTime,
+                remoteTime: remoteModifiedTime,
+                isLocalNewer: localModifiedTime && remoteModifiedTime
+                  ? localModifiedTime > remoteModifiedTime
+                  : undefined
+              };
             }
           }
         } catch (error) {
@@ -1132,6 +1436,7 @@ export class SyncManager {
       remoteOnlyFiles,
       localOnlyFiles,
       modifiedFiles,
+      modifiedFilesInfo: Object.keys(modifiedFilesInfo).length > 0 ? modifiedFilesInfo : undefined,
       renamedFiles: renamedFiles.length > 0 ? renamedFiles : undefined
     };
   }

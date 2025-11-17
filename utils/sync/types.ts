@@ -22,6 +22,8 @@ export interface SyncSettings {
   bidirectional: boolean;
   /** Include chat conversations in sync */
   syncChats: boolean;
+  /** Automatically add .md extension to files without extensions */
+  autoAddMdExtension: boolean;
   /** Conflict resolution strategy */
   conflictStrategy: ConflictStrategy;
 }
@@ -90,6 +92,12 @@ export interface ProjectDiff {
   localOnlyFiles: string[];
   /** Modified files */
   modifiedFiles: string[];
+  /** Modified files with timestamp info */
+  modifiedFilesInfo?: Record<string, {
+    localTime?: number;   // Local file timestamp (ms since epoch)
+    remoteTime?: number;  // Remote file timestamp (ms since epoch)
+    isLocalNewer?: boolean; // True if local is newer than remote
+  }>;
   /** Renamed files (old name -> new name) */
   renamedFiles?: Array<{ oldName: string; newName: string }>;
 }

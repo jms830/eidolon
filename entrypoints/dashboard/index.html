@@ -174,7 +174,10 @@
             <div class="sync-status-header">
               <div class="status-indicator" id="sync-status-indicator">●</div>
               <div class="sync-status-info">
-                <div class="sync-workspace-path" id="sync-workspace-path">~/ClaudeProjects</div>
+                <div class="sync-workspace-path-container">
+                  <div class="sync-workspace-path" id="sync-workspace-path">~/ClaudeProjects</div>
+                  <button id="copy-path-btn" class="copy-path-btn" title="Copy folder path">📋 Copy</button>
+                </div>
                 <div class="sync-last-sync" id="sync-last-sync">Never synced</div>
               </div>
             </div>
@@ -191,10 +194,10 @@
               <span class="btn-text">Preview Differences</span>
               <span class="btn-desc">Compare local vs remote</span>
             </button>
-            <button id="open-workspace-btn" class="sync-action-btn">
-              <span class="btn-icon">📂</span>
-              <span class="btn-text">Open Workspace</span>
-              <span class="btn-desc">View in file manager</span>
+            <button id="sync-chats-only-btn" class="sync-action-btn">
+              <span class="btn-icon">💬</span>
+              <span class="btn-text">Sync Chats Only</span>
+              <span class="btn-desc">Sync conversations without files</span>
             </button>
           </div>
 
@@ -227,6 +230,12 @@
               <label>
                 <input type="checkbox" id="sync-chats">
                 Include chat conversations
+              </label>
+            </div>
+            <div class="setting-row">
+              <label>
+                <input type="checkbox" id="auto-add-md-extension" checked>
+                Auto-add .md extension to files without extensions
               </label>
             </div>
             <div class="setting-row">
@@ -352,6 +361,91 @@
           <button id="validate-session-btn" class="action-btn">Validate Session</button>
           <button id="show-session-key-btn" class="action-btn">Show Session Key</button>
           <button id="close-auth-modal" class="action-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- First-Time Setup Wizard Modal -->
+    <div id="setup-wizard-modal" class="modal-overlay hidden">
+      <div class="modal-content setup-wizard-modal">
+        <h2>🚀 Welcome to Eidolon!</h2>
+        <p class="setup-intro">Let's get you set up in a few simple steps</p>
+
+        <div class="setup-steps">
+          <!-- Step 1: Authorization -->
+          <div class="setup-step" id="setup-step-1">
+            <h3>Step 1: Authorization</h3>
+            <p>Make sure you're logged in to Claude.ai</p>
+            <div id="setup-auth-status" class="setup-status">
+              <div class="setup-loading">Checking authentication...</div>
+            </div>
+            <button id="setup-validate-auth" class="action-btn">🔐 Validate Session</button>
+          </div>
+
+          <!-- Step 2: Workspace Folder -->
+          <div class="setup-step hidden" id="setup-step-2">
+            <h3>Step 2: Choose Workspace Folder</h3>
+            <p>Select a local folder to sync your Claude.ai projects</p>
+            <div id="setup-workspace-status" class="setup-status">
+              <div class="setup-info">No folder selected</div>
+            </div>
+            <button id="setup-choose-folder" class="action-btn">📁 Choose Folder</button>
+          </div>
+
+          <!-- Step 3: Settings -->
+          <div class="setup-step hidden" id="setup-step-3">
+            <h3>Step 3: Configure Sync Settings</h3>
+            <p>Choose which features you want enabled</p>
+            <div class="setup-settings">
+              <label class="setup-setting">
+                <input type="checkbox" id="setup-bidirectional" checked>
+                <div class="setting-info">
+                  <strong>Bidirectional Sync</strong>
+                  <span>Upload local changes to Claude.ai</span>
+                </div>
+              </label>
+              <label class="setup-setting">
+                <input type="checkbox" id="setup-sync-chats" checked>
+                <div class="setting-info">
+                  <strong>Include Chat Conversations</strong>
+                  <span>Sync conversation history to local folder</span>
+                </div>
+              </label>
+              <label class="setup-setting">
+                <input type="checkbox" id="setup-auto-add-md" checked>
+                <div class="setting-info">
+                  <strong>Auto-add .md Extension</strong>
+                  <span>Add .md to files without extensions</span>
+                </div>
+              </label>
+              <label class="setup-setting">
+                <strong>Conflict Resolution:</strong>
+                <select id="setup-conflict-strategy">
+                  <option value="remote" selected>Keep remote (safest)</option>
+                  <option value="local">Keep local</option>
+                  <option value="newer">Keep newer</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 4: Complete -->
+          <div class="setup-step hidden" id="setup-step-4">
+            <h3>✨ All Set!</h3>
+            <p>Your Eidolon dashboard is ready to use</p>
+            <div class="setup-complete-info">
+              <div class="setup-complete-item">✓ Authenticated</div>
+              <div class="setup-complete-item">✓ Workspace configured</div>
+              <div class="setup-complete-item">✓ Settings saved</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-wizard-actions">
+          <button id="setup-prev-btn" class="action-btn hidden">← Previous</button>
+          <button id="setup-next-btn" class="action-btn">Next →</button>
+          <button id="setup-finish-btn" class="primary-btn hidden">Finish</button>
+          <button id="setup-skip-btn" class="action-btn-secondary">Skip Setup</button>
         </div>
       </div>
     </div>
