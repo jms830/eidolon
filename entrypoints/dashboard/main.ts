@@ -26,7 +26,8 @@ import {
   readTextFile,
   writeTextFile,
   getOrCreateDirectory,
-  deleteFile
+  deleteFile,
+  isFileSystemAccessSupported
 } from '../../utils/sync/fileSystem';
 import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
 
@@ -2706,6 +2707,34 @@ function createConversationItem(conversation: any) {
  * Initialize sync tab on load
  */
 async function initSyncTab() {
+  // Check if File System Access API is supported (not available in Firefox)
+  const firefoxWarning = document.getElementById('firefox-warning');
+  if (!isFileSystemAccessSupported()) {
+    if (firefoxWarning) {
+      firefoxWarning.style.display = 'flex';
+    }
+    // Disable sync-related buttons when API not supported
+    const syncButtons = [
+      document.getElementById('setup-workspace-btn'),
+      document.getElementById('configure-workspace-btn'),
+      document.getElementById('sync-now-btn'),
+      document.getElementById('sync-chats-only-btn'),
+      document.getElementById('preview-diff-btn')
+    ];
+    syncButtons.forEach(btn => {
+      if (btn) {
+        btn.setAttribute('disabled', 'true');
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      }
+    });
+    return; // Exit early - workspace sync not available
+  } else {
+    if (firefoxWarning) {
+      firefoxWarning.style.display = 'none';
+    }
+  }
+
   // Check if workspace is configured
   state.syncConfigured = await isWorkspaceConfigured();
 

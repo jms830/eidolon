@@ -150,6 +150,22 @@
           </div>
         </div>
 
+        <!-- Firefox Warning Banner (shown if File System Access API not supported) -->
+        <div id="firefox-warning" class="warning-banner" style="display: none;">
+          <div class="warning-icon">⚠️</div>
+          <div class="warning-content">
+            <h4>Workspace Sync Not Available</h4>
+            <p>
+              Firefox does not yet support the File System Access API required for workspace sync features.
+              All other Eidolon features (popup, dashboard, search, tags) work perfectly.
+            </p>
+            <p class="warning-detail">
+              Affected features: Workspace directory selection, sync operations, workspace diff.
+              <a href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API" target="_blank">Learn more about Firefox API status</a>
+            </p>
+          </div>
+        </div>
+
         <!-- Not Configured State -->
         <div id="sync-not-configured" class="empty-state">
           <div class="empty-state-icon">📁</div>

@@ -250,6 +250,61 @@ body {
   display: block;
 }
 
+/* Firefox/Browser Compatibility Warning Banner */
+.warning-banner {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+}
+
+.warning-icon {
+  font-size: 32px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.warning-content {
+  flex: 1;
+}
+
+.warning-content h4 {
+  margin: 0 0 8px 0;
+  color: #856404;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.warning-content p {
+  margin: 0 0 8px 0;
+  color: #856404;
+  line-height: 1.5;
+}
+
+.warning-content p:last-child {
+  margin-bottom: 0;
+}
+
+.warning-detail {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.warning-detail a {
+  color: #856404;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.warning-detail a:hover {
+  color: #533f03;
+}
+
 .tab-header {
   display: flex;
   justify-content: space-between;
