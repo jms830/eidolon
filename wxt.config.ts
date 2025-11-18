@@ -14,7 +14,10 @@ export default defineConfig({
       'activeTab',
       'notifications',
     ],
-    host_permissions: ['https://claude.ai/*'],
+    host_permissions: [
+      'https://claude.ai/*',
+      '*://*.claude.ai/*', // Firefox needs this for cookie access
+    ],
     optional_permissions: ['clipboardWrite'],
     commands: {
       _execute_action: {
