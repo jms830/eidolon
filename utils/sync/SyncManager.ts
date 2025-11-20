@@ -387,6 +387,13 @@ export class SyncManager {
           }
         }
       }
+
+      // Create CLAUDE.md with @AGENTS.md reference for Claude Code compatibility
+      // This allows Claude Code to find instructions while also supporting other LLM tools
+      const existingClaudeMd = await readTextFile(projectHandle, 'CLAUDE.md');
+      if (existingClaudeMd === null) {
+        await writeTextFile(projectHandle, 'CLAUDE.md', '@AGENTS.md');
+      }
     } catch (error) {
       console.warn(`Could not sync instructions for ${projectName}:`, error);
     }
