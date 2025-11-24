@@ -24,6 +24,8 @@ export interface SyncSettings {
   syncChats: boolean;
   /** Automatically add .md extension to files without extensions */
   autoAddMdExtension: boolean;
+  /** Ensure AGENTS.md files include Agent Skills YAML frontmatter */
+  ensureAgentsFrontmatter: boolean;
   /** Conflict resolution strategy */
   conflictStrategy: ConflictStrategy;
 }

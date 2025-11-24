@@ -152,6 +152,7 @@ const syncIntervalSelect = getRequiredElement<HTMLSelectElement>('sync-interval'
 const bidirectionalSyncCheckbox = getRequiredElement<HTMLInputElement>('bidirectional-sync');
 const syncChatsCheckbox = getRequiredElement<HTMLInputElement>('sync-chats');
 const autoAddMdExtensionCheckbox = getRequiredElement<HTMLInputElement>('auto-add-md-extension');
+const ensureAgentsFrontmatterCheckbox = getRequiredElement<HTMLInputElement>('ensure-agents-frontmatter');
 const conflictStrategySelect = getRequiredElement<HTMLSelectElement>('conflict-strategy');
 const syncStatusIndicator = getRequiredElement('sync-status-indicator');
 const syncWorkspacePath = getRequiredElement('sync-workspace-path');
@@ -172,6 +173,7 @@ const setupChooseFolderBtn = getRequiredElement('setup-choose-folder');
 const setupBidirectionalCheckbox = getRequiredElement<HTMLInputElement>('setup-bidirectional');
 const setupSyncChatsCheckbox = getRequiredElement<HTMLInputElement>('setup-sync-chats');
 const setupAutoAddMdCheckbox = getRequiredElement<HTMLInputElement>('setup-auto-add-md');
+const setupEnsureAgentsFrontmatterCheckbox = getRequiredElement<HTMLInputElement>('setup-ensure-agents-frontmatter');
 const setupConflictStrategySelect = getRequiredElement<HTMLSelectElement>('setup-conflict-strategy');
 const setupPrevBtn = getRequiredElement('setup-prev-btn');
 const setupNextBtn = getRequiredElement('setup-next-btn');
@@ -318,6 +320,7 @@ async function finishWizardSetup() {
       bidirectional: setupBidirectionalCheckbox.checked,
       syncChats: setupSyncChatsCheckbox.checked,
       autoAddMdExtension: setupAutoAddMdCheckbox.checked,
+      ensureAgentsFrontmatter: setupEnsureAgentsFrontmatterCheckbox.checked,
       conflictStrategy: setupConflictStrategySelect.value as 'remote' | 'local' | 'newer'
     };
 
@@ -755,6 +758,8 @@ function setupEventListeners() {
   syncIntervalSelect.addEventListener('change', saveSyncSettings);
   bidirectionalSyncCheckbox.addEventListener('change', saveSyncSettings);
   syncChatsCheckbox.addEventListener('change', saveSyncSettings);
+  autoAddMdExtensionCheckbox.addEventListener('change', saveSyncSettings);
+  ensureAgentsFrontmatterCheckbox.addEventListener('change', saveSyncSettings);
   conflictStrategySelect.addEventListener('change', saveSyncSettings);
 
   cancelSyncBtn.addEventListener('click', () => {
@@ -2782,6 +2787,7 @@ function loadSyncSettings(settings: SyncSettings) {
   bidirectionalSyncCheckbox.checked = settings.bidirectional;
   syncChatsCheckbox.checked = settings.syncChats;
   autoAddMdExtensionCheckbox.checked = settings.autoAddMdExtension;
+  ensureAgentsFrontmatterCheckbox.checked = settings.ensureAgentsFrontmatter ?? true;
   conflictStrategySelect.value = settings.conflictStrategy;
 }
 
@@ -4225,6 +4231,7 @@ async function saveSyncSettings() {
     bidirectional: bidirectionalSyncCheckbox.checked,
     syncChats: syncChatsCheckbox.checked,
     autoAddMdExtension: autoAddMdExtensionCheckbox.checked,
+    ensureAgentsFrontmatter: ensureAgentsFrontmatterCheckbox.checked,
     conflictStrategy: conflictStrategySelect.value as any
   };
 

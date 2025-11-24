@@ -26,6 +26,40 @@ import {
   updateLastSync,
 } from './workspaceConfig';
 
+/**
+ * Ensures AGENTS.md content has proper Agent Skills Spec frontmatter.
+ * Required fields: name, description
+ * Optional fields: license, allowed-tools, metadata
+ */
+export function ensureAgentSkillsFrontmatter(projectName: string, content: string): string {
+  const trimmed = content.trim();
+  
+  // Check if frontmatter already exists
+  if (trimmed.startsWith('---\n') || trimmed.startsWith('---\r\n')) {
+    const endIndex = trimmed.indexOf('\n---', 4);
+    if (endIndex > 0) {
+      // Frontmatter exists, return as-is
+      return trimmed;
+    }
+  }
+  
+  // Generate kebab-case name from project name
+  const kebabName = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  
+  // Create minimal frontmatter
+  const frontmatter = `---
+name: ${kebabName}
+description: Project instructions for ${projectName}
+---
+
+`;
+  
+  return frontmatter + trimmed;
+}
+
 export class SyncManager {
   private apiClient: ClaudeAPIClient;
   private progressCallback?: (progress: SyncProgress) => void;
@@ -379,7 +413,13 @@ export class SyncManager {
     try {
       const instructionsData = await this.apiClient.getProjectInstructions(orgId, projectId);
       if (instructionsData && instructionsData.content) {
-        const instructions = instructionsData.content.trim();
+        let instructions = instructionsData.content.trim();
+        
+        // Apply Agent Skills frontmatter if setting is enabled
+        if (instructions && config.settings.ensureAgentsFrontmatter) {
+          instructions = ensureAgentSkillsFrontmatter(projectName, instructions);
+        }
+        
         if (instructions) {
           const existingInstructions = await readTextFile(projectHandle, 'AGENTS.md');
           if (existingInstructions !== instructions) {

@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: SyncSettings = {
   bidirectional: false,
   syncChats: false,
   autoAddMdExtension: true, // Automatically add .md extension to files without extensions
+  ensureAgentsFrontmatter: true,
   conflictStrategy: 'remote',
 };
 
@@ -27,7 +28,7 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
   workspacePath: '',
   projectMap: {},
   lastSync: null,
-  settings: DEFAULT_SETTINGS,
+  settings: { ...DEFAULT_SETTINGS },
 };
 
 /**
@@ -35,7 +36,25 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
  */
 export async function getWorkspaceConfig(): Promise<WorkspaceConfig> {
   const result = await browser.storage.local.get(WORKSPACE_CONFIG_KEY);
-  return result[WORKSPACE_CONFIG_KEY] || DEFAULT_CONFIG;
+  const storedConfig = result[WORKSPACE_CONFIG_KEY];
+
+  if (!storedConfig) {
+    return {
+      ...DEFAULT_CONFIG,
+      projectMap: { ...DEFAULT_CONFIG.projectMap },
+      settings: { ...DEFAULT_SETTINGS },
+    };
+  }
+
+  return {
+    ...DEFAULT_CONFIG,
+    ...storedConfig,
+    projectMap: storedConfig.projectMap || {},
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(storedConfig.settings || {}),
+    },
+  };
 }
 
 /**
