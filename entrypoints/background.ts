@@ -117,14 +117,65 @@ export default defineBackground(() => {
   // Session management
   async function extractSessionKey(): Promise<string | null> {
     try {
-      const cookie = await browser.cookies.get({
+      // First check for manually saved session key
+      const storage = await browser.storage.local.get('manualSessionKey');
+      if (storage.manualSessionKey) {
+        console.log('Using manual session key from storage');
+        return storage.manualSessionKey;
+      }
+
+      // Fall back to cookie extraction - try multiple approaches for Firefox compatibility
+      console.log('Attempting to extract sessionKey cookie...');
+
+      // Method 1: Direct cookie.get with exact URL
+      let cookie = await browser.cookies.get({
         url: 'https://claude.ai',
         name: 'sessionKey',
       });
 
       if (cookie && cookie.value) {
+        console.log('Found sessionKey via direct get');
         return cookie.value;
       }
+
+      // Method 2: Try with www subdomain
+      cookie = await browser.cookies.get({
+        url: 'https://www.claude.ai',
+        name: 'sessionKey',
+      });
+
+      if (cookie && cookie.value) {
+        console.log('Found sessionKey via www subdomain');
+        return cookie.value;
+      }
+
+      // Method 3: Search all cookies for claude.ai domain (Firefox fallback)
+      const allCookies = await browser.cookies.getAll({
+        domain: 'claude.ai'
+      });
+
+      console.log(`Found ${allCookies.length} cookies for claude.ai domain`);
+
+      const sessionCookie = allCookies.find(c => c.name === 'sessionKey');
+      if (sessionCookie && sessionCookie.value) {
+        console.log('Found sessionKey via domain search');
+        return sessionCookie.value;
+      }
+
+      // Method 4: Try with .claude.ai domain (with leading dot)
+      const allCookiesWithDot = await browser.cookies.getAll({
+        domain: '.claude.ai'
+      });
+
+      console.log(`Found ${allCookiesWithDot.length} cookies for .claude.ai domain`);
+
+      const sessionCookieWithDot = allCookiesWithDot.find(c => c.name === 'sessionKey');
+      if (sessionCookieWithDot && sessionCookieWithDot.value) {
+        console.log('Found sessionKey via .domain search');
+        return sessionCookieWithDot.value;
+      }
+
+      console.warn('No sessionKey cookie found with any method');
     } catch (error) {
       console.error('Failed to extract session key:', error);
     }
@@ -360,6 +411,86 @@ export default defineBackground(() => {
               }
             } else {
               sendResponse({ success: false, error: 'Organization ID required' });
+            }
+            break;
+
+          case 'save-manual-session':
+            // Save manually entered session key
+            if (request.sessionKey && typeof request.sessionKey === 'string') {
+              try {
+                const sessionKeyValue = request.sessionKey.trim();
+
+                // Store in local storage
+                await browser.storage.local.set({
+                  manualSessionKey: sessionKeyValue
+                });
+
+                // CRITICAL: Set the sessionKey cookie in the browser's cookie store
+                // This allows the browser to automatically include it in requests to claude.ai
+                try {
+                  const cookieDetails = {
+                    url: 'https://claude.ai',
+                    name: 'sessionKey',
+                    value: sessionKeyValue,
+                    domain: '.claude.ai', // Use leading dot for domain-wide cookie
+                    path: '/',
+                    secure: true,
+                    httpOnly: false,
+                    sameSite: 'lax' as 'lax' // Use 'lax' instead of 'no_restriction' for Firefox
+                  };
+
+                  console.log('Setting cookie with details:', {
+                    domain: cookieDetails.domain,
+                    path: cookieDetails.path,
+                    sameSite: cookieDetails.sameSite
+                  });
+
+                  await browser.cookies.set(cookieDetails);
+
+                  console.log('Manual session key cookie set successfully');
+
+                  // Verify the cookie was set - try multiple methods
+                  let verifyCookie = await browser.cookies.get({
+                    url: 'https://claude.ai',
+                    name: 'sessionKey'
+                  });
+
+                  if (!verifyCookie) {
+                    // Try getting all cookies to see what was actually set
+                    const allCookies = await browser.cookies.getAll({ domain: '.claude.ai' });
+                    const sessionCookie = allCookies.find(c => c.name === 'sessionKey');
+                    if (sessionCookie) {
+                      console.log('Cookie found via getAll. Details:', {
+                        domain: sessionCookie.domain,
+                        path: sessionCookie.path,
+                        secure: sessionCookie.secure,
+                        sameSite: sessionCookie.sameSite
+                      });
+                      verifyCookie = sessionCookie;
+                    }
+                  }
+
+                  console.log('Verified cookie:', verifyCookie ? `EXISTS (domain: ${verifyCookie.domain})` : 'NOT FOUND');
+
+                } catch (cookieError: any) {
+                  console.error('Failed to set cookie:', cookieError);
+                  sendResponse({ success: false, error: `Cookie error: ${cookieError.message}` });
+                  return;
+                }
+
+                console.log('Manual session key saved and cookie set');
+
+                // Clear existing session to force re-validation with new key
+                sessionKey = sessionKeyValue; // Set it directly instead of clearing
+                apiClient = null;
+
+                sendResponse({ success: true });
+              } catch (error: any) {
+                console.error('Failed to save manual session key:', error);
+                sendResponse({ success: false, error: error.message || 'Failed to save session key' });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Session key is required' });
             }
             break;
 

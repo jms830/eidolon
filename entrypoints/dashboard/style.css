@@ -1324,6 +1324,58 @@ body {
   padding: 40px 0;
 }
 
+/* Manual Session Input */
+.manual-session-input,
+.manual-session-setup {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.manual-session-input h4 {
+  margin: 0 0 10px 0;
+  color: #856404;
+  font-size: 16px;
+}
+
+.input-group {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.session-key-input {
+  flex: 1;
+  padding: 10px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.session-key-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.help-text {
+  margin: 10px 0 5px 0;
+  color: #856404;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.help-text-small {
+  margin: 8px 0 0 0;
+  color: #856404;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
 .auth-status-item {
   display: flex;
   margin-bottom: 16px;

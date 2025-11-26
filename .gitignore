@@ -53,5 +53,6 @@ desktop.ini
 session_keys.json
 *.pem
 
-# Reports
+# Reports & Examples
 reports/
+example-extensions/

@@ -171,6 +171,11 @@ function setupEventListeners() {
     browser.tabs.create({ url: 'https://claude.ai' });
   });
 
+  const dashboardBtn = document.getElementById('dashboard-btn')!;
+  dashboardBtn.addEventListener('click', () => {
+    browser.tabs.create({ url: browser.runtime.getURL('dashboard.html') });
+  });
+
   const settingsBtn = document.getElementById('settings-btn')!;
   settingsBtn.addEventListener('click', () => {
     showSettingsModal();

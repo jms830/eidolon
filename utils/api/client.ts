@@ -30,9 +30,10 @@ export class ClaudeAPIClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
 
+    // Note: Don't set Cookie header manually - browsers block this for security
+    // Instead, rely on credentials: 'include' to send cookies from browser's cookie store
     const headers = {
       'Content-Type': 'application/json',
-      'Cookie': `sessionKey=${this.sessionKey}`,
       ...options.headers,
     };
     let retries = 0;
