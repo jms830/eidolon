@@ -85,6 +85,57 @@ export default defineBackground(() => {
     async getConversations(orgId: string): Promise<any[]> {
       return this.request<any[]>(`/organizations/${orgId}/chat_conversations`);
     }
+
+    async createConversation(orgId: string, name: string, projectUuid?: string): Promise<any> {
+      const uuid = crypto.randomUUID();
+      return this.request<any>(`/organizations/${orgId}/chat_conversations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          uuid,
+          name,
+          project_uuid: projectUuid || null,
+        }),
+      });
+    }
+
+    async sendMessage(
+      orgId: string,
+      conversationId: string,
+      prompt: string,
+      attachments: any[] = [],
+      parentMessageUuid: string = '00000000-0000-4000-8000-000000000000'
+    ): Promise<Response> {
+      // This returns the raw response for streaming
+      const url = `${this.baseUrl}/organizations/${orgId}/chat_conversations/${conversationId}/completion`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': `sessionKey=${this.sessionKey}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          prompt,
+          parent_message_uuid: parentMessageUuid,
+          attachments,
+          files: [],
+          sync_sources: [],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Message send failed: ${response.status}`);
+      }
+
+      return response;
+    }
+
+    async getConversationMessages(orgId: string, conversationId: string): Promise<any> {
+      return this.request<any>(
+        `/organizations/${orgId}/chat_conversations/${conversationId}?tree=false&rendering_mode=messages`
+      );
+    }
   }
 
   // Global state
@@ -212,8 +263,16 @@ export default defineBackground(() => {
     return false;
   }
 
-  // Context menu setup
+  // Context menu setup and side panel configuration
   browser.runtime.onInstalled.addListener(() => {
+    // Set up side panel to open on action click
+    // @ts-ignore - sidePanel API may not be in types yet
+    if (browser.sidePanel) {
+      // @ts-ignore
+      browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+        .catch((error: any) => console.log('Side panel not supported:', error));
+    }
+    
     browser.contextMenus.create({
       id: 'add-to-claude',
       title: 'Add to Claude Project',
@@ -223,6 +282,12 @@ export default defineBackground(() => {
     browser.contextMenus.create({
       id: 'save-page-to-claude',
       title: 'Save Page to Claude Project',
+      contexts: ['page'],
+    });
+    
+    browser.contextMenus.create({
+      id: 'open-sidepanel',
+      title: 'Open Eidolon Assistant',
       contexts: ['page'],
     });
   });
@@ -252,6 +317,12 @@ export default defineBackground(() => {
       });
     } else if (info.menuItemId === 'save-page-to-claude' && tab?.id) {
       browser.tabs.sendMessage(tab.id, { action: 'extract-page' });
+    } else if (info.menuItemId === 'open-sidepanel' && tab?.windowId) {
+      // @ts-ignore - sidePanel API may not be in types yet
+      if (browser.sidePanel) {
+        // @ts-ignore
+        browser.sidePanel.open({ windowId: tab.windowId });
+      }
     }
   });
 
@@ -335,6 +406,92 @@ export default defineBackground(() => {
             if (apiClient && currentOrg) {
               const conversations = await apiClient.getConversations(currentOrg.uuid);
               sendResponse({ success: true, data: conversations });
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
+          case 'create-conversation':
+            if (apiClient && currentOrg) {
+              try {
+                const conversation = await apiClient.createConversation(
+                  currentOrg.uuid,
+                  request.name || 'New Chat',
+                  request.projectUuid
+                );
+                sendResponse({ success: true, data: conversation });
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
+          case 'send-chat-message':
+            if (apiClient && currentOrg) {
+              try {
+                const response = await apiClient.sendMessage(
+                  currentOrg.uuid,
+                  request.conversationId,
+                  request.message,
+                  request.attachments || [],
+                  request.parentMessageUuid
+                );
+                
+                // Read streaming response
+                const reader = response.body?.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+                
+                if (reader) {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    fullResponse += chunk;
+                  }
+                }
+                
+                // Parse the streamed response - Claude returns event-stream format
+                const lines = fullResponse.split('\n');
+                let assistantMessage = '';
+                
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      if (data.completion) {
+                        assistantMessage += data.completion;
+                      }
+                    } catch (e) {
+                      // Ignore parse errors for non-JSON lines
+                    }
+                  }
+                }
+                
+                sendResponse({ success: true, data: { response: assistantMessage || fullResponse } });
+              } catch (error: any) {
+                console.error('Chat message error:', error);
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
+          case 'get-conversation-messages':
+            if (apiClient && currentOrg) {
+              try {
+                const messages = await apiClient.getConversationMessages(
+                  currentOrg.uuid,
+                  request.conversationId
+                );
+                sendResponse({ success: true, data: messages });
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+              }
             } else {
               sendResponse({ success: false, error: 'Not authenticated' });
             }
