@@ -4693,3 +4693,65 @@ if (analyticsTabBtn) {
 if (state.currentTab === 'analytics') {
   setTimeout(initExportSettings, 200);
 }
+
+// ========================================================================
+// DARK MODE TOGGLE
+// ========================================================================
+
+/**
+ * Initialize dark mode from localStorage
+ */
+function initDarkMode() {
+  const darkMode = localStorage.getItem('eidolon-dark-mode') === 'true';
+  
+  if (darkMode) {
+    document.body.classList.add('dark-mode');
+    updateDarkModeButton(true);
+  }
+}
+
+/**
+ * Toggle dark mode
+ */
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  localStorage.setItem('eidolon-dark-mode', isDark.toString());
+  updateDarkModeButton(isDark);
+}
+
+/**
+ * Update dark mode button appearance
+ */
+function updateDarkModeButton(isDark: boolean) {
+  const button = document.getElementById('dark-mode-toggle');
+  if (!button) return;
+  
+  const icon = button.querySelector('.btn-icon');
+  const label = button.querySelector('.btn-label');
+  
+  if (icon && label) {
+    if (isDark) {
+      icon.textContent = '☀️';
+      label.textContent = 'Light';
+      button.title = 'Switch to Light Mode';
+    } else {
+      icon.textContent = '🌙';
+      label.textContent = 'Dark';
+      button.title = 'Switch to Dark Mode';
+    }
+  }
+}
+
+/**
+ * Attach dark mode toggle listener
+ */
+function setupDarkModeToggle() {
+  const darkModeToggle = document.getElementById('dark-mode-toggle');
+  if (darkModeToggle) {
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+  }
+}
+
+// Initialize dark mode on page load
+initDarkMode();
+setupDarkModeToggle();

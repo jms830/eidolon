@@ -1788,3 +1788,343 @@ body {
 .status-message.error {
   color: #f44336;
 }
+
+/* ========================================================================
+   IMPROVED NAVIGATION & BUTTONS
+   ======================================================================== */
+
+/* Icon buttons with labels */
+.icon-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: auto !important;
+  min-width: 60px;
+  height: auto !important;
+  padding: 6px 10px;
+}
+
+.btn-icon {
+  font-size: 20px;
+}
+
+.btn-label {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+/* Navigation tabs with icons */
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-icon {
+  font-size: 18px;
+}
+
+.tab-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ========================================================================
+   DARK MODE
+   ======================================================================== */
+
+/* Dark mode variables */
+body.dark-mode {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-tertiary: #3a3a3a;
+  --bg-hover: #404040;
+  --text-primary: #ffffff;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #808080;
+  --border-color: #404040;
+  --shadow: rgba(0, 0, 0, 0.3);
+  
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Body and container */
+body.dark-mode .dashboard-container {
+  background: var(--bg-primary);
+}
+
+/* Dark mode - Header (keep gradient but darker) */
+body.dark-mode .dashboard-header {
+  background: linear-gradient(135deg, #4a5cb5 0%, #5a3c7a 100%);
+}
+
+/* Dark mode - Navigation */
+body.dark-mode .dashboard-nav {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+body.dark-mode .nav-tab {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .nav-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+body.dark-mode .nav-tab.active {
+  color: #8b9aff;
+  border-bottom-color: #8b9aff;
+  background: var(--bg-tertiary);
+}
+
+/* Dark mode - Main content */
+body.dark-mode .dashboard-main {
+  background: var(--bg-primary);
+}
+
+/* Dark mode - Tab content */
+body.dark-mode .tab-content {
+  color: var(--text-primary);
+}
+
+body.dark-mode .tab-header {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .tab-title h2 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .count-badge {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Cards */
+body.dark-mode .project-card,
+body.dark-mode .file-card,
+body.dark-mode .conversation-card,
+body.dark-mode .stat-card {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .project-card:hover,
+body.dark-mode .file-card:hover,
+body.dark-mode .conversation-card:hover {
+  border-color: #8b9aff;
+  box-shadow: 0 4px 12px rgba(139, 154, 255, 0.2);
+}
+
+body.dark-mode .card-title {
+  color: var(--text-primary);
+}
+
+body.dark-mode .card-description,
+body.dark-mode .file-path,
+body.dark-mode .conversation-preview {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .card-meta,
+body.dark-mode .card-footer {
+  color: var(--text-tertiary);
+  border-top-color: var(--border-color);
+}
+
+/* Dark mode - List view */
+body.dark-mode .list-item {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .list-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Dark mode - Buttons */
+body.dark-mode .primary-btn {
+  background: #667eea;
+  color: white;
+}
+
+body.dark-mode .primary-btn:hover {
+  background: #5568d3;
+}
+
+body.dark-mode .action-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .action-btn:hover {
+  background: var(--bg-hover);
+}
+
+body.dark-mode .action-btn-secondary {
+  background: transparent;
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+body.dark-mode .action-btn-secondary:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Inputs */
+body.dark-mode input[type="text"],
+body.dark-mode input[type="search"],
+body.dark-mode textarea,
+body.dark-mode select {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode input[type="text"]:focus,
+body.dark-mode input[type="search"]:focus,
+body.dark-mode textarea:focus,
+body.dark-mode select:focus {
+  border-color: #8b9aff;
+  background: var(--bg-secondary);
+}
+
+body.dark-mode input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Dark mode - Modals */
+body.dark-mode .modal-content {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+body.dark-mode .modal-header {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .modal-header h2 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .close-modal {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .close-modal:hover {
+  color: var(--text-primary);
+}
+
+/* Dark mode - Status bar */
+body.dark-mode .status-bar {
+  background: var(--bg-secondary);
+  border-top-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Sync settings */
+body.dark-mode .sync-settings-panel {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .setting-item {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .setting-item:hover {
+  border-color: #8b9aff;
+}
+
+body.dark-mode .setting-label {
+  color: var(--text-primary);
+}
+
+body.dark-mode .setting-description {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Analytics section */
+body.dark-mode .analytics-section {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .analytics-section h3 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .section-description {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .settings-list .setting-item {
+  background: var(--bg-tertiary);
+}
+
+/* Dark mode - Setup wizard */
+body.dark-mode .setup-wizard-modal .modal-content {
+  background: var(--bg-secondary);
+}
+
+body.dark-mode .setup-step {
+  color: var(--text-primary);
+}
+
+body.dark-mode .setup-status {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+/* Dark mode - Tags */
+body.dark-mode .tag-badge {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .tag-badge:hover {
+  background: var(--bg-hover);
+}
+
+/* Dark mode - Empty states */
+body.dark-mode .empty-state {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Loading */
+body.dark-mode .loading {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Scrollbars (webkit browsers) */
+body.dark-mode ::-webkit-scrollbar {
+  background: var(--bg-primary);
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background: var(--bg-hover);
+}
+
+/* Dark mode toggle icon change */
+body.dark-mode #dark-mode-toggle .btn-icon::before {
+  content: "☀️";
+}
+
+body.dark-mode #dark-mode-toggle .btn-label {
+  content: "Light";
+}
