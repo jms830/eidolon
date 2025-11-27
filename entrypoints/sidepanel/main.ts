@@ -47,7 +47,7 @@ interface Attachment {
 
 interface AppState {
   currentProject: Project | null;
-  currentStyle: string;
+  currentModel: string;
   messages: Message[];
   conversations: Conversation[];
   projects: Project[];
@@ -60,13 +60,21 @@ interface AppState {
   currentConversationId: string | null;
 }
 
+// Model display names
+const MODEL_NAMES: Record<string, string> = {
+  'claude-sonnet-4-20250514': 'Claude Sonnet 4',
+  'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+  'claude-3-5-haiku-20241022': 'Claude 3.5 Haiku',
+  'claude-3-opus-20240229': 'Claude 3 Opus'
+};
+
 // ========================================================================
 // STATE
 // ========================================================================
 
 const state: AppState = {
   currentProject: null,
-  currentStyle: 'normal',
+  currentModel: localStorage.getItem('eidolon-model') || 'claude-3-5-sonnet-20241022',
   messages: [],
   conversations: [],
   projects: [],
@@ -104,6 +112,9 @@ async function init() {
   // Setup event listeners
   setupEventListeners();
   
+  // Set initial model indicator
+  updateModelIndicator();
+  
   // Load initial data
   await Promise.all([
     loadProjects(),
@@ -124,7 +135,7 @@ function setupEventListeners() {
   // Dashboard button
   const dashboardBtn = getElement('dashboard-btn');
   dashboardBtn.addEventListener('click', () => {
-    browser.tabs.create({ url: browser.runtime.getURL('/dashboard/index.html') });
+    browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html') });
   });
   
   // Project selector
@@ -134,10 +145,13 @@ function setupEventListeners() {
     selectProject(uuid);
   });
   
-  // Style selector
-  const styleSelector = getElement<HTMLSelectElement>('style-selector');
-  styleSelector.addEventListener('change', (e) => {
-    state.currentStyle = (e.target as HTMLSelectElement).value;
+  // Model selector
+  const modelSelector = getElement<HTMLSelectElement>('model-selector');
+  modelSelector.value = state.currentModel;
+  modelSelector.addEventListener('change', (e) => {
+    state.currentModel = (e.target as HTMLSelectElement).value;
+    localStorage.setItem('eidolon-model', state.currentModel);
+    updateModelIndicator();
   });
   
   // Browser context toggle
@@ -215,6 +229,16 @@ function setupEventListeners() {
   // Attach button
   const attachBtn = getElement('attach-btn');
   attachBtn.addEventListener('click', showAttachOptions);
+  
+  // Inline toolbar buttons
+  const captureInlineBtn = getElement('capture-inline-btn');
+  captureInlineBtn.addEventListener('click', capturePage);
+  
+  const screenshotInlineBtn = getElement('screenshot-inline-btn');
+  screenshotInlineBtn.addEventListener('click', takeScreenshot);
+  
+  const newChatBtn = getElement('new-chat-btn');
+  newChatBtn.addEventListener('click', startNewChat);
   
   // Quick action buttons
   document.querySelectorAll('.quick-action-btn').forEach(btn => {
@@ -627,17 +651,6 @@ async function sendMessage() {
   // Build message with context
   let fullContent = content;
   
-  // Add style instruction
-  if (state.currentStyle !== 'normal') {
-    const styleInstructions: Record<string, string> = {
-      concise: 'Please be brief and concise in your response.',
-      explanatory: 'Please explain in detail with examples.',
-      formal: 'Please use formal, professional language.',
-      code: 'Focus on code and technical implementation.'
-    };
-    fullContent = `${styleInstructions[state.currentStyle]}\n\n${fullContent}`;
-  }
-  
   // Build API attachments from our attachments
   const apiAttachments: any[] = [];
   for (const att of state.attachments) {
@@ -850,6 +863,21 @@ function showActivity(text: string) {
 function hideActivity() {
   const indicator = getElement('activity-indicator');
   indicator.classList.add('hidden');
+}
+
+function updateModelIndicator() {
+  const indicator = getElement('model-indicator');
+  indicator.textContent = MODEL_NAMES[state.currentModel] || state.currentModel;
+}
+
+function startNewChat() {
+  state.currentConversationId = null;
+  state.messages = [];
+  renderMessages();
+  
+  // Focus the input
+  const input = getElement<HTMLTextAreaElement>('message-input');
+  input.focus();
 }
 
 // ========================================================================

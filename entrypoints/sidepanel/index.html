@@ -27,7 +27,7 @@
       </div>
     </header>
 
-    <!-- Project & Style Selectors -->
+    <!-- Project & Model Selectors -->
     <div class="context-bar">
       <div class="selector-group">
         <label class="selector-label">
@@ -42,15 +42,14 @@
       
       <div class="selector-group">
         <label class="selector-label">
-          <span class="selector-icon">🎨</span>
-          <span>Style</span>
+          <span class="selector-icon">🤖</span>
+          <span>Model</span>
         </label>
-        <select id="style-selector" class="context-select">
-          <option value="normal">Normal</option>
-          <option value="concise">Concise</option>
-          <option value="explanatory">Explanatory</option>
-          <option value="formal">Formal</option>
-          <option value="code">Code-focused</option>
+        <select id="model-selector" class="context-select">
+          <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+          <option value="claude-3-5-sonnet-20241022" selected>Claude 3.5 Sonnet</option>
+          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+          <option value="claude-3-opus-20240229">Claude 3 Opus</option>
         </select>
       </div>
     </div>
@@ -136,10 +135,22 @@
         <div class="input-attachments" id="attachments">
           <!-- Attachments shown here -->
         </div>
-        <div class="input-wrapper">
-          <button id="attach-btn" class="input-action-btn" title="Attach file or screenshot">
-            📎
+        <div class="input-toolbar">
+          <button id="attach-btn" class="toolbar-btn" title="Attach file or screenshot">
+            <span>📎</span>
           </button>
+          <button id="capture-inline-btn" class="toolbar-btn" title="Capture current page">
+            <span>📄</span>
+          </button>
+          <button id="screenshot-inline-btn" class="toolbar-btn" title="Take screenshot">
+            <span>📸</span>
+          </button>
+          <div class="toolbar-separator"></div>
+          <button id="new-chat-btn" class="toolbar-btn" title="Start new conversation">
+            <span>✨</span>
+          </button>
+        </div>
+        <div class="input-wrapper">
           <textarea 
             id="message-input" 
             class="message-input" 
