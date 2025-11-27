@@ -1,31 +1,55 @@
 /**
- * Inline conversation export content script
- * Injects export UI into claude.ai conversation pages
+ * Multi-platform conversation export content script
+ * Injects export UI into Claude, ChatGPT, and Gemini conversation pages
  */
 
-import { extractConversation, waitForConversationLoad } from '../utils/export/extractors';
+import { extractByPlatform, waitForPlatformLoad } from '../utils/export/extractors';
 import { exportAsMarkdown, exportAsJSON, downloadFile } from '../utils/export/formatters';
+import { detectPlatform, getConversationId, isExportEnabled, PLATFORMS } from '../utils/export/platforms';
 import type { Conversation } from '../utils/export/types';
+import type { Platform } from '../utils/export/platforms';
 
 // @ts-ignore - defineContentScript is a WXT global
 export default defineContentScript({
-  matches: ['https://claude.ai/chat/*'],
+  matches: [
+    'https://claude.ai/chat/*',
+    'https://chat.openai.com/*',
+    'https://chatgpt.com/*',
+    'https://gemini.google.com/*'
+  ],
   
-  main() {
+  async main() {
     console.log('[Eidolon Export] Content script loaded');
     
-    // Only run on conversation pages
-    const isConversationPage = location.pathname.startsWith('/chat/');
+    // Detect platform
+    const platform = detectPlatform();
+    if (!platform) {
+      console.log('[Eidolon Export] Unknown platform, skipping');
+      return;
+    }
     
-    if (!isConversationPage) {
+    console.log('[Eidolon Export] Detected platform:', platform);
+    
+    // Check if export is enabled for this platform
+    const enabled = await isExportEnabled(platform);
+    if (!enabled) {
+      console.log('[Eidolon Export] Export disabled for platform:', platform);
+      return;
+    }
+    
+    // Check if on conversation page
+    const conversationId = getConversationId(platform);
+    if (!conversationId) {
       console.log('[Eidolon Export] Not a conversation page, skipping');
       return;
     }
     
+    console.log('[Eidolon Export] Conversation ID:', conversationId);
+    
     // Wait for conversation to load, then inject UI
-    waitForConversationLoad().then(() => {
+    waitForPlatformLoad(platform).then(() => {
       console.log('[Eidolon Export] Conversation loaded, injecting UI');
-      injectExportUI();
+      injectExportUI(platform, conversationId);
     });
   }
 });
@@ -33,7 +57,7 @@ export default defineContentScript({
 /**
  * Inject the export UI into the page
  */
-function injectExportUI() {
+function injectExportUI(platform: Platform, conversationId: string) {
   // Check if already injected
   if (document.getElementById('eidolon-export-root')) {
     return;
@@ -47,7 +71,7 @@ function injectExportUI() {
   const shadow = container.attachShadow({ mode: 'open' });
   
   // Create UI manager
-  const ui = new ExportUIManager(shadow);
+  const ui = new ExportUIManager(shadow, platform, conversationId);
   ui.render();
 }
 
@@ -56,12 +80,15 @@ function injectExportUI() {
  */
 class ExportUIManager {
   private shadow: ShadowRoot;
-  private isCollapsed: boolean = false;
+  private platform: Platform;
+  private conversationId: string;
   private conversation: Conversation | null = null;
   private selectedMessageIds: Set<string> = new Set();
   
-  constructor(shadow: ShadowRoot) {
+  constructor(shadow: ShadowRoot, platform: Platform, conversationId: string) {
     this.shadow = shadow;
+    this.platform = platform;
+    this.conversationId = conversationId;
   }
   
   /**
@@ -94,7 +121,6 @@ class ExportUIManager {
         top: 80px;
         right: 20px;
         z-index: 9999;
-        width: 320px;
         background: var(--bg-300, #ffffff);
         border: 1px solid var(--border-300, #e5e7eb);
         border-radius: 12px;
@@ -103,6 +129,48 @@ class ExportUIManager {
         font-size: 14px;
         color: var(--text-000, #1f2937);
         transition: all 0.3s ease;
+      }
+      
+      .export-panel.icon-only {
+        width: auto;
+        border-radius: 50%;
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+      }
+      
+      .export-icon-button {
+        display: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--bg-300, #ffffff);
+        border: 1px solid var(--border-300, #e5e7eb);
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      
+      .export-icon-button:hover {
+        background: var(--bg-200, #f9fafb);
+        transform: scale(1.1);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      }
+      
+      .export-panel.icon-only .export-icon-button {
+        display: flex;
+      }
+      
+      .export-panel.icon-only .panel-content {
+        display: none;
+      }
+      
+      .panel-content {
+        width: 320px;
       }
       
       .panel-header {
@@ -328,27 +396,33 @@ class ExportUIManager {
    */
   private getHTML(): string {
     return `
-      <div class="export-panel">
-        <div class="panel-header" id="header">
-          <span class="panel-title">Eidolon Export</span>
-          <button class="collapse-btn" id="collapse-btn" aria-label="Collapse">▼</button>
-        </div>
+      <div class="export-panel icon-only">
+        <button class="export-icon-button" id="icon-btn" title="Export Conversation">
+          📥
+        </button>
         
-        <div class="panel-body" id="panel-body">
-          <div class="panel-section">
-            <div class="section-title">Select Messages</div>
-            <div id="content">
-              <div class="loading">Loading conversation...</div>
-            </div>
+        <div class="panel-content">
+          <div class="panel-header" id="header">
+            <span class="panel-title">Eidolon Export - ${PLATFORMS[this.platform].name}</span>
+            <button class="collapse-btn" id="collapse-btn" aria-label="Collapse to Icon">▼</button>
           </div>
           
-          <div class="actions">
-            <button class="btn btn-primary" id="export-md" disabled>
-              📄 Export Markdown
-            </button>
-            <button class="btn btn-primary" id="export-json" disabled>
-              📋 Export JSON
-            </button>
+          <div class="panel-body" id="panel-body">
+            <div class="panel-section">
+              <div class="section-title">Select Messages</div>
+              <div id="content">
+                <div class="loading">Loading conversation...</div>
+              </div>
+            </div>
+            
+            <div class="actions">
+              <button class="btn btn-primary" id="export-md" disabled>
+                📄 Export Markdown
+              </button>
+              <button class="btn btn-primary" id="export-json" disabled>
+                📋 Export JSON
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -359,15 +433,19 @@ class ExportUIManager {
    * Attach event listeners
    */
   private attachEventListeners() {
-    // Collapse button
-    const header = this.shadow.getElementById('header');
+    const panel = this.shadow.querySelector('.export-panel');
+    const iconBtn = this.shadow.getElementById('icon-btn');
     const collapseBtn = this.shadow.getElementById('collapse-btn');
-    const panelBody = this.shadow.getElementById('panel-body');
     
-    header?.addEventListener('click', () => {
-      this.isCollapsed = !this.isCollapsed;
-      panelBody?.classList.toggle('collapsed', this.isCollapsed);
-      collapseBtn?.classList.toggle('collapsed', this.isCollapsed);
+    // Icon button - expand to full panel
+    iconBtn?.addEventListener('click', () => {
+      panel?.classList.remove('icon-only');
+    });
+    
+    // Collapse button - collapse to icon
+    collapseBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      panel?.classList.add('icon-only');
     });
     
     // Export buttons
@@ -388,7 +466,7 @@ class ExportUIManager {
     if (!content) return;
     
     try {
-      this.conversation = await extractConversation();
+      this.conversation = extractByPlatform(this.platform, this.conversationId);
       console.log('[Eidolon Export] Conversation loaded:', this.conversation);
       
       // Select all user messages by default

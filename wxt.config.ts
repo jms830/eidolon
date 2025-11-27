@@ -3,9 +3,9 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   manifest: {
     name: 'Eidolon - Claude.ai Integration',
-    version: '1.0.0',
+    version: '2.0.0',
     description: 'Seamless Claude.ai project and knowledge management directly from your browser',
-    author: 'jms830',
+    author: { email: 'jms830@example.com' },
     permissions: [
       'cookies',
       'storage',
@@ -17,6 +17,9 @@ export default defineConfig({
     host_permissions: [
       'https://claude.ai/*',
       '*://*.claude.ai/*', // Firefox needs this for cookie access
+      'https://chat.openai.com/*',
+      'https://chatgpt.com/*',
+      'https://gemini.google.com/*',
     ],
     optional_permissions: ['clipboardWrite'],
     commands: {

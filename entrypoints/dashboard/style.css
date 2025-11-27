@@ -1660,3 +1660,131 @@ body {
   border-color: #999;
   color: #333;
 }
+
+/* Export Settings Styles */
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.setting-item:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.setting-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.platform-icon {
+  font-size: 20px;
+}
+
+.setting-description {
+  font-size: 13px;
+  color: #666;
+}
+
+.section-description {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.3s;
+  border-radius: 28px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: #667eea;
+}
+
+.toggle-switch input:focus + .toggle-slider {
+  box-shadow: 0 0 1px #667eea;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(24px);
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.status-message {
+  font-size: 14px;
+  color: #666;
+  transition: all 0.3s;
+}
+
+.status-message.success {
+  color: #4caf50;
+}
+
+.status-message.error {
+  color: #f44336;
+}

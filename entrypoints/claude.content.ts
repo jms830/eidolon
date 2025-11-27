@@ -29,9 +29,9 @@ export default defineContentScript({
     });
 
     function initConversationEnhancements() {
-      // Wait for the page to fully load
+      // Quick Save button removed - using inline export instead
+      // Keeping only Save to Project button
       setTimeout(() => {
-        injectQuickActionsButton();
         injectSaveToProjectButton();
       }, 1000);
     }
