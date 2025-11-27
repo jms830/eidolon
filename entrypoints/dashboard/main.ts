@@ -692,11 +692,13 @@ function setupEventListeners() {
     showExportModal();
   });
 
-  // Settings button
-  const settingsBtn = document.getElementById('settings-btn')!;
-  settingsBtn.addEventListener('click', () => {
-    showSettingsModal();
-  });
+  // Settings button (optional - may be removed if settings moved to Analytics tab)
+  const settingsBtn = document.getElementById('settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      showSettingsModal();
+    });
+  }
 
   // Org switcher
   orgSwitcherBtn.addEventListener('click', showOrgSwitcher);
