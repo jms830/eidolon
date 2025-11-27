@@ -708,12 +708,13 @@ async function sendMessage() {
       console.log('[Eidolon] Created conversation:', state.currentConversationId);
     }
     
-    // Send the message
+    // Send the message with selected model
     const response = await browser.runtime.sendMessage({
       action: 'send-chat-message',
       conversationId: state.currentConversationId,
       message: fullContent,
-      attachments: apiAttachments
+      attachments: apiAttachments,
+      model: state.currentModel
     });
     
     if (!response.success) {

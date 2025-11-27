@@ -103,10 +103,24 @@ export default defineBackground(() => {
       conversationId: string,
       prompt: string,
       attachments: any[] = [],
-      parentMessageUuid: string = '00000000-0000-4000-8000-000000000000'
+      parentMessageUuid: string = '00000000-0000-4000-8000-000000000000',
+      model?: string
     ): Promise<Response> {
       // This returns the raw response for streaming
       const url = `${this.baseUrl}/organizations/${orgId}/chat_conversations/${conversationId}/completion`;
+      
+      const body: any = {
+        prompt,
+        parent_message_uuid: parentMessageUuid,
+        attachments,
+        files: [],
+        sync_sources: [],
+      };
+      
+      // Add model if specified (Claude.ai uses model parameter in completion requests)
+      if (model) {
+        body.model = model;
+      }
       
       const response = await fetch(url, {
         method: 'POST',
@@ -115,13 +129,7 @@ export default defineBackground(() => {
           'Cookie': `sessionKey=${this.sessionKey}`,
         },
         credentials: 'include',
-        body: JSON.stringify({
-          prompt,
-          parent_message_uuid: parentMessageUuid,
-          attachments,
-          files: [],
-          sync_sources: [],
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -436,7 +444,8 @@ export default defineBackground(() => {
                   request.conversationId,
                   request.message,
                   request.attachments || [],
-                  request.parentMessageUuid
+                  request.parentMessageUuid,
+                  request.model // Pass model from side panel
                 );
                 
                 // Read streaming response
