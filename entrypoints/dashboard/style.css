@@ -2120,11 +2120,4 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-hover);
 }
 
-/* Dark mode toggle icon change */
-body.dark-mode #dark-mode-toggle .btn-icon::before {
-  content: "☀️";
-}
-
-body.dark-mode #dark-mode-toggle .btn-label {
-  content: "Light";
-}
+/* Dark mode toggle - icon/label updated via JavaScript */
