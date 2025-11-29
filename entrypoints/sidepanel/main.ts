@@ -60,21 +60,35 @@ interface AppState {
   currentConversationId: string | null;
 }
 
-// Model display names
-const MODEL_NAMES: Record<string, string> = {
-  'claude-sonnet-4-20250514': 'Claude Sonnet 4',
-  'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
-  'claude-3-5-haiku-20241022': 'Claude 3.5 Haiku',
-  'claude-3-opus-20240229': 'Claude 3 Opus'
-};
+// Default models fallback - will be updated from Claude.ai if available
+// These model IDs match what Claude.ai web interface uses
+let AVAILABLE_MODELS: Array<{ id: string; name: string; default: boolean }> = [
+  { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', default: true },
+  { id: 'claude-opus-4-5-20250514', name: 'Claude Opus 4.5', default: false },
+  { id: 'claude-haiku-4-5-20250514', name: 'Claude Haiku 4.5', default: false },
+  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', default: false },
+  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', default: false },
+  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', default: false },
+  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', default: false },
+];
+
+// Model display names lookup - will be updated dynamically
+let MODEL_NAMES: Record<string, string> = {};
+function updateModelNames() {
+  MODEL_NAMES = Object.fromEntries(AVAILABLE_MODELS.map(m => [m.id, m.name]));
+}
+updateModelNames();
 
 // ========================================================================
 // STATE
 // ========================================================================
 
+// Get default model ID
+const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.default)?.id || 'claude-sonnet-4-20250514';
+
 const state: AppState = {
   currentProject: null,
-  currentModel: localStorage.getItem('eidolon-model') || 'claude-3-5-sonnet-20241022',
+  currentModel: localStorage.getItem('eidolon-model') || DEFAULT_MODEL,
   messages: [],
   conversations: [],
   projects: [],
@@ -104,9 +118,22 @@ function getElement<T extends HTMLElement>(id: string): T {
 async function init() {
   console.log('[Eidolon SidePanel] Initializing...');
   
+  // Read query params (e.g., model, tabId)
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const modelParam = params.get('model');
+    if (modelParam) {
+      state.currentModel = modelParam;
+      localStorage.setItem('eidolon-model', state.currentModel);
+    }
+  } catch {}
+
   // Apply dark mode
   if (state.darkMode) {
     document.body.classList.add('dark-mode');
+    document.documentElement.setAttribute('data-mode', 'dark');
+  } else {
+    document.documentElement.setAttribute('data-mode', 'light');
   }
   
   // Setup event listeners
@@ -121,7 +148,8 @@ async function init() {
     loadConversations(),
     loadTabs(),
     getCurrentTab(),
-    checkAuthentication()
+    checkAuthentication(),
+    loadAvailableModels()
   ]);
   
   console.log('[Eidolon SidePanel] Ready!');
@@ -132,6 +160,17 @@ async function init() {
 // ========================================================================
 
 function setupEventListeners() {
+  // Open Full Claude button - opens current conversation or new chat
+  const openClaudeBtn = getElement('open-claude-btn');
+  openClaudeBtn.addEventListener('click', () => {
+    let url = 'https://claude.ai/new';
+    // If we have an active conversation, open that instead
+    if (state.currentConversationId) {
+      url = `https://claude.ai/chat/${state.currentConversationId}`;
+    }
+    browser.tabs.create({ url, active: true });
+  });
+
   // Dashboard button
   const dashboardBtn = getElement('dashboard-btn');
   dashboardBtn.addEventListener('click', () => {
@@ -340,6 +379,35 @@ async function checkAuthentication() {
   }
 }
 
+async function loadAvailableModels() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-available-models' });
+    
+    if (response.success && response.data && response.data.length > 0) {
+      // Update the models list with data from Claude.ai
+      AVAILABLE_MODELS = response.data.map((model: any) => ({
+        id: model.id || model.model_id,
+        name: model.name || model.display_name || model.id,
+        default: model.default || model.id === 'claude-sonnet-4-20250514'
+      }));
+      
+      // Update model names lookup
+      updateModelNames();
+      
+      // Re-render the model selector with new models
+      renderModelSelector();
+      
+      // Update the indicator in case model name changed
+      updateModelIndicator();
+      
+      console.log('[Eidolon] Loaded models from Claude.ai:', AVAILABLE_MODELS.map(m => m.name));
+    }
+  } catch (error) {
+    console.warn('[Eidolon] Failed to load models from Claude.ai, using defaults:', error);
+    // Keep using the default fallback models
+  }
+}
+
 // ========================================================================
 // RENDERING
 // ========================================================================
@@ -354,6 +422,33 @@ function renderProjectSelector() {
     option.textContent = project.name;
     selector.appendChild(option);
   });
+}
+
+function renderModelSelector() {
+  const selector = getElement<HTMLSelectElement>('model-selector');
+  const currentValue = selector.value || state.currentModel;
+  
+  selector.innerHTML = '';
+  
+  AVAILABLE_MODELS.forEach(model => {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.name;
+    selector.appendChild(option);
+  });
+  
+  // Restore the selected value if it still exists, otherwise use default
+  const validModel = AVAILABLE_MODELS.find(m => m.id === currentValue);
+  if (validModel) {
+    selector.value = currentValue;
+  } else {
+    const defaultModel = AVAILABLE_MODELS.find(m => m.default) || AVAILABLE_MODELS[0];
+    if (defaultModel) {
+      selector.value = defaultModel.id;
+      state.currentModel = defaultModel.id;
+      localStorage.setItem('eidolon-model', defaultModel.id);
+    }
+  }
 }
 
 function renderConversationList() {
@@ -806,7 +901,9 @@ async function validateSession() {
 
 function toggleDarkMode() {
   state.darkMode = !state.darkMode;
+  // Use both class and data-mode attribute for Claude compatibility
   document.body.classList.toggle('dark-mode', state.darkMode);
+  document.documentElement.setAttribute('data-mode', state.darkMode ? 'dark' : 'light');
   localStorage.setItem('eidolon-dark-mode', state.darkMode.toString());
 }
 
@@ -945,5 +1042,23 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 // ========================================================================
 // START
 // ========================================================================
+
+// Listen for populate/load messages from background or external triggers
+browser.runtime.onMessage.addListener((msg) => {
+  try {
+    if (msg?.type === 'POPULATE_INPUT_TEXT' && typeof msg.prompt === 'string') {
+      const input = getElement<HTMLTextAreaElement>('message-input');
+      input.value = msg.prompt;
+      input.focus();
+      return;
+    }
+    if (msg?.type === 'LOAD_CONVERSATION' && typeof msg.conversationUuid === 'string') {
+      openConversation(msg.conversationUuid);
+      return;
+    }
+  } catch (e) {
+    console.warn('[Eidolon] Failed to handle runtime message:', e);
+  }
+});
 
 document.addEventListener('DOMContentLoaded', init);

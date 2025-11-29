@@ -2121,3 +2121,404 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 }
 
 /* Dark mode toggle - icon/label updated via JavaScript */
+
+/* ========================================================================
+   DARK MODE - COMPREHENSIVE FIXES
+   Fix all remaining hardcoded colors for proper contrast
+   ======================================================================== */
+
+/* Dark mode - Project cards and items */
+body.dark-mode .project-card,
+body.dark-mode .file-item,
+body.dark-mode .conversation-item {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .project-header h3,
+body.dark-mode .file-name,
+body.dark-mode .conversation-name {
+  color: var(--text-primary);
+}
+
+body.dark-mode .project-description,
+body.dark-mode .project-meta,
+body.dark-mode .file-meta,
+body.dark-mode .conversation-meta {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Org switcher */
+body.dark-mode .org-item {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .org-item:hover {
+  border-color: #8b9aff;
+}
+
+body.dark-mode .org-item.active {
+  background: var(--bg-hover);
+  border-color: #8b9aff;
+}
+
+body.dark-mode .org-item-name {
+  color: var(--text-primary);
+}
+
+body.dark-mode .org-item-id {
+  color: var(--text-tertiary);
+}
+
+body.dark-mode .org-item-icon {
+  background: var(--bg-secondary);
+}
+
+/* Dark mode - Filter chips */
+body.dark-mode .filter-chip {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+body.dark-mode .filter-chip:hover {
+  border-color: #8b9aff;
+  color: #8b9aff;
+}
+
+body.dark-mode .filter-chip.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+/* Dark mode - Sort select and view buttons */
+body.dark-mode .sort-select {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .view-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+body.dark-mode .view-btn.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+/* Dark mode - Sync panels */
+body.dark-mode .sync-status-card,
+body.dark-mode .sync-log-panel {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .sync-workspace-path {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .sync-last-sync {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .sync-action-btn {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .sync-action-btn:hover {
+  border-color: #8b9aff;
+}
+
+body.dark-mode .sync-action-btn .btn-desc {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .sync-log-entry {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+body.dark-mode .log-time {
+  color: var(--text-tertiary);
+}
+
+/* Dark mode - Diff modal */
+body.dark-mode .diff-project-expandable {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .diff-project-header:hover,
+body.dark-mode .diff-project-header.expanded {
+  background: var(--bg-hover);
+}
+
+body.dark-mode .diff-project-name {
+  color: var(--text-primary);
+}
+
+body.dark-mode .diff-project-summary {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .diff-project-details {
+  background: var(--bg-secondary);
+}
+
+body.dark-mode .diff-file-category-title {
+  color: var(--text-primary);
+}
+
+body.dark-mode .diff-file-item {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Timeline */
+body.dark-mode .timeline-icon {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .timeline-content {
+  color: var(--text-primary);
+}
+
+body.dark-mode .timeline-time {
+  color: var(--text-tertiary);
+}
+
+/* Dark mode - Bulk menu */
+body.dark-mode .bulk-menu {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .bulk-menu-item {
+  color: var(--text-primary);
+}
+
+body.dark-mode .bulk-menu-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Dark mode - Auth modal */
+body.dark-mode .auth-status-content {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .auth-status-item {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .auth-label {
+  color: var(--text-primary);
+}
+
+body.dark-mode .auth-value {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .session-key-visible {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+body.dark-mode .session-key-hidden {
+  color: var(--text-tertiary);
+}
+
+/* Dark mode - Manual session input */
+body.dark-mode .manual-session-input,
+body.dark-mode .manual-session-setup {
+  background: #3d3520;
+  border-color: #6b5c2e;
+}
+
+body.dark-mode .manual-session-input h4,
+body.dark-mode .help-text,
+body.dark-mode .help-text-small {
+  color: #e0c97a;
+}
+
+body.dark-mode .session-key-input {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Warning banner */
+body.dark-mode .warning-banner {
+  background: linear-gradient(135deg, #3d3520 0%, #4a4025 100%);
+  border-color: #6b5c2e;
+}
+
+body.dark-mode .warning-content h4,
+body.dark-mode .warning-content p {
+  color: #e0c97a;
+}
+
+body.dark-mode .warning-detail a {
+  color: #8b9aff;
+}
+
+/* Dark mode - Auth warning/error */
+body.dark-mode .auth-warning {
+  background: #3d3520;
+  border-color: #6b5c2e;
+  color: #e0c97a;
+}
+
+body.dark-mode .auth-error {
+  background: #3d2020;
+  border-color: #6b2e2e;
+  color: #e07a7a;
+}
+
+/* Dark mode - Setup wizard */
+body.dark-mode .setup-step {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .setup-step h3 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .setup-step p {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .setup-status {
+  background: var(--bg-secondary);
+}
+
+body.dark-mode .setup-loading,
+body.dark-mode .setup-info {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .setup-setting {
+  background: var(--bg-secondary);
+}
+
+body.dark-mode .setup-setting:hover {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .setting-info strong {
+  color: var(--text-primary);
+}
+
+body.dark-mode .setting-info span {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .setup-complete-info {
+  background: var(--bg-tertiary);
+}
+
+/* Dark mode - Sync info section */
+body.dark-mode .sync-info {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .sync-info h4 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .sync-info p,
+body.dark-mode .sync-info li {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Progress modal */
+body.dark-mode .progress-bar {
+  background: var(--bg-tertiary);
+}
+
+body.dark-mode .progress-text {
+  color: var(--text-primary);
+}
+
+body.dark-mode .progress-details {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Settings footer */
+body.dark-mode .settings-footer {
+  border-top-color: var(--border-color);
+}
+
+body.dark-mode .status-message {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Project files container */
+body.dark-mode .project-files-container {
+  background: var(--bg-tertiary);
+  border-top-color: var(--border-color);
+}
+
+/* Dark mode - Setting rows */
+body.dark-mode .setting-row {
+  border-bottom-color: var(--border-color);
+}
+
+body.dark-mode .setting-row label {
+  color: var(--text-primary);
+}
+
+body.dark-mode .setting-row select {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* Dark mode - Setup intro */
+body.dark-mode .setup-intro {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Empty state */
+body.dark-mode .empty-state h3 {
+  color: var(--text-primary);
+}
+
+body.dark-mode .empty-state p {
+  color: var(--text-secondary);
+}
+
+/* Dark mode - Expand button */
+body.dark-mode .expand-btn {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .expand-btn:hover {
+  background: var(--bg-tertiary);
+  color: #8b9aff;
+}
+
+/* Dark mode - Favorite button */
+body.dark-mode .favorite-btn {
+  color: var(--text-tertiary);
+}
+
+/* Dark mode - Stat card values */
+body.dark-mode .stat-value {
+  color: #8b9aff;
+}
+
+body.dark-mode .stat-label {
+  color: var(--text-secondary);
+}

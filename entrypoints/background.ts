@@ -144,6 +144,42 @@ export default defineBackground(() => {
         `/organizations/${orgId}/chat_conversations/${conversationId}?tree=false&rendering_mode=messages`
       );
     }
+
+    /**
+     * Get available models for the current organization
+     * Claude.ai stores model availability in the organization settings/bootstrap
+     */
+    async getAvailableModels(orgId: string): Promise<any> {
+      try {
+        // Try to get settings which may contain model info
+        const settings = await this.request<any>(`/organizations/${orgId}/settings`);
+        return settings;
+      } catch {
+        // If settings endpoint doesn't work, return null
+        return null;
+      }
+    }
+
+    /**
+     * Get bootstrap/config data which contains available models
+     */
+    async getBootstrapData(): Promise<any> {
+      try {
+        const response = await fetch('https://claude.ai/api/bootstrap', {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': `sessionKey=${this.sessionKey}`,
+          },
+          credentials: 'include',
+        });
+        if (response.ok) {
+          return await response.json();
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
   }
 
   // Global state
@@ -325,12 +361,8 @@ export default defineBackground(() => {
       });
     } else if (info.menuItemId === 'save-page-to-claude' && tab?.id) {
       browser.tabs.sendMessage(tab.id, { action: 'extract-page' });
-    } else if (info.menuItemId === 'open-sidepanel' && tab?.windowId) {
-      // @ts-ignore - sidePanel API may not be in types yet
-      if (browser.sidePanel) {
-        // @ts-ignore
-        browser.sidePanel.open({ windowId: tab.windowId });
-      }
+    } else if (info.menuItemId === 'open-sidepanel' && tab?.id) {
+      await openSidePanelForTab(tab.id);
     }
   });
 
@@ -506,6 +538,25 @@ export default defineBackground(() => {
             }
             break;
 
+          case 'get-available-models':
+            if (apiClient) {
+              try {
+                // Try to get models from bootstrap data
+                const bootstrap = await apiClient.getBootstrapData();
+                if (bootstrap?.account?.models || bootstrap?.models) {
+                  sendResponse({ success: true, data: bootstrap.account?.models || bootstrap.models });
+                } else {
+                  // Return default models if bootstrap doesn't have them
+                  sendResponse({ success: true, data: null });
+                }
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
           case 'store-pending-upload':
             await browser.storage.local.set({
               pendingUpload: request.data
@@ -660,6 +711,250 @@ export default defineBackground(() => {
             }
             break;
 
+          // ================================================================
+          // BROWSER INTERACTION TOOLS
+          // ================================================================
+          
+          case 'browser-take-screenshot':
+            // Take a screenshot of the current tab using CDP
+            try {
+              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!tab?.id) {
+                sendResponse({ success: false, error: 'No active tab' });
+                break;
+              }
+              
+              // Attach debugger and capture screenshot
+              await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+              try {
+                const result = await chrome.debugger.sendCommand(
+                  { tabId: tab.id },
+                  'Page.captureScreenshot',
+                  { format: request.format || 'png', quality: request.quality || 80 }
+                );
+                sendResponse({ 
+                  success: true, 
+                  data: { 
+                    screenshot: `data:image/${request.format || 'png'};base64,${(result as any).data}` 
+                  } 
+                });
+              } finally {
+                await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+              }
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'browser-get-accessibility-tree':
+            // Get the accessibility tree from the current tab
+            try {
+              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!tab?.id) {
+                sendResponse({ success: false, error: 'No active tab' });
+                break;
+              }
+              
+              const results = await browser.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: () => {
+                  return (window as any).__generateAccessibilityTree?.(10, false) || null;
+                }
+              });
+              
+              sendResponse({ success: true, data: results[0]?.result });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'browser-execute-action':
+            // Execute a browser action (click, type, scroll, etc.)
+            try {
+              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!tab?.id) {
+                sendResponse({ success: false, error: 'No active tab' });
+                break;
+              }
+              
+              const action = request.action;
+              if (!action || !action.type) {
+                sendResponse({ success: false, error: 'Action type required' });
+                break;
+              }
+              
+              // Handle different action types
+              switch (action.type) {
+                case 'click':
+                case 'left_click': {
+                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  try {
+                    // Get coordinates from ref or use provided coordinates
+                    let x = action.x, y = action.y;
+                    if (action.target) {
+                      const coordResults = await browser.scripting.executeScript({
+                        target: { tabId: tab.id },
+                        func: (ref: string) => {
+                          const bounds = (window as any).__getBoundsByRef?.(ref);
+                          if (!bounds) return null;
+                          return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+                        },
+                        args: [action.target]
+                      });
+                      const coords = coordResults[0]?.result;
+                      if (!coords) {
+                        sendResponse({ success: false, error: `Element not found: ${action.target}` });
+                        break;
+                      }
+                      x = coords.x;
+                      y = coords.y;
+                    }
+                    
+                    // Click
+                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                      type: 'mousePressed', x, y, button: 'left', clickCount: 1
+                    });
+                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                      type: 'mouseReleased', x, y, button: 'left', clickCount: 1
+                    });
+                    
+                    sendResponse({ success: true, data: { x, y } });
+                  } finally {
+                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                  }
+                  break;
+                }
+                
+                case 'type': {
+                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  try {
+                    if (action.target) {
+                      // Focus element first
+                      await browser.scripting.executeScript({
+                        target: { tabId: tab.id },
+                        func: (ref: string) => (window as any).__focusRef?.(ref),
+                        args: [action.target]
+                      });
+                    }
+                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.insertText', {
+                      text: action.value || ''
+                    });
+                    sendResponse({ success: true });
+                  } finally {
+                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                  }
+                  break;
+                }
+                
+                case 'scroll': {
+                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  try {
+                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                      type: 'mouseWheel',
+                      x: action.x || 100,
+                      y: action.y || 100,
+                      deltaX: action.deltaX || 0,
+                      deltaY: action.deltaY || 0
+                    });
+                    sendResponse({ success: true });
+                  } finally {
+                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                  }
+                  break;
+                }
+                
+                case 'navigate': {
+                  let url = action.value || '';
+                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    url = 'https://' + url;
+                  }
+                  await browser.tabs.update(tab.id, { url });
+                  sendResponse({ success: true, data: { url } });
+                  break;
+                }
+                
+                default:
+                  sendResponse({ success: false, error: `Unknown action type: ${action.type}` });
+              }
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'browser-get-tabs':
+            // Get information about open tabs
+            try {
+              const tabs = await browser.tabs.query({ currentWindow: true });
+              sendResponse({ 
+                success: true, 
+                data: tabs.map(t => ({
+                  id: t.id,
+                  url: t.url,
+                  title: t.title,
+                  active: t.active,
+                  groupId: t.groupId
+                }))
+              });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'browser-create-tab-group':
+            // Create a new tab group
+            try {
+              const tabIds = request.tabIds || [];
+              if (tabIds.length === 0) {
+                const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+                if (activeTab?.id) tabIds.push(activeTab.id);
+              }
+              
+              if (tabIds.length === 0) {
+                sendResponse({ success: false, error: 'No tabs to group' });
+                break;
+              }
+              
+              const groupId = await chrome.tabs.group({ tabIds });
+              await chrome.tabGroups.update(groupId, {
+                title: request.title || 'Eidolon Session',
+                color: request.color || 'orange'
+              });
+              
+              sendResponse({ success: true, data: { groupId } });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'show-agent-indicator':
+            // Show the agent indicator on the current tab
+            try {
+              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (tab?.id) {
+                await browser.tabs.sendMessage(tab.id, {
+                  type: 'SHOW_AGENT_INDICATOR',
+                  message: request.message || 'Eidolon is working...'
+                });
+              }
+              sendResponse({ success: true });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'hide-agent-indicator':
+            // Hide the agent indicator
+            try {
+              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (tab?.id) {
+                await browser.tabs.sendMessage(tab.id, { type: 'HIDE_AGENT_INDICATOR' });
+              }
+              sendResponse({ success: true });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+
           default:
             sendResponse({ success: false, error: 'Unknown action' });
         }
@@ -688,6 +983,68 @@ export default defineBackground(() => {
         browser.storage.local.set({ sessionValid: false });
       }
     }
+  });
+
+  // Official-like side panel open helper (per-tab path)
+  async function openSidePanelForTab(tabId: number, opts?: { prompt?: string; model?: string }) {
+    // @ts-ignore - sidePanel API may not be in types yet
+    if (!browser.sidePanel) return;
+    const modelParam = opts?.model ? `&model=${encodeURIComponent(opts.model)}` : '';
+    const path = `sidepanel.html?tabId=${encodeURIComponent(String(tabId))}${modelParam}`;
+    try {
+      // @ts-ignore
+      await browser.sidePanel.setOptions({ tabId, path, enabled: true });
+      // @ts-ignore
+      await browser.sidePanel.open({ tabId });
+      if (opts?.prompt) {
+        // Allow panel to mount before populating
+        setTimeout(() => {
+          browser.runtime.sendMessage({ type: 'POPULATE_INPUT_TEXT', prompt: opts.prompt }).catch(() => {});
+        }, 800);
+      }
+    } catch (e) {
+      console.log('Failed to open side panel:', e);
+    }
+  }
+
+  // Open panel on action click using per-tab options
+  (browser.action ?? browser.browserAction)?.onClicked.addListener(async (tab) => {
+    if (tab.id != null) await openSidePanelForTab(tab.id);
+  });
+
+  // Toggle command (matches official)
+  // @ts-ignore - commands may not be typed in all envs
+  browser.commands?.onCommand.addListener(async (cmd: string) => {
+    if (cmd === 'toggle-side-panel') {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id != null) await openSidePanelForTab(tab.id);
+    }
+  });
+
+  // Internal message to open panel (action or type)
+  browser.runtime.onMessage.addListener((req, sender, sendResponse) => {
+    if (req?.type === 'open_side_panel' || req?.action === 'open-side-panel') {
+      (async () => {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id != null) await openSidePanelForTab(tab.id, { prompt: req.prompt, model: req.model });
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+    return false;
+  });
+
+  // Allow claude.ai to open the panel (externally_connectable)
+  browser.runtime.onMessageExternal.addListener((req, sender, sendResponse) => {
+    if (req?.type === 'open_side_panel') {
+      (async () => {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id != null) await openSidePanelForTab(tab.id, { prompt: req.prompt, model: req.model });
+        sendResponse({ success: true });
+      })();
+      return true;
+    }
+    return false;
   });
 
   console.log('Eidolon service worker initialized');

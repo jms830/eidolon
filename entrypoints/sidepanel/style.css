@@ -1,62 +1,100 @@
 /* ========================================================================
-   EIDOLON SIDE PANEL STYLES
-   Full-featured Claude assistant with browser integration
+   EIDOLON SIDE PANEL STYLES - CLAUDE.AI INSPIRED
+   Matches the official Claude chat interface design
    ======================================================================== */
 
-/* CSS Variables */
+/* Claude's CSS Variables - Light Mode */
 :root {
-  /* Light mode colors */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f7f7f8;
-  --bg-tertiary: #eeeeef;
-  --bg-hover: #e5e5e6;
-  --text-primary: #1a1a1a;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
-  --border-color: #e0e0e0;
-  --accent-color: #cc785c;
-  --accent-hover: #b8664e;
-  --accent-light: rgba(204, 120, 92, 0.1);
-  --success-color: #4caf50;
-  --error-color: #f44336;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.15);
+  /* Background colors */
+  --bg-100: hsl(30, 3.3%, 97%);
+  --bg-200: hsl(30, 3.3%, 93%);
+  --bg-300: hsl(30, 3.3%, 88%);
+  --bg-400: hsl(30, 3.3%, 83%);
+  
+  /* Text colors */
+  --text-100: hsl(30, 3.3%, 11.8%);
+  --text-200: hsl(30, 3.3%, 25%);
+  --text-300: hsl(30, 3.3%, 40%);
+  --text-400: hsl(30, 3.3%, 55%);
+  --text-500: hsl(30, 3.3%, 70%);
+  
+  /* Border colors */
+  --border-100: hsl(30, 3.3%, 90%);
+  --border-200: hsl(30, 3.3%, 85%);
+  --border-300: hsl(30, 3.3%, 80%);
+  
+  /* Accent - Claude's terracotta/orange */
+  --accent-main-100: hsl(19, 76%, 50%);
+  --accent-main-200: hsl(19, 76%, 45%);
+  --accent-secondary-100: hsl(30, 50%, 95%);
+  
+  /* Functional colors */
+  --success: hsl(142, 71%, 45%);
+  --error: hsl(0, 84%, 60%);
+  --warning: hsl(38, 92%, 50%);
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  
+  /* Radii */
   --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 24px;
+  
+  /* Fonts */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-mono: 'Fira Code', 'Consolas', 'Monaco', monospace;
 }
 
-/* Dark mode colors */
-body.dark-mode {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #2d2d2d;
-  --bg-tertiary: #3a3a3a;
-  --bg-hover: #454545;
-  --text-primary: #ffffff;
-  --text-secondary: #b0b0b0;
-  --text-tertiary: #808080;
-  --border-color: #404040;
-  --accent-color: #d4a574;
-  --accent-hover: #c79560;
-  --accent-light: rgba(212, 165, 116, 0.15);
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+/* Claude's CSS Variables - Dark Mode */
+[data-mode="dark"], .dark-mode {
+  --bg-100: hsl(30, 3.3%, 11.8%);
+  --bg-200: hsl(30, 3.3%, 16%);
+  --bg-300: hsl(30, 3.3%, 20%);
+  --bg-400: hsl(30, 3.3%, 25%);
+  
+  --text-100: hsl(30, 3.3%, 95%);
+  --text-200: hsl(30, 3.3%, 85%);
+  --text-300: hsl(30, 3.3%, 70%);
+  --text-400: hsl(30, 3.3%, 55%);
+  --text-500: hsl(30, 3.3%, 40%);
+  
+  --border-100: hsl(30, 3.3%, 20%);
+  --border-200: hsl(30, 3.3%, 25%);
+  --border-300: hsl(30, 3.3%, 30%);
+  
+  --accent-main-100: hsl(19, 65%, 55%);
+  --accent-main-200: hsl(19, 65%, 50%);
+  --accent-secondary-100: hsl(30, 30%, 18%);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
 }
 
 /* Reset & Base */
-* {
+*, *::before, *::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  line-height: 1.5;
+  background: var(--bg-100);
+  color: var(--text-100);
   overflow: hidden;
 }
 
@@ -68,21 +106,23 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--bg-primary);
+  background: var(--bg-100);
+  position: relative;
 }
 
 /* ========================================================================
-   HEADER
+   HEADER - Minimal Claude-style
    ======================================================================== */
 
 .sidepanel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: var(--accent-color);
-  color: white;
+  padding: 8px 12px;
+  background: var(--bg-100);
+  border-bottom: 1px solid var(--border-100);
   flex-shrink: 0;
+  min-height: 48px;
 }
 
 .header-brand {
@@ -94,34 +134,41 @@ body {
 .header-logo {
   width: 24px;
   height: 24px;
+  border-radius: 6px;
 }
 
 .header-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text-100);
 }
 
 .header-actions {
   display: flex;
-  gap: 8px;
+  gap: 2px;
 }
 
 .header-btn {
-  background: rgba(255,255,255,0.2);
+  background: transparent;
   border: none;
-  color: white;
+  color: var(--text-400);
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
+  transition: all 0.15s ease;
 }
 
 .header-btn:hover {
-  background: rgba(255,255,255,0.3);
+  background: var(--bg-300);
+  color: var(--text-100);
+}
+
+.header-btn:active {
+  transform: scale(0.95);
 }
 
 .btn-icon {
@@ -129,15 +176,15 @@ body {
 }
 
 /* ========================================================================
-   CONTEXT BAR (Project & Style Selectors)
+   CONTEXT BAR (Project & Model Selectors) - Claude style
    ======================================================================== */
 
 .context-bar {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-100);
+  border-bottom: 1px solid var(--border-100);
   flex-shrink: 0;
 }
 
@@ -153,48 +200,52 @@ body {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--text-400);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .selector-icon {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .context-select {
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 8px;
   font-size: 13px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-200);
   border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--bg-200);
+  color: var(--text-100);
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: all 0.15s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
 }
 
 .context-select:hover {
-  border-color: var(--accent-color);
+  border-color: var(--border-300);
 }
 
 .context-select:focus {
   outline: none;
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px var(--accent-light);
+  border-color: var(--accent-main-100);
+  box-shadow: 0 0 0 2px var(--accent-secondary-100);
 }
 
 /* ========================================================================
-   BROWSER CONTEXT PANEL
+   BROWSER CONTEXT PANEL - Collapsible
    ======================================================================== */
 
 .browser-context {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-100);
+  border-bottom: 1px solid var(--border-100);
   flex-shrink: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
 }
 
 .browser-context.collapsed .context-content {
@@ -209,29 +260,30 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   user-select: none;
+  transition: background 0.15s ease;
 }
 
 .context-header:hover {
-  background: var(--bg-hover);
+  background: var(--bg-200);
 }
 
 .context-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-300);
 }
 
 .context-chevron {
   font-size: 10px;
-  color: var(--text-tertiary);
-  transition: transform 0.2s;
+  color: var(--text-400);
+  transition: transform 0.2s ease;
 }
 
 .context-content {
-  padding: 0 16px 12px;
+  padding: 0 12px 12px;
 }
 
 .context-item {
@@ -242,15 +294,16 @@ body {
 }
 
 .context-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-tertiary);
+  color: var(--text-500);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .context-value {
-  font-size: 13px;
-  color: var(--text-primary);
+  font-size: 12px;
+  color: var(--text-200);
 }
 
 .context-value.truncate {
@@ -262,102 +315,107 @@ body {
 .context-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0;
+  gap: 6px;
+  margin: 8px 0;
 }
 
 .context-action-btn {
   flex: 1;
-  min-width: 100px;
-  padding: 8px 12px;
-  font-size: 12px;
+  min-width: 90px;
+  padding: 6px 10px;
+  font-size: 11px;
   font-weight: 500;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
   border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  color: var(--text-200);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .context-action-btn:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-color);
-  color: var(--accent-color);
+  background: var(--bg-300);
+  border-color: var(--border-300);
+}
+
+.context-action-btn:active {
+  transform: scale(0.98);
 }
 
 .tab-list-section {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: 11px;
+  margin-bottom: 6px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-tertiary);
+  color: var(--text-500);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .mini-btn {
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--text-400);
   cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
+  font-size: 12px;
+  padding: 2px 4px;
   border-radius: 4px;
+  transition: all 0.15s ease;
 }
 
 .mini-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--bg-300);
+  color: var(--text-100);
 }
 
 .tab-list {
-  max-height: 120px;
+  max-height: 100px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-200);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .tab-item:hover {
-  border-color: var(--accent-color);
-  background: var(--accent-light);
+  background: var(--bg-300);
 }
 
 .tab-item.active {
-  border-color: var(--accent-color);
-  background: var(--accent-light);
+  background: var(--accent-secondary-100);
+  border-color: var(--accent-main-100);
 }
 
 .tab-favicon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 2px;
 }
 
 .tab-title {
   flex: 1;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-200);
 }
 
 /* ========================================================================
@@ -365,11 +423,10 @@ body {
    ======================================================================== */
 
 .history-panel {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-100);
+  border-bottom: 1px solid var(--border-100);
   flex-shrink: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
 }
 
 .history-panel.collapsed .history-content {
@@ -384,29 +441,30 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   user-select: none;
+  transition: background 0.15s ease;
 }
 
 .history-header:hover {
-  background: var(--bg-hover);
+  background: var(--bg-200);
 }
 
 .history-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-300);
 }
 
 .history-chevron {
   font-size: 10px;
-  color: var(--text-tertiary);
-  transition: transform 0.2s;
+  color: var(--text-400);
+  transition: transform 0.2s ease;
 }
 
 .history-content {
-  padding: 0 16px 12px;
+  padding: 0 12px 12px;
 }
 
 .history-search {
@@ -415,60 +473,62 @@ body {
 
 .history-search-input {
   width: 100%;
-  padding: 8px 10px;
-  font-size: 13px;
-  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border-200);
   border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--bg-200);
+  color: var(--text-100);
 }
 
 .history-search-input:focus {
   outline: none;
-  border-color: var(--accent-color);
+  border-color: var(--accent-main-100);
+}
+
+.history-search-input::placeholder {
+  color: var(--text-400);
 }
 
 .conversation-list {
-  max-height: 150px;
+  max-height: 120px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .conversation-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  gap: 1px;
+  padding: 6px 8px;
+  background: var(--bg-200);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .conversation-item:hover {
-  border-color: var(--accent-color);
-  background: var(--accent-light);
+  background: var(--bg-300);
 }
 
 .conversation-item-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-100);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .conversation-item-meta {
-  font-size: 11px;
-  color: var(--text-tertiary);
+  font-size: 10px;
+  color: var(--text-400);
 }
 
 /* ========================================================================
-   CHAT CONTAINER
+   CHAT CONTAINER - Main Chat Area
    ======================================================================== */
 
 .chat-container {
@@ -486,35 +546,38 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
 }
 
-/* Welcome Message */
+/* Welcome Message - Claude style */
 .welcome-message {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 40px 20px;
-  color: var(--text-secondary);
+  padding: 48px 24px;
+  color: var(--text-300);
 }
 
 .welcome-icon {
-  font-size: 48px;
+  font-size: 40px;
   margin-bottom: 16px;
+  opacity: 0.8;
 }
 
 .welcome-message h2 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-100);
   margin-bottom: 8px;
 }
 
 .welcome-message p {
   font-size: 14px;
+  color: var(--text-300);
   margin-bottom: 24px;
+  max-width: 280px;
 }
 
 .quick-actions {
@@ -528,105 +591,120 @@ body {
   padding: 10px 16px;
   font-size: 13px;
   font-weight: 500;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-lg);
+  color: var(--text-200);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .quick-action-btn:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-color);
-  color: var(--accent-color);
+  background: var(--bg-300);
+  border-color: var(--border-300);
 }
 
-/* Message Bubbles */
+.quick-action-btn:active {
+  transform: scale(0.98);
+}
+
+/* Message Bubbles - Claude style */
 .message {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: 90%;
+  gap: 8px;
+  max-width: 100%;
 }
 
 .message.user {
-  align-self: flex-end;
+  align-items: flex-end;
 }
 
 .message.assistant {
-  align-self: flex-start;
+  align-items: flex-start;
 }
 
 .message-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-400);
 }
 
 .message-avatar {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .message.user .message-avatar {
-  background: var(--accent-color);
+  background: var(--accent-main-100);
   color: white;
 }
 
 .message.assistant .message-avatar {
-  background: var(--bg-tertiary);
+  background: var(--bg-300);
+  color: var(--text-200);
 }
 
 .message-content {
   padding: 12px 16px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
+  max-width: 85%;
 }
 
 .message.user .message-content {
-  background: var(--accent-color);
+  background: var(--accent-main-100);
   color: white;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: var(--radius-sm);
 }
 
 .message.assistant .message-content {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-bottom-left-radius: 4px;
+  background: var(--bg-200);
+  color: var(--text-100);
+  border-bottom-left-radius: var(--radius-sm);
+  font-family: var(--font-serif);
 }
 
 .message-content pre {
-  background: var(--bg-tertiary);
+  background: var(--bg-300);
   padding: 12px;
   border-radius: var(--radius-sm);
   overflow-x: auto;
-  margin: 8px 0;
-}
-
-.message-content code {
-  font-family: 'Fira Code', 'Consolas', monospace;
+  margin: 12px 0;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
+.message-content code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-300);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.message-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
 /* ========================================================================
-   INPUT AREA
+   INPUT AREA - Claude-style rounded container
    ======================================================================== */
 
 .input-area {
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  padding: 12px 16px 16px;
+  background: var(--bg-100);
   flex-shrink: 0;
 }
 
@@ -641,11 +719,38 @@ body {
   display: none;
 }
 
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-lg);
+  font-size: 12px;
+  color: var(--text-200);
+}
+
+.attachment-remove {
+  background: none;
+  border: none;
+  color: var(--text-400);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 2px;
+}
+
+.attachment-remove:hover {
+  color: var(--error);
+}
+
 /* Input Toolbar */
 .input-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 4px 0;
   margin-bottom: 8px;
 }
@@ -654,21 +759,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  color: var(--text-400);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: all 0.15s ease;
 }
 
 .toolbar-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--accent-color);
+  background: var(--bg-200);
+  color: var(--text-100);
 }
 
 .toolbar-btn:active {
@@ -677,76 +781,39 @@ body {
 
 .toolbar-separator {
   width: 1px;
-  height: 20px;
-  background: var(--border-color);
+  height: 16px;
+  background: var(--border-200);
   margin: 0 4px;
 }
 
-.attachment-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: var(--bg-tertiary);
-  border-radius: 20px;
-  font-size: 12px;
-}
-
-.attachment-remove {
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-}
-
-.attachment-remove:hover {
-  color: var(--error-color);
-}
-
+/* Main Input Container - Claude's rounded style */
 .input-wrapper {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 8px;
-  transition: border-color 0.2s;
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-xl);
+  padding: 8px 12px;
+  transition: all 0.15s ease;
 }
 
 .input-wrapper:focus-within {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 2px var(--accent-light);
-}
-
-.input-action-btn {
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 18px;
-  padding: 4px;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.input-action-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  border-color: var(--accent-main-100);
+  box-shadow: 0 0 0 3px var(--accent-secondary-100);
 }
 
 .message-input {
   flex: 1;
   border: none;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-100);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.5;
   resize: none;
   max-height: 120px;
   overflow-y: auto;
+  padding: 4px 0;
 }
 
 .message-input:focus {
@@ -754,43 +821,51 @@ body {
 }
 
 .message-input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-400);
 }
 
 .send-btn {
-  background: var(--accent-color);
+  background: var(--accent-main-100);
   border: none;
   color: white;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .send-btn:hover {
-  background: var(--accent-hover);
+  background: var(--accent-main-200);
+  transform: scale(1.05);
+}
+
+.send-btn:active {
+  transform: scale(0.95);
 }
 
 .send-btn:disabled {
-  background: var(--bg-tertiary);
-  color: var(--text-tertiary);
+  background: var(--bg-300);
+  color: var(--text-400);
   cursor: not-allowed;
+  transform: none;
 }
 
 .send-icon {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .input-hints {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
+  margin-top: 6px;
+  padding: 0 4px;
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-500);
 }
 
 /* ========================================================================
@@ -803,10 +878,10 @@ body {
   right: 0;
   width: 100%;
   height: 100%;
-  background: var(--bg-primary);
+  background: var(--bg-100);
   z-index: 100;
   transform: translateX(100%);
-  transition: transform 0.3s ease;
+  transition: transform 0.25s ease;
   display: flex;
   flex-direction: column;
 }
@@ -823,29 +898,31 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-100);
+  background: var(--bg-100);
 }
 
 .panel-header h3 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text-100);
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: var(--text-secondary);
-  font-size: 20px;
+  color: var(--text-400);
+  font-size: 18px;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
 }
 
 .close-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--bg-200);
+  color: var(--text-100);
 }
 
 .panel-content {
@@ -855,35 +932,34 @@ body {
 }
 
 .panel-actions {
-  padding: 16px;
-  border-top: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-100);
   display: flex;
   gap: 8px;
 }
 
 .panel-btn {
   flex: 1;
-  padding: 10px 16px;
+  padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-md);
+  color: var(--text-100);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
 .panel-btn:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-color);
+  background: var(--bg-300);
 }
 
 /* Files List */
 .files-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .file-item {
@@ -891,18 +967,18 @@ body {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  background: var(--bg-200);
+  border-radius: var(--radius-md);
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .file-item:hover {
-  border-color: var(--accent-color);
+  background: var(--bg-300);
 }
 
 .file-icon {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .file-info {
@@ -912,22 +988,23 @@ body {
 .file-name {
   font-size: 13px;
   font-weight: 500;
+  color: var(--text-100);
 }
 
 .file-size {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-400);
 }
 
 /* Settings */
 .settings-section {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .settings-section h4 {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-400);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
@@ -937,29 +1014,39 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
+  padding: 8px 0;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  color: var(--text-200);
 }
 
 .setting-toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent-color);
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-main-100);
 }
 
 .auth-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-md);
   margin-bottom: 12px;
+  font-size: 13px;
 }
 
 .auth-icon {
-  font-size: 18px;
+  font-size: 16px;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-400);
+  font-size: 13px;
 }
 
 /* ========================================================================
@@ -972,7 +1059,8 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -986,12 +1074,12 @@ body {
 }
 
 .loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--bg-tertiary);
-  border-top-color: var(--accent-color);
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--bg-300);
+  border-top-color: var(--accent-main-100);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
@@ -999,7 +1087,7 @@ body {
 }
 
 #loading-text {
-  color: white;
+  color: var(--text-100);
   font-size: 14px;
 }
 
@@ -1013,9 +1101,10 @@ body {
   justify-content: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--accent-color);
+  background: var(--accent-main-100);
   color: white;
   font-size: 13px;
+  font-weight: 500;
   z-index: 150;
 }
 
@@ -1028,16 +1117,16 @@ body {
   height: 8px;
   background: white;
   border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
+  50% { opacity: 0.5; transform: scale(0.85); }
 }
 
 /* ========================================================================
-   SCROLLBAR STYLING
+   SCROLLBAR STYLING - Claude-like minimal
    ======================================================================== */
 
 ::-webkit-scrollbar {
@@ -1050,12 +1139,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  background: var(--border-200);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+  background: var(--border-300);
 }
 
 /* ========================================================================
@@ -1065,6 +1154,7 @@ body {
 @media (max-width: 400px) {
   .context-bar {
     flex-direction: column;
+    gap: 8px;
   }
   
   .quick-actions {
@@ -1073,5 +1163,9 @@ body {
   
   .quick-action-btn {
     width: 100%;
+  }
+  
+  .input-wrapper {
+    border-radius: var(--radius-lg);
   }
 }

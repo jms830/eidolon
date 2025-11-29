@@ -1,9 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-mode="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eidolon - Claude AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app" class="sidepanel-container">
@@ -15,6 +18,9 @@
         <span class="header-title">Eidolon</span>
       </div>
       <div class="header-actions">
+        <button id="open-claude-btn" class="header-btn" title="Open Full Claude.ai">
+          <span class="btn-icon">↗</span>
+        </button>
         <button id="dashboard-btn" class="header-btn" title="Open Dashboard">
           <span class="btn-icon">📊</span>
         </button>
@@ -46,8 +52,9 @@
           <span>Model</span>
         </label>
         <select id="model-selector" class="context-select" title="Model selection depends on your Claude.ai subscription">
-          <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-          <option value="claude-3-5-sonnet-20241022" selected>Claude 3.5 Sonnet</option>
+          <option value="claude-sonnet-4-20250514" selected>Claude Sonnet 4</option>
+          <option value="claude-4-opus-20250514">Claude 4 Opus</option>
+          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
           <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
           <option value="claude-3-opus-20240229">Claude 3 Opus</option>
         </select>
