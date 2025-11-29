@@ -1,6 +1,6 @@
 {
   "name": "eidolon-extension",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Chrome extension for Claude.ai integration with project and knowledge management",
   "private": true,
   "scripts": {
