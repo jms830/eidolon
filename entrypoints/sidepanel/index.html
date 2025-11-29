@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eidolon - Claude AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app" class="sidepanel-container">
+    
+    <!-- Header with Project/Style Selectors -->
+    <header class="sidepanel-header">
+      <div class="header-brand">
+        <img src="/icon-32.png" alt="Eidolon" class="header-logo">
+        <span class="header-title">Eidolon</span>
+      </div>
+      <div class="header-actions">
+        <button id="open-claude-btn" class="header-btn" title="Open Full Claude.ai">
+          <span class="btn-icon">↗</span>
+        </button>
+        <button id="dashboard-btn" class="header-btn" title="Open Dashboard">
+          <span class="btn-icon">📊</span>
+        </button>
+        <button id="browser-tools-btn" class="header-btn" title="Browser Tools">
+          <span class="btn-icon">🖥️</span>
+        </button>
+        <button id="settings-btn" class="header-btn" title="Settings">
+          <span class="btn-icon">⚙️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Project & Model Selectors -->
+    <div class="context-bar">
+      <div class="selector-group">
+        <label class="selector-label">
+          <span class="selector-icon">📁</span>
+          <span>Project</span>
+        </label>
+        <select id="project-selector" class="context-select">
+          <option value="">No Project</option>
+          <!-- Projects loaded dynamically -->
+        </select>
+      </div>
+      
+      <div class="selector-group">
+        <label class="selector-label">
+          <span class="selector-icon">🤖</span>
+          <span>Model</span>
+        </label>
+        <select id="model-selector" class="context-select" title="Model selection depends on your Claude.ai subscription">
+          <option value="claude-sonnet-4-20250514" selected>Claude Sonnet 4</option>
+          <option value="claude-4-opus-20250514">Claude 4 Opus</option>
+          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+          <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Browser Context Panel (collapsible) -->
+    <div id="browser-context" class="browser-context collapsed">
+      <div class="context-header" id="context-toggle">
+        <span class="context-title">🌐 Browser Context</span>
+        <span class="context-chevron">▼</span>
+      </div>
+      <div class="context-content">
+        <div class="context-item">
+          <span class="context-label">Current Tab:</span>
+          <span id="current-tab-title" class="context-value">Loading...</span>
+        </div>
+        <div class="context-item">
+          <span class="context-label">URL:</span>
+          <span id="current-tab-url" class="context-value truncate">Loading...</span>
+        </div>
+        <div class="context-actions">
+          <button id="capture-page-btn" class="context-action-btn" title="Capture Page Content">
+            📄 Capture Page
+          </button>
+          <button id="screenshot-btn" class="context-action-btn" title="Take Screenshot">
+            📸 Screenshot
+          </button>
+          <button id="add-to-project-btn" class="context-action-btn" title="Add to Project">
+            ➕ Add to Project
+          </button>
+        </div>
+        <div class="tab-list-section">
+          <div class="section-header">
+            <span>Open Tabs</span>
+            <button id="refresh-tabs-btn" class="mini-btn">↻</button>
+          </div>
+          <div id="tab-list" class="tab-list">
+            <!-- Tabs loaded dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conversation History (collapsible) -->
+    <div id="conversation-history" class="history-panel collapsed">
+      <div class="history-header" id="history-toggle">
+        <span class="history-title">💬 Recent Conversations</span>
+        <span class="history-chevron">▼</span>
+      </div>
+      <div class="history-content">
+        <div class="history-search">
+          <input type="text" id="history-search-input" placeholder="Search conversations..." class="history-search-input">
+        </div>
+        <div id="conversation-list" class="conversation-list">
+          <!-- Conversations loaded dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat Interface -->
+    <div class="chat-container">
+      <!-- Messages Area -->
+      <div id="messages" class="messages-area">
+        <div class="welcome-message">
+          <div class="welcome-icon">👋</div>
+          <h2>Welcome to Eidolon</h2>
+          <p>Your enhanced Claude assistant with full browser integration.</p>
+          <div class="quick-actions">
+            <button class="quick-action-btn" data-action="summarize-page">
+              📄 Summarize this page
+            </button>
+            <button class="quick-action-btn" data-action="analyze-tabs">
+              🗂️ Analyze open tabs
+            </button>
+            <button class="quick-action-btn" data-action="help-browse">
+              🌐 Help me browse
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-attachments" id="attachments">
+          <!-- Attachments shown here -->
+        </div>
+        <div class="input-toolbar">
+          <button id="attach-btn" class="toolbar-btn" title="Attach file or screenshot">
+            <span>📎</span>
+          </button>
+          <button id="capture-inline-btn" class="toolbar-btn" title="Capture current page">
+            <span>📄</span>
+          </button>
+          <button id="screenshot-inline-btn" class="toolbar-btn" title="Take screenshot">
+            <span>📸</span>
+          </button>
+          <div class="toolbar-separator"></div>
+          <button id="new-chat-btn" class="toolbar-btn" title="Start new conversation">
+            <span>✨</span>
+          </button>
+        </div>
+        <div class="input-wrapper">
+          <textarea 
+            id="message-input" 
+            class="message-input" 
+            placeholder="Message Claude..."
+            rows="1"
+          ></textarea>
+          <button id="send-btn" class="send-btn" title="Send message (Enter)">
+            <span class="send-icon">➤</span>
+          </button>
+        </div>
+        <div class="input-hints">
+          <span class="hint">Enter to send • Shift+Enter for new line</span>
+          <span class="hint" id="model-indicator">Claude 3.5 Sonnet</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project Files Panel (slide-in) -->
+    <div id="project-files-panel" class="slide-panel hidden">
+      <div class="panel-header">
+        <h3>📄 Project Files</h3>
+        <button id="close-files-panel" class="close-btn">✕</button>
+      </div>
+      <div class="panel-content">
+        <div id="project-files-list" class="files-list">
+          <!-- Files loaded dynamically -->
+        </div>
+        <div class="panel-actions">
+          <button id="upload-file-btn" class="panel-btn">📤 Upload File</button>
+          <button id="sync-files-btn" class="panel-btn">🔄 Sync Files</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Panel (slide-in) -->
+    <div id="settings-panel" class="slide-panel hidden">
+      <div class="panel-header">
+        <h3>⚙️ Settings</h3>
+        <button id="close-settings-panel" class="close-btn">✕</button>
+      </div>
+      <div class="panel-content">
+        <div class="settings-section">
+          <h4>Browser Integration</h4>
+          <label class="setting-toggle">
+            <input type="checkbox" id="auto-capture-toggle" checked>
+            <span>Auto-capture page context</span>
+          </label>
+          <label class="setting-toggle">
+            <input type="checkbox" id="tab-access-toggle" checked>
+            <span>Allow tab access</span>
+          </label>
+        </div>
+        
+        <div class="settings-section">
+          <h4>Chat Settings</h4>
+          <label class="setting-toggle">
+            <input type="checkbox" id="streaming-toggle" checked>
+            <span>Stream responses</span>
+          </label>
+          <label class="setting-toggle">
+            <input type="checkbox" id="auto-scroll-toggle" checked>
+            <span>Auto-scroll to new messages</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h4>Appearance</h4>
+          <label class="setting-toggle">
+            <input type="checkbox" id="dark-mode-toggle">
+            <span>Dark mode</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h4>Authentication</h4>
+          <div id="auth-status" class="auth-status">
+            <span class="auth-icon">🔐</span>
+            <span id="auth-status-text">Checking...</span>
+          </div>
+          <button id="validate-session-btn" class="panel-btn">Validate Session</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div class="loading-spinner"></div>
+      <span id="loading-text">Loading...</span>
+    </div>
+
+    <!-- Activity Indicator -->
+    <div id="activity-indicator" class="activity-indicator hidden">
+      <div class="activity-pulse"></div>
+      <span id="activity-text">Claude is thinking...</span>
+    </div>
+
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

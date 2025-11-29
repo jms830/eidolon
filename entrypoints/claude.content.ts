@@ -1,8 +1,29 @@
 export default defineContentScript({
-  matches: ['https://claude.ai/*'],
+  matches: ['https://claude.ai/*', '*://*.claude.ai/*'],
 
-  main(ctx) {
+  main(_ctx) {
     console.log('Eidolon content script loaded on:', location.href);
+
+    // ========================================================================
+    // EXTERNAL API - Allow claude.ai to communicate with extension
+    // ========================================================================
+    
+    // Expose a minimal API on the window for claude.ai scripts to use
+    // This mirrors the official extension's externally_connectable approach
+    const eidolonApi = {
+      openSidePanel: (opts?: { prompt?: string; model?: string }) => {
+        browser.runtime.sendMessage({
+          type: 'open_side_panel',
+          prompt: opts?.prompt,
+          model: opts?.model,
+        });
+      },
+      isInstalled: true,
+    };
+    (window as any).__eidolon = eidolonApi;
+
+    // Dispatch event so page scripts know extension is ready
+    window.dispatchEvent(new CustomEvent('eidolon-ready', { detail: { version: '2.1.0' } }));
 
     // Check if we're on a conversation page
     const isConversationPage = location.pathname.includes('/chat/');
@@ -29,9 +50,9 @@ export default defineContentScript({
     });
 
     function initConversationEnhancements() {
-      // Wait for the page to fully load
+      // Quick Save button removed - using inline export instead
+      // Keeping only Save to Project button
       setTimeout(() => {
-        injectQuickActionsButton();
         injectSaveToProjectButton();
       }, 1000);
     }

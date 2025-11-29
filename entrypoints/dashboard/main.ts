@@ -692,11 +692,13 @@ function setupEventListeners() {
     showExportModal();
   });
 
-  // Settings button
-  const settingsBtn = document.getElementById('settings-btn')!;
-  settingsBtn.addEventListener('click', () => {
-    showSettingsModal();
-  });
+  // Settings button (optional - may be removed if settings moved to Analytics tab)
+  const settingsBtn = document.getElementById('settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      showSettingsModal();
+    });
+  }
 
   // Org switcher
   orgSwitcherBtn.addEventListener('click', showOrgSwitcher);
@@ -4582,3 +4584,176 @@ async function toggleSessionKeyDisplay() {
     alert('Error accessing session key');
   }
 }
+
+
+// ========================================================================
+// EXPORT SETTINGS
+// ========================================================================
+
+/**
+ * Load export settings and update UI
+ */
+async function loadExportSettings() {
+  try {
+    const result = await browser.storage.local.get('exportPlatformSettings');
+    const settings = result.exportPlatformSettings || {
+      claude: true,
+      chatgpt: true,
+      gemini: true
+    };
+
+    // Update toggle switches
+    const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+    const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+    const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+
+    if (claudeToggle) claudeToggle.checked = settings.claude;
+    if (chatgptToggle) chatgptToggle.checked = settings.chatgpt;
+    if (geminiToggle) geminiToggle.checked = settings.gemini;
+
+    console.log('[Dashboard] Loaded export settings:', settings);
+  } catch (error) {
+    console.error('[Dashboard] Failed to load export settings:', error);
+  }
+}
+
+/**
+ * Save export settings from UI
+ */
+async function saveExportSettings() {
+  const saveButton = document.getElementById('save-export-settings-btn') as HTMLButtonElement;
+  const statusElement = document.getElementById('export-settings-status') as HTMLSpanElement;
+
+  try {
+    // Disable button during save
+    if (saveButton) saveButton.disabled = true;
+
+    // Get toggle values
+    const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+    const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+    const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+
+    const settings = {
+      claude: claudeToggle?.checked ?? true,
+      chatgpt: chatgptToggle?.checked ?? true,
+      gemini: geminiToggle?.checked ?? true
+    };
+
+    // Save to storage
+    await browser.storage.local.set({ exportPlatformSettings: settings });
+
+    console.log('[Dashboard] Saved export settings:', settings);
+
+    // Show success message
+    if (statusElement) {
+      statusElement.textContent = '✓ Settings saved successfully!';
+      statusElement.className = 'status-message success';
+      
+      setTimeout(() => {
+        statusElement.textContent = '';
+        statusElement.className = 'status-message';
+      }, 3000);
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to save export settings:', error);
+    
+    // Show error message
+    if (statusElement) {
+      statusElement.textContent = '✗ Failed to save settings';
+      statusElement.className = 'status-message error';
+    }
+  } finally {
+    // Re-enable button
+    if (saveButton) saveButton.disabled = false;
+  }
+}
+
+/**
+ * Initialize export settings UI
+ */
+function initExportSettings() {
+  // Load current settings
+  loadExportSettings();
+
+  // Attach save button listener
+  const saveButton = document.getElementById('save-export-settings-btn');
+  if (saveButton) {
+    saveButton.addEventListener('click', saveExportSettings);
+  }
+}
+
+// Initialize export settings when analytics tab is activated
+const analyticsTabBtn = document.querySelector('[data-tab="analytics"]');
+if (analyticsTabBtn) {
+  analyticsTabBtn.addEventListener('click', () => {
+    // Small delay to ensure DOM is ready
+    setTimeout(initExportSettings, 100);
+  });
+}
+
+// Also initialize if we're already on analytics tab on load
+if (state.currentTab === 'analytics') {
+  setTimeout(initExportSettings, 200);
+}
+
+// ========================================================================
+// DARK MODE TOGGLE
+// ========================================================================
+
+/**
+ * Initialize dark mode from localStorage
+ */
+function initDarkMode() {
+  const darkMode = localStorage.getItem('eidolon-dark-mode') === 'true';
+  
+  if (darkMode) {
+    document.body.classList.add('dark-mode');
+    updateDarkModeButton(true);
+  }
+}
+
+/**
+ * Toggle dark mode
+ */
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  localStorage.setItem('eidolon-dark-mode', isDark.toString());
+  updateDarkModeButton(isDark);
+}
+
+/**
+ * Update dark mode button appearance
+ */
+function updateDarkModeButton(isDark: boolean) {
+  const button = document.getElementById('dark-mode-toggle');
+  if (!button) return;
+  
+  const icon = button.querySelector('.btn-icon');
+  const label = button.querySelector('.btn-label');
+  
+  if (icon && label) {
+    if (isDark) {
+      icon.textContent = '☀️';
+      label.textContent = 'Light';
+      button.title = 'Switch to Light Mode';
+    } else {
+      icon.textContent = '🌙';
+      label.textContent = 'Dark';
+      button.title = 'Switch to Dark Mode';
+    }
+  }
+}
+
+/**
+ * Attach dark mode toggle listener
+ */
+function setupDarkModeToggle() {
+  const darkModeToggle = document.getElementById('dark-mode-toggle');
+  if (darkModeToggle) {
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+  }
+}
+
+// Initialize dark mode on page load
+initDarkMode();
+setupDarkModeToggle();

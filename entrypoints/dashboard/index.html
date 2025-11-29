@@ -27,19 +27,43 @@
           >
           <button id="search-btn" class="search-btn">🔍</button>
         </div>
-        <button id="refresh-all-btn" class="icon-btn" title="Refresh All">↻</button>
-        <button id="auth-btn" class="icon-btn" title="Authentication Status">🔐</button>
-        <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+        <button id="refresh-all-btn" class="icon-btn" title="Refresh Data">
+          <span class="btn-icon">↻</span>
+          <span class="btn-label">Refresh</span>
+        </button>
+        <button id="auth-btn" class="icon-btn" title="Authentication">
+          <span class="btn-icon">🔐</span>
+          <span class="btn-label">Auth</span>
+        </button>
+        <button id="dark-mode-toggle" class="icon-btn" title="Toggle Dark Mode">
+          <span class="btn-icon">🌙</span>
+          <span class="btn-label">Dark</span>
+        </button>
       </div>
     </header>
 
     <!-- Navigation Tabs -->
     <nav class="dashboard-nav">
-      <button class="nav-tab active" data-tab="projects">Projects</button>
-      <button class="nav-tab" data-tab="files">Files</button>
-      <button class="nav-tab" data-tab="conversations">Conversations</button>
-      <button class="nav-tab" data-tab="sync">Sync</button>
-      <button class="nav-tab" data-tab="analytics">Analytics</button>
+      <button class="nav-tab active" data-tab="projects">
+        <span class="tab-icon">📁</span>
+        <span class="tab-label">Projects</span>
+      </button>
+      <button class="nav-tab" data-tab="files">
+        <span class="tab-icon">📄</span>
+        <span class="tab-label">Files</span>
+      </button>
+      <button class="nav-tab" data-tab="conversations">
+        <span class="tab-icon">💬</span>
+        <span class="tab-label">Conversations</span>
+      </button>
+      <button class="nav-tab" data-tab="sync">
+        <span class="tab-icon">🔄</span>
+        <span class="tab-label">Workspace Sync</span>
+      </button>
+      <button class="nav-tab" data-tab="analytics">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Analytics & Settings</span>
+      </button>
     </nav>
 
     <!-- Main Content Area -->
@@ -326,6 +350,61 @@
           <h3>Most Active Projects</h3>
           <div id="active-projects-chart" class="chart-container">
             <!-- Chart will be rendered here -->
+          </div>
+        </div>
+
+        <!-- Export Settings Section -->
+        <div class="analytics-section">
+          <h3>Export Settings</h3>
+          <p class="section-description">Control which AI platforms have conversation export enabled</p>
+          
+          <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">🤖</span>
+                  <strong>Claude (claude.ai)</strong>
+                </div>
+                <span class="setting-description">Export conversations from Claude.ai</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="export-claude-toggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">💬</span>
+                  <strong>ChatGPT (chat.openai.com)</strong>
+                </div>
+                <span class="setting-description">Export conversations from ChatGPT</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="export-chatgpt-toggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">✨</span>
+                  <strong>Gemini (gemini.google.com)</strong>
+                </div>
+                <span class="setting-description">Export conversations from Google Gemini</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="export-gemini-toggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-footer">
+            <button id="save-export-settings-btn" class="primary-btn">💾 Save Export Settings</button>
+            <span id="export-settings-status" class="status-message"></span>
           </div>
         </div>
       </section>
