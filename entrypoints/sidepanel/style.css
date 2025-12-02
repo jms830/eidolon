@@ -2268,3 +2268,279 @@ body {
 [data-mode="dark"] .tabs-ungrouped-header {
   background: var(--bg-200);
 }
+
+/* ========================================================================
+   PLATFORM MANAGEMENT MODAL
+   ======================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: var(--bg-000);
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  max-width: 400px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-200);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-100);
+}
+
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.platform-section {
+  margin-bottom: 20px;
+}
+
+.platform-section:last-child {
+  margin-bottom: 0;
+}
+
+.platform-section h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-400);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.platform-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.platform-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-100);
+  border-radius: 8px;
+  border: 1px solid var(--border-200);
+  transition: all 0.15s ease;
+}
+
+.platform-item:hover {
+  background: var(--bg-200);
+}
+
+.platform-item-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.platform-item-icon svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-300);
+}
+
+.platform-item-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.platform-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.platform-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-100);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-item-url {
+  font-size: 11px;
+  color: var(--text-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.platform-action-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-400);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.platform-action-btn:hover {
+  background: var(--bg-300);
+  color: var(--text-200);
+}
+
+.platform-action-btn.danger:hover {
+  background: var(--danger-100);
+  color: var(--danger-text);
+}
+
+.platform-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Preset platforms list */
+.preset-list .platform-item {
+  cursor: pointer;
+}
+
+.preset-list .platform-item:hover {
+  border-color: var(--accent-main-100);
+}
+
+/* Custom platform form */
+.custom-platform-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.platform-input {
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-200);
+  border-radius: 8px;
+  background: var(--bg-100);
+  color: var(--text-100);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.platform-input:focus {
+  border-color: var(--accent-main-100);
+}
+
+.platform-input::placeholder {
+  color: var(--text-500);
+}
+
+.platform-add-btn {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--accent-main-100);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.platform-add-btn:hover {
+  background: var(--accent-main-200);
+}
+
+.platform-actions {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-200);
+}
+
+.platform-restore-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-300);
+  border: 1px solid var(--border-200);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.platform-restore-btn:hover {
+  background: var(--bg-100);
+  color: var(--text-100);
+}
+
+/* View toggle dynamic buttons */
+.view-btn.add-btn {
+  border: 1px dashed var(--border-300);
+  opacity: 0.6;
+}
+
+.view-btn.add-btn:hover {
+  opacity: 1;
+  border-color: var(--accent-main-100);
+}
+
+/* Platform visibility toggle */
+.platform-item.hidden-platform {
+  opacity: 0.5;
+}
+
+.platform-item.hidden-platform .platform-item-name {
+  text-decoration: line-through;
+}
+
+/* Dark mode adjustments */
+[data-mode="dark"] .modal-content {
+  background: var(--bg-100);
+  border: 1px solid var(--border-200);
+}
+
+[data-mode="dark"] .platform-item {
+  background: var(--bg-200);
+}
+
+[data-mode="dark"] .platform-input {
+  background: var(--bg-200);
+}

@@ -22,19 +22,137 @@ interface Tab {
 }
 
 // View types for platform switching
-type ViewType = 'eidolon' | 'claude-code' | 'chatgpt' | 'gemini' | 'custom';
+type ViewType = 'eidolon' | 'claude-code' | 'chatgpt' | 'gemini' | 'custom' | string;
 
-interface CustomPlatform {
+// Platform configuration
+interface Platform {
+  id: string;
   name: string;
   url: string;
+  icon?: string; // SVG string or URL to favicon
+  isBuiltIn: boolean;
+  isVisible: boolean;
+  order: number;
 }
 
-// View URLs for each platform
-const VIEW_URLS: Record<Exclude<ViewType, 'eidolon' | 'custom'>, string> = {
-  'claude-code': 'https://claude.ai/code',
-  'chatgpt': 'https://chatgpt.com',
-  'gemini': 'https://gemini.google.com/app'
+// Default built-in platforms
+const DEFAULT_PLATFORMS: Platform[] = [
+  {
+    id: 'eidolon',
+    name: 'Eidolon',
+    url: '', // Special - uses internal UI
+    icon: '/icon-16.png',
+    isBuiltIn: true,
+    isVisible: true,
+    order: 0
+  },
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    url: 'https://claude.ai/code',
+    icon: 'claude',
+    isBuiltIn: true,
+    isVisible: true,
+    order: 1
+  },
+  {
+    id: 'chatgpt',
+    name: 'ChatGPT',
+    url: 'https://chatgpt.com',
+    icon: 'chatgpt',
+    isBuiltIn: true,
+    isVisible: true,
+    order: 2
+  },
+  {
+    id: 'gemini',
+    name: 'Gemini',
+    url: 'https://gemini.google.com/app',
+    icon: 'gemini',
+    isBuiltIn: true,
+    isVisible: true,
+    order: 3
+  }
+];
+
+// Preset platforms that can be quickly added
+const PRESET_PLATFORMS: Omit<Platform, 'order' | 'isVisible'>[] = [
+  {
+    id: 'perplexity',
+    name: 'Perplexity',
+    url: 'https://www.perplexity.ai',
+    icon: 'perplexity',
+    isBuiltIn: false
+  },
+  {
+    id: 'poe',
+    name: 'Poe',
+    url: 'https://poe.com',
+    icon: 'poe',
+    isBuiltIn: false
+  },
+  {
+    id: 'you',
+    name: 'You.com',
+    url: 'https://you.com/search?tbm=youchat',
+    icon: 'you',
+    isBuiltIn: false
+  },
+  {
+    id: 'huggingchat',
+    name: 'HuggingChat',
+    url: 'https://huggingface.co/chat',
+    icon: 'huggingface',
+    isBuiltIn: false
+  },
+  {
+    id: 'copilot',
+    name: 'Copilot',
+    url: 'https://copilot.microsoft.com',
+    icon: 'copilot',
+    isBuiltIn: false
+  }
+];
+
+// Platform icon SVGs (for built-in platforms)
+const PLATFORM_ICONS: Record<string, string> = {
+  claude: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`,
+  chatgpt: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>`,
+  gemini: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.352 0 0 5.352 0 12s5.352 12 12 12 12-5.352 12-12S18.648 0 12 0zm0 4.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z"/><circle cx="12" cy="12" r="4"/></svg>`,
+  perplexity: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+  poe: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path fill="white" d="M8 8h8v2H8zM8 11h8v2H8zM8 14h5v2H8z"/></svg>`,
+  you: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
+  huggingface: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8zm-3-9a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 019 11zm6 0a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 0115 11zm-6.5 3a.5.5 0 00-.5.5c0 1.93 1.57 3.5 3.5 3.5h1c1.93 0 3.5-1.57 3.5-3.5a.5.5 0 00-.5-.5h-7z"/></svg>`,
+  copilot: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
+  settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`
 };
+
+/**
+ * Get URL for a platform by ID
+ */
+function getPlatformUrl(platformId: string): string | null {
+  // Check built-in defaults first
+  const builtIn = DEFAULT_PLATFORMS.find(p => p.id === platformId);
+  if (builtIn) return builtIn.url || null;
+  
+  // Check custom platforms in state
+  const custom = state.platforms.find(p => p.id === platformId);
+  if (custom) return custom.url;
+  
+  // Check presets
+  const preset = PRESET_PLATFORMS.find(p => p.id === platformId);
+  if (preset) return preset.url;
+  
+  return null;
+}
+
+/**
+ * Get platform by ID
+ */
+function getPlatform(platformId: string): Platform | null {
+  return state.platforms.find(p => p.id === platformId) || null;
+}
 
 interface Project {
   uuid: string;
@@ -253,6 +371,8 @@ interface AppState {
   currentView: ViewType;
   iframesLoaded: Set<ViewType>;
   customUrl: string | null;
+  // Multi-platform support
+  platforms: Platform[];
 }
 
 // Default models fallback - will be updated from Claude.ai if available
@@ -277,6 +397,23 @@ updateModelNames();
 // Get default model ID
 const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.default)?.id || 'claude-sonnet-4-20250514';
 
+// Load saved platforms from localStorage or use defaults
+function loadSavedPlatforms(): Platform[] {
+  try {
+    const saved = localStorage.getItem('eidolon-platforms');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Merge saved with defaults to ensure built-ins are always present
+      const savedIds = new Set(parsed.map((p: Platform) => p.id));
+      const defaults = DEFAULT_PLATFORMS.filter(p => !savedIds.has(p.id));
+      return [...parsed, ...defaults];
+    }
+  } catch (e) {
+    console.warn('[Eidolon] Failed to load saved platforms:', e);
+  }
+  return [...DEFAULT_PLATFORMS];
+}
+
 const state: AppState = {
   currentProject: null,
   currentModel: localStorage.getItem('eidolon-model') || DEFAULT_MODEL,
@@ -299,7 +436,9 @@ const state: AppState = {
   // View switching state
   currentView: 'eidolon',
   iframesLoaded: new Set(),
-  customUrl: localStorage.getItem('eidolon-custom-url')
+  customUrl: localStorage.getItem('eidolon-custom-url'),
+  // Multi-platform support
+  platforms: loadSavedPlatforms()
 };
 
 // ========================================================================
@@ -418,10 +557,383 @@ function setupViewToggle() {
       }
     });
   });
+  
+  // Add platform button (opens modal)
+  const addPlatformBtn = document.getElementById('add-platform-btn');
+  addPlatformBtn?.addEventListener('click', openPlatformModal);
+  
+  // Platform modal close
+  const closePlatformModal = document.getElementById('close-platform-modal');
+  closePlatformModal?.addEventListener('click', () => {
+    document.getElementById('platform-modal')?.classList.add('hidden');
+  });
+  
+  // Click outside modal to close
+  document.getElementById('platform-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      document.getElementById('platform-modal')?.classList.add('hidden');
+    }
+  });
+  
+  // Add custom platform
+  const addCustomPlatformBtn = document.getElementById('add-custom-platform-btn');
+  addCustomPlatformBtn?.addEventListener('click', addCustomPlatform);
+  
+  // Restore default platforms
+  const restoreDefaultBtn = document.getElementById('restore-default-platforms-btn');
+  restoreDefaultBtn?.addEventListener('click', restoreDefaultPlatforms);
+  
+  // Initial render of platform buttons
+  renderPlatformButtons();
+}
+
+// ========================================================================
+// PLATFORM MANAGEMENT FUNCTIONS
+// ========================================================================
+
+/**
+ * Render platform buttons in the view toggle bar
+ */
+function renderPlatformButtons() {
+  const viewToggle = document.getElementById('view-toggle');
+  if (!viewToggle) return;
+  
+  // Get the add button (we'll keep it at the end)
+  const addBtn = document.getElementById('add-platform-btn');
+  
+  // Remove all existing platform buttons (keep the add button)
+  viewToggle.querySelectorAll('.view-btn:not(.add-btn)').forEach(btn => btn.remove());
+  
+  // Render visible platforms
+  const visiblePlatforms = state.platforms.filter(p => p.isVisible).sort((a, b) => a.order - b.order);
+  
+  visiblePlatforms.forEach(platform => {
+    const btn = document.createElement('button');
+    btn.className = `view-btn ${state.currentView === platform.id ? 'active' : ''}`;
+    btn.title = platform.name;
+    btn.setAttribute('data-view', platform.id);
+    
+    // Create icon
+    if (platform.icon === '/icon-16.png') {
+      btn.innerHTML = `<img src="${platform.icon}" alt="${platform.name}" class="view-icon">`;
+    } else if (PLATFORM_ICONS[platform.icon || '']) {
+      btn.innerHTML = `<span class="view-icon">${PLATFORM_ICONS[platform.icon || '']}</span>`;
+    } else if (platform.icon?.startsWith('http')) {
+      // External favicon
+      btn.innerHTML = `<img src="${platform.icon}" alt="${platform.name}" class="view-icon" onerror="this.src='/icon-16.png'">`;
+    } else {
+      // Default icon for custom platforms
+      btn.innerHTML = `<span class="view-icon">${PLATFORM_ICONS.plus}</span>`;
+    }
+    
+    btn.addEventListener('click', () => switchView(platform.id));
+    
+    // Insert before add button
+    viewToggle.insertBefore(btn, addBtn);
+  });
+  
+  // Ensure iframe containers exist for all platforms
+  ensureIframeContainers();
 }
 
 /**
- * Switch between views (Eidolon, Claude Code, ChatGPT, Gemini, Custom)
+ * Ensure iframe containers exist for all visible platforms
+ */
+function ensureIframeContainers() {
+  const visiblePlatforms = state.platforms.filter(p => p.isVisible && p.url);
+  
+  visiblePlatforms.forEach(platform => {
+    const containerId = `view-container-${platform.id}`;
+    if (!document.getElementById(containerId)) {
+      // Create container and iframe
+      const container = document.createElement('div');
+      container.id = containerId;
+      container.className = 'view-container iframe-view';
+      
+      const iframe = document.createElement('iframe');
+      iframe.id = `iframe-${platform.id}`;
+      iframe.setAttribute('data-src', platform.url);
+      iframe.setAttribute('allow', 'clipboard-read; clipboard-write');
+      
+      container.appendChild(iframe);
+      document.body.appendChild(container);
+    }
+  });
+}
+
+/**
+ * Open the platform management modal
+ */
+function openPlatformModal() {
+  renderActivePlatforms();
+  renderPresetPlatforms();
+  document.getElementById('platform-modal')?.classList.remove('hidden');
+}
+
+/**
+ * Render active platforms in the modal
+ */
+function renderActivePlatforms() {
+  const list = document.getElementById('active-platforms-list');
+  if (!list) return;
+  
+  const sortedPlatforms = [...state.platforms].sort((a, b) => a.order - b.order);
+  
+  list.innerHTML = sortedPlatforms.map(platform => `
+    <div class="platform-item ${platform.isVisible ? '' : 'hidden-platform'}" data-id="${platform.id}">
+      <div class="platform-item-icon">
+        ${getPlatformIconHtml(platform)}
+      </div>
+      <div class="platform-item-info">
+        <div class="platform-item-name">${escapeHtml(platform.name)}</div>
+        <div class="platform-item-url">${platform.url ? escapeHtml(platform.url) : 'Built-in'}</div>
+      </div>
+      <div class="platform-item-actions">
+        <button class="platform-action-btn toggle-visibility" title="${platform.isVisible ? 'Hide' : 'Show'}">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            ${platform.isVisible 
+              ? '<path d="M8 3C4 3 1.5 8 1.5 8s2.5 5 6.5 5 6.5-5 6.5-5S12 3 8 3z"/><circle cx="8" cy="8" r="2"/>'
+              : '<path d="M2 2l12 12M8 3C4 3 1.5 8 1.5 8s1 2 3 3.5M8 13c4 0 6.5-5 6.5-5s-1-2-3-3.5M6 8a2 2 0 103 2"/>'}
+          </svg>
+        </button>
+        ${!platform.isBuiltIn ? `
+          <button class="platform-action-btn danger remove-platform" title="Remove">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 4l8 8M12 4l-8 8"/>
+            </svg>
+          </button>
+        ` : ''}
+      </div>
+    </div>
+  `).join('');
+  
+  // Add event listeners
+  list.querySelectorAll('.toggle-visibility').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest('.platform-item');
+      const id = item?.getAttribute('data-id');
+      if (id) togglePlatformVisibility(id);
+    });
+  });
+  
+  list.querySelectorAll('.remove-platform').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest('.platform-item');
+      const id = item?.getAttribute('data-id');
+      if (id) removePlatform(id);
+    });
+  });
+}
+
+/**
+ * Render preset platforms that can be added
+ */
+function renderPresetPlatforms() {
+  const list = document.getElementById('preset-platforms-list');
+  if (!list) return;
+  
+  // Filter out presets that are already added
+  const existingIds = new Set(state.platforms.map(p => p.id));
+  const availablePresets = PRESET_PLATFORMS.filter(p => !existingIds.has(p.id));
+  
+  if (availablePresets.length === 0) {
+    list.innerHTML = '<div class="platform-item"><div class="platform-item-info"><div class="platform-item-name" style="color: var(--text-400)">All presets added</div></div></div>';
+    return;
+  }
+  
+  list.innerHTML = availablePresets.map(preset => `
+    <div class="platform-item" data-preset-id="${preset.id}">
+      <div class="platform-item-icon">
+        ${getPlatformIconHtml(preset as Platform)}
+      </div>
+      <div class="platform-item-info">
+        <div class="platform-item-name">${escapeHtml(preset.name)}</div>
+        <div class="platform-item-url">${escapeHtml(preset.url)}</div>
+      </div>
+      <div class="platform-item-actions">
+        <button class="platform-action-btn add-preset" title="Add">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="8" y1="4" x2="8" y2="12"/>
+            <line x1="4" y1="8" x2="12" y2="8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+  
+  // Add event listeners
+  list.querySelectorAll('.platform-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = item.getAttribute('data-preset-id');
+      if (id) addPresetPlatform(id);
+    });
+  });
+}
+
+/**
+ * Get HTML for a platform icon
+ */
+function getPlatformIconHtml(platform: Platform | Omit<Platform, 'order' | 'isVisible'>): string {
+  if (platform.icon === '/icon-16.png') {
+    return `<img src="${platform.icon}" alt="${platform.name}">`;
+  } else if (PLATFORM_ICONS[platform.icon || '']) {
+    return PLATFORM_ICONS[platform.icon || ''];
+  } else if (platform.icon?.startsWith('http')) {
+    return `<img src="${platform.icon}" alt="${platform.name}" onerror="this.style.display='none'">`;
+  }
+  return PLATFORM_ICONS.plus;
+}
+
+/**
+ * Add a preset platform
+ */
+function addPresetPlatform(presetId: string) {
+  const preset = PRESET_PLATFORMS.find(p => p.id === presetId);
+  if (!preset) return;
+  
+  const maxOrder = Math.max(...state.platforms.map(p => p.order), 0);
+  
+  const newPlatform: Platform = {
+    ...preset,
+    isVisible: true,
+    order: maxOrder + 1
+  };
+  
+  state.platforms.push(newPlatform);
+  savePlatforms();
+  renderPlatformButtons();
+  renderActivePlatforms();
+  renderPresetPlatforms();
+}
+
+/**
+ * Add a custom platform
+ */
+function addCustomPlatform() {
+  const nameInput = document.getElementById('custom-platform-name') as HTMLInputElement;
+  const urlInput = document.getElementById('custom-platform-url') as HTMLInputElement;
+  
+  const name = nameInput?.value?.trim();
+  let url = urlInput?.value?.trim();
+  
+  if (!name || !url) {
+    alert('Please enter both name and URL');
+    return;
+  }
+  
+  // Normalize URL
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  
+  try {
+    new URL(url);
+  } catch {
+    alert('Please enter a valid URL');
+    return;
+  }
+  
+  // Generate unique ID
+  const id = 'custom-' + Date.now();
+  const maxOrder = Math.max(...state.platforms.map(p => p.order), 0);
+  
+  // Try to get favicon from URL
+  const urlObj = new URL(url);
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${urlObj.hostname}&sz=32`;
+  
+  const newPlatform: Platform = {
+    id,
+    name,
+    url,
+    icon: faviconUrl,
+    isBuiltIn: false,
+    isVisible: true,
+    order: maxOrder + 1
+  };
+  
+  state.platforms.push(newPlatform);
+  savePlatforms();
+  renderPlatformButtons();
+  renderActivePlatforms();
+  
+  // Clear inputs
+  nameInput.value = '';
+  urlInput.value = '';
+}
+
+/**
+ * Toggle platform visibility
+ */
+function togglePlatformVisibility(platformId: string) {
+  const platform = state.platforms.find(p => p.id === platformId);
+  if (platform) {
+    platform.isVisible = !platform.isVisible;
+    savePlatforms();
+    renderPlatformButtons();
+    renderActivePlatforms();
+    
+    // If hiding the current view, switch to eidolon
+    if (!platform.isVisible && state.currentView === platformId) {
+      switchView('eidolon');
+    }
+  }
+}
+
+/**
+ * Remove a platform
+ */
+function removePlatform(platformId: string) {
+  const index = state.platforms.findIndex(p => p.id === platformId);
+  if (index !== -1 && !state.platforms[index].isBuiltIn) {
+    state.platforms.splice(index, 1);
+    savePlatforms();
+    renderPlatformButtons();
+    renderActivePlatforms();
+    renderPresetPlatforms();
+    
+    // If removing the current view, switch to eidolon
+    if (state.currentView === platformId) {
+      switchView('eidolon');
+    }
+    
+    // Remove iframe container
+    const container = document.getElementById(`view-container-${platformId}`);
+    container?.remove();
+  }
+}
+
+/**
+ * Restore default platforms
+ */
+function restoreDefaultPlatforms() {
+  if (confirm('This will restore the default platforms and remove any custom ones. Continue?')) {
+    state.platforms = [...DEFAULT_PLATFORMS];
+    savePlatforms();
+    renderPlatformButtons();
+    renderActivePlatforms();
+    renderPresetPlatforms();
+    
+    // Switch to eidolon if current view was removed
+    if (!state.platforms.some(p => p.id === state.currentView)) {
+      switchView('eidolon');
+    }
+  }
+}
+
+/**
+ * Save platforms to localStorage
+ */
+function savePlatforms() {
+  try {
+    localStorage.setItem('eidolon-platforms', JSON.stringify(state.platforms));
+    console.log('[Eidolon] Platforms saved:', state.platforms.length);
+  } catch (e) {
+    console.error('[Eidolon] Failed to save platforms:', e);
+  }
+}
+
+/**
+ * Switch between views (dynamically based on available platforms)
  */
 function switchView(view: ViewType) {
   console.log('[Eidolon] Switching to view:', view);
@@ -444,12 +956,15 @@ function switchView(view: ViewType) {
     viewContainer.classList.add('active');
   }
   
+  // Get platform info
+  const platform = getPlatform(view);
+  
   // Handle iframe loading for non-Eidolon views
-  if (view !== 'eidolon' && view !== 'custom') {
+  if (view !== 'eidolon' && platform?.url) {
     loadIframeIfNeeded(view);
   }
   
-  // For custom view, show the prompt if no URL is set
+  // Legacy: For custom view (old single custom URL), show the prompt if no URL is set
   if (view === 'custom') {
     const customPrompt = document.getElementById('custom-url-prompt');
     const customIframe = document.getElementById('iframe-custom');
@@ -482,14 +997,16 @@ function loadIframeIfNeeded(view: ViewType, customUrl?: string) {
   }
   
   // Get the URL to load
-  let url: string;
+  let url: string | null;
   if (view === 'custom' && customUrl) {
     url = customUrl;
   } else if (view !== 'eidolon' && view !== 'custom') {
-    url = VIEW_URLS[view];
+    url = getPlatformUrl(view);
   } else {
     return;
   }
+  
+  if (!url) return;
   
   // Load the iframe
   console.log(`[Eidolon] Loading iframe for ${view}: ${url}`);
@@ -534,7 +1051,7 @@ function loadCustomUrl(url: string) {
  * Open current view in a new browser tab
  */
 function openCurrentViewExternal() {
-  let url: string;
+  let url: string | null;
   
   switch (state.currentView) {
     case 'eidolon':
@@ -553,8 +1070,10 @@ function openCurrentViewExternal() {
       }
       break;
     default:
-      url = VIEW_URLS[state.currentView];
+      url = getPlatformUrl(state.currentView);
   }
+  
+  if (!url) return;
   
   browser.tabs.create({ url, active: true });
 }
