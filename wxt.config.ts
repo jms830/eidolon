@@ -3,7 +3,7 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   manifest: {
     name: 'Eidolon - Enhanced Claude Assistant',
-    version: '2.2.0',
+    version: '2.3.0',
     description: 'Full-featured Claude assistant with browser interaction, AI agent capabilities, project management, and conversation export',
     author: { email: 'jms830@example.com' },
     permissions: [
@@ -22,6 +22,7 @@ export default defineConfig({
       'offscreen',      // Background media processing (GIF generation)
       'downloads',      // File downloads
       'system.display', // Display info for screenshots
+      'declarativeNetRequest', // Modify headers for iframe embedding
     ],
     host_permissions: [
       'https://claude.ai/*',
@@ -29,6 +30,8 @@ export default defineConfig({
       'https://chat.openai.com/*',
       'https://chatgpt.com/*',
       'https://gemini.google.com/*',
+      'https://perplexity.ai/*',
+      '*://*.perplexity.ai/*',
       '<all_urls>', // Needed for page capture and browser interaction
     ],
     optional_permissions: ['clipboardWrite', 'nativeMessaging'],
@@ -37,6 +40,14 @@ export default defineConfig({
         'https://claude.ai/*',
         '*://*.claude.ai/*',
       ],
+    },
+    // Declarative Net Request rules for iframe embedding
+    declarative_net_request: {
+      rule_resources: [{
+        id: 'iframe_rules',
+        enabled: true,
+        path: 'iframe-rules.json'
+      }]
     },
     // Side panel configuration
     side_panel: {

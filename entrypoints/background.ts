@@ -1,10 +1,63 @@
 export default defineBackground(() => {
+  // ========================================================================
+  // DEBUG MODE - Toggle via sidepanel settings or chrome.storage
+  // ========================================================================
+  let DEBUG_MODE = false;
+  
+  // Initialize debug mode from storage
+  chrome.storage.local.get(['eidolon_debug_mode'], (result) => {
+    DEBUG_MODE = result.eidolon_debug_mode === true;
+    if (DEBUG_MODE) console.log('[Eidolon] Debug mode enabled');
+  });
+  
+  // Listen for debug mode changes
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.eidolon_debug_mode) {
+      DEBUG_MODE = changes.eidolon_debug_mode.newValue === true;
+      console.log('[Eidolon] Debug mode:', DEBUG_MODE ? 'ON' : 'OFF');
+    }
+  });
+  
+  // Debug logging helper - only logs when DEBUG_MODE is true
+  function debugLog(...args: any[]) {
+    if (DEBUG_MODE) console.log(...args);
+  }
+  
+  function debugGroup(label: string) {
+    if (DEBUG_MODE) console.group(label);
+  }
+  
+  function debugGroupEnd() {
+    if (DEBUG_MODE) console.groupEnd();
+  }
+  
   // Import types
   type Organization = {
     uuid: string;
     name: string;
     capabilities: string[];
   };
+
+  // Helper to extract model family (haiku, sonnet, opus)
+  function extractModelFamily(nameOrId: string): string | null {
+    const lower = nameOrId.toLowerCase();
+    if (lower.includes('haiku')) return 'haiku';
+    if (lower.includes('sonnet')) return 'sonnet';
+    if (lower.includes('opus')) return 'opus';
+    return null;
+  }
+
+  // Helper to extract version number for sorting (higher = newer)
+  function extractModelVersion(nameOrId: string): number {
+    // Look for patterns like "4.5", "4", "3.5", "3"
+    const match = nameOrId.match(/(\d+)\.?(\d*)/);
+    if (match) {
+      const major = parseInt(match[1], 10);
+      const minor = match[2] ? parseInt(match[2], 10) : 0;
+      return major * 100 + minor; // e.g., 4.5 = 450, 4 = 400, 3.5 = 350
+    }
+    return 0;
+  }
 
   class ClaudeAPIClient {
     private baseUrl = 'https://claude.ai/api';
@@ -18,10 +71,13 @@ export default defineBackground(() => {
 
     private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
       const url = `${this.baseUrl}${endpoint}`;
-      const headers = {
+      
+      // MV3 service workers require explicit Cookie header since credentials: 'include' 
+      // doesn't work reliably in service worker context
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Cookie': `sessionKey=${this.sessionKey}`,
-        ...options.headers,
+        ...(options.headers as Record<string, string>),
       };
 
       const response = await fetch(url, {
@@ -115,6 +171,8 @@ export default defineBackground(() => {
         attachments,
         files: [],
         sync_sources: [],
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        rendering_mode: 'messages',
       };
       
       // Add model if specified (Claude.ai uses model parameter in completion requests)
@@ -122,17 +180,40 @@ export default defineBackground(() => {
         body.model = model;
       }
       
+      // Log full request body for debugging
+      debugLog('│  ├─ Full request body:', JSON.stringify(body).substring(0, 500));
+      
+      debugLog('│  📤 API Request:');
+      debugLog('│  ├─ URL:', url);
+      debugLog('│  ├─ sessionKey:', this.sessionKey ? `yes (${this.sessionKey.length} chars)` : 'NO!');
+      debugLog('│  ├─ prompt length:', body.prompt?.length);
+      debugLog('│  ├─ model:', body.model || '(default)');
+      debugLog('│  └─ body keys:', Object.keys(body));
+      
+      // Service workers can't set Cookie header directly, so we rely on credentials: 'include'
+      // The browser should automatically include cookies for claude.ai domain
+      debugLog('│  ├─ Making request with credentials:include');
+      debugLog('│  ├─ sessionKey available:', !!this.sessionKey);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Cookie': `sessionKey=${this.sessionKey}`,
+          'Accept': 'text/event-stream',
         },
-        credentials: 'include',
+        credentials: 'include',  // This should include cookies automatically
         body: JSON.stringify(body),
       });
 
+      debugLog('│  📥 API Response:');
+      debugLog('│  ├─ status:', response.status);
+      debugLog('│  ├─ statusText:', response.statusText);
+      debugLog('│  ├─ headers:', Object.fromEntries(response.headers.entries()));
+      debugLog('│  └─ body exists:', !!response.body);
+      
       if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Could not read error body');
+        console.error('[API] Error response:', errorText);
         throw new Error(`Message send failed: ${response.status}`);
       }
 
@@ -187,19 +268,101 @@ export default defineBackground(() => {
   let currentOrg: Organization | null = null;
   let sessionKey: string | null = null;
 
+  /**
+   * Get the effective tab ID, validating it's in the same group as the current tab.
+   * Like official Claude extension - only allows operating on tabs in the same group.
+   */
+  async function getEffectiveTabId(requestedTabId: number | undefined, currentTabId: number): Promise<number> {
+    // If no specific tab requested, use current tab
+    if (requestedTabId === undefined) {
+      return currentTabId;
+    }
+    
+    // If same tab, just return it
+    if (requestedTabId === currentTabId) {
+      return currentTabId;
+    }
+    
+    // Validate the requested tab is in the same group as current tab
+    try {
+      const currentTab = await browser.tabs.get(currentTabId);
+      const requestedTab = await browser.tabs.get(requestedTabId);
+      
+      // If current tab is not in a group, only allow operating on current tab
+      if (!currentTab.groupId || currentTab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        throw new Error(`Tab ${requestedTabId} is not accessible. No tab group is active.`);
+      }
+      
+      // Check if requested tab is in the same group
+      if (requestedTab.groupId !== currentTab.groupId) {
+        // Get valid tab IDs for error message
+        const allTabs = await browser.tabs.query({ currentWindow: true });
+        const validTabIds = allTabs
+          .filter(t => t.groupId === currentTab.groupId && t.id !== undefined)
+          .map(t => t.id);
+        throw new Error(`Tab ${requestedTabId} is not in the same group as the current tab. Valid tab IDs are: ${validTabIds.join(', ')}`);
+      }
+      
+      return requestedTabId;
+    } catch (error: any) {
+      if (error.message.includes('not in the same group') || error.message.includes('not accessible')) {
+        throw error;
+      }
+      throw new Error(`Tab ${requestedTabId} not found or not accessible`);
+    }
+  }
+  
+  /**
+   * Hide indicator before tool use (like official extension)
+   */
+  async function hideIndicatorForToolUse(tabId: number): Promise<void> {
+    try {
+      await browser.tabs.sendMessage(tabId, { type: 'HIDE_AGENT_INDICATOR' });
+      // Small delay to ensure indicator is hidden before action
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch {
+      // Ignore errors - indicator may not be shown
+    }
+  }
+
   // Initialize session from storage on startup
   async function initializeSession(): Promise<void> {
     try {
+      // Always try to get a fresh session from cookies first
+      // This ensures we're using the current logged-in session
+      const freshSessionKey = await extractSessionKey();
+      
+      if (freshSessionKey) {
+        sessionKey = freshSessionKey;
+        apiClient = new ClaudeAPIClient(sessionKey);
+        
+        // Validate and get org
+        try {
+          const orgs = await apiClient.getOrganizations();
+          if (orgs.length > 0) {
+            currentOrg = orgs[0];
+            await browser.storage.local.set({
+              sessionKey,
+              currentOrg,
+              sessionValid: true,
+            });
+            debugLog('[Session] Initialized from cookies');
+            return;
+          }
+        } catch (error) {
+          debugLog('[Session] Cookie session invalid, checking storage...');
+        }
+      }
+      
+      // Fall back to stored session
       const stored = await browser.storage.local.get(['sessionKey', 'currentOrg', 'sessionValid']);
-
       if (stored.sessionValid && stored.sessionKey && stored.currentOrg) {
         sessionKey = stored.sessionKey;
         currentOrg = stored.currentOrg;
-        apiClient = new ClaudeAPIClient(sessionKey);
-        console.log('Session restored from storage');
+        apiClient = new ClaudeAPIClient(sessionKey as string);
+        debugLog('[Session] Restored from storage');
       } else {
-        // Try to extract fresh session key from cookies
-        await validateSession();
+        debugLog('[Session] No valid session found - user needs to log in to Claude.ai');
       }
     } catch (error) {
       console.error('Failed to initialize session:', error);
@@ -215,12 +378,12 @@ export default defineBackground(() => {
       // First check for manually saved session key
       const storage = await browser.storage.local.get('manualSessionKey');
       if (storage.manualSessionKey) {
-        console.log('Using manual session key from storage');
+        debugLog('[Session] Using manual session key from storage');
         return storage.manualSessionKey;
       }
 
       // Fall back to cookie extraction - try multiple approaches for Firefox compatibility
-      console.log('Attempting to extract sessionKey cookie...');
+      debugLog('[Session] Attempting to extract sessionKey cookie...');
 
       // Method 1: Direct cookie.get with exact URL
       let cookie = await browser.cookies.get({
@@ -229,7 +392,7 @@ export default defineBackground(() => {
       });
 
       if (cookie && cookie.value) {
-        console.log('Found sessionKey via direct get');
+        debugLog('[Session] Found sessionKey via direct get');
         return cookie.value;
       }
 
@@ -240,7 +403,7 @@ export default defineBackground(() => {
       });
 
       if (cookie && cookie.value) {
-        console.log('Found sessionKey via www subdomain');
+        debugLog('[Session] Found sessionKey via www subdomain');
         return cookie.value;
       }
 
@@ -249,11 +412,11 @@ export default defineBackground(() => {
         domain: 'claude.ai'
       });
 
-      console.log(`Found ${allCookies.length} cookies for claude.ai domain`);
+      debugLog(`[Session] Found ${allCookies.length} cookies for claude.ai domain`);
 
       const sessionCookie = allCookies.find(c => c.name === 'sessionKey');
       if (sessionCookie && sessionCookie.value) {
-        console.log('Found sessionKey via domain search');
+        debugLog('[Session] Found sessionKey via domain search');
         return sessionCookie.value;
       }
 
@@ -262,11 +425,11 @@ export default defineBackground(() => {
         domain: '.claude.ai'
       });
 
-      console.log(`Found ${allCookiesWithDot.length} cookies for .claude.ai domain`);
+      debugLog(`[Session] Found ${allCookiesWithDot.length} cookies for .claude.ai domain`);
 
       const sessionCookieWithDot = allCookiesWithDot.find(c => c.name === 'sessionKey');
       if (sessionCookieWithDot && sessionCookieWithDot.value) {
-        console.log('Found sessionKey via .domain search');
+        debugLog('[Session] Found sessionKey via .domain search');
         return sessionCookieWithDot.value;
       }
 
@@ -469,6 +632,7 @@ export default defineBackground(() => {
             break;
 
           case 'send-chat-message':
+            debugLog('[BG] send-chat-message: apiClient=', !!apiClient, 'currentOrg=', !!currentOrg);
             if (apiClient && currentOrg) {
               try {
                 const response = await apiClient.sendMessage(
@@ -496,6 +660,7 @@ export default defineBackground(() => {
                 }
                 
                 // Parse the streamed response - Claude returns event-stream format
+                // New format uses content_block_delta with delta.text for text content
                 const lines = fullResponse.split('\n');
                 let assistantMessage = '';
                 
@@ -503,8 +668,15 @@ export default defineBackground(() => {
                   if (line.startsWith('data: ')) {
                     try {
                       const data = JSON.parse(line.slice(6));
+                      // Handle old format (completion field)
                       if (data.completion) {
                         assistantMessage += data.completion;
+                      }
+                      // Handle new format (content_block_delta with text_delta)
+                      if (data.type === 'content_block_delta' && 
+                          data.delta?.type === 'text_delta' && 
+                          data.delta?.text) {
+                        assistantMessage += data.delta.text;
                       }
                     } catch (e) {
                       // Ignore parse errors for non-JSON lines
@@ -518,6 +690,253 @@ export default defineBackground(() => {
                 sendResponse({ success: false, error: error.message });
               }
             } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
+          case 'send-chat-message-with-tools':
+            debugGroup('[BG] 🤖 send-chat-message-with-tools');
+            debugLog('├─ apiClient:', !!apiClient);
+            debugLog('├─ currentOrg:', !!currentOrg, currentOrg?.uuid);
+            if (apiClient && currentOrg) {
+              try {
+                const { conversationId, messages, tools, model } = request;
+                debugLog('├─ conversationId:', conversationId);
+                debugLog('├─ model:', model);
+                debugLog('├─ tools count:', tools?.length);
+                debugLog('├─ messages:', JSON.stringify(messages, null, 2));
+                
+                // Format tools into a system prompt that instructs Claude on how to use them
+                const toolsDescription = tools.map((tool: any) => {
+                  const params = Object.entries(tool.input_schema.properties || {})
+                    .map(([name, schema]: [string, any]) => `  - ${name}: ${schema.description || schema.type}`)
+                    .join('\n');
+                  return `### ${tool.name}\n${tool.description}\n\nParameters:\n${params}`;
+                }).join('\n\n---\n\n');
+                
+                const toolSystemPrompt = `You are an AI assistant with access to browser automation tools. You can interact with web pages to help the user complete tasks.
+
+## Available Tools
+
+${toolsDescription}
+
+## How to Use Tools
+
+When you need to use a tool, respond with a JSON block in the following format:
+
+\`\`\`tool_use
+{
+  "type": "tool_use",
+  "id": "unique_id_here",
+  "name": "tool_name",
+  "input": {
+    "param1": "value1"
+  }
+}
+\`\`\`
+
+You can include multiple tool_use blocks in a single response if you need to perform multiple actions.
+
+After using tools, you will receive the results. Continue using tools until you have completed the user's task, then provide a final summary.
+
+IMPORTANT: 
+- Always take a screenshot first to see the current state of the page
+- Use read_page to get the accessibility tree to find clickable elements
+- Coordinates are in pixels from the top-left of the viewport
+- After clicking an input field, use the "type" action to enter text
+
+## Current Conversation`;
+
+                // Build the prompt from message history
+                let prompt = '';
+                const lastMessages = messages.slice(-10); // Keep last 10 messages for context
+                
+                for (const msg of lastMessages) {
+                  if (msg.role === 'user') {
+                    if (typeof msg.content === 'string') {
+                      prompt += `\n\nUser: ${msg.content}`;
+                    } else if (Array.isArray(msg.content)) {
+                      // Handle tool results
+                      for (const item of msg.content) {
+                        if (item.type === 'tool_result') {
+                          prompt += `\n\nTool Result (${item.tool_use_id}): ${typeof item.content === 'string' ? item.content : JSON.stringify(item.content)}`;
+                        }
+                      }
+                    }
+                  } else if (msg.role === 'assistant') {
+                    prompt += `\n\nAssistant: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`;
+                  }
+                }
+                
+                // Prepend system prompt to the conversation
+                const fullPrompt = toolSystemPrompt + prompt;
+                
+                debugLog('├─ 📝 Prompt built:');
+                debugLog('│  ├─ system prompt length:', toolSystemPrompt.length);
+                debugLog('│  ├─ user prompt length:', prompt.length);
+                debugLog('│  ├─ total length:', fullPrompt.length);
+                debugLog('│  └─ first 500 chars:', fullPrompt.substring(0, 500));
+                
+                // Send to Claude
+                const response = await apiClient.sendMessage(
+                  currentOrg.uuid,
+                  conversationId,
+                  fullPrompt,
+                  [],
+                  '00000000-0000-4000-8000-000000000000',
+                  model
+                );
+                
+                // Read streaming response - try multiple methods
+                debugLog('├─ 📖 Reading response:');
+                debugLog('│  ├─ body exists:', !!response.body);
+                debugLog('│  ├─ bodyUsed:', response.bodyUsed);
+                
+                let fullResponse = '';
+                
+                // Method 1: Try reading as text directly first
+                try {
+                  const clonedResponse = response.clone();
+                  const textContent = await clonedResponse.text();
+                  debugLog('│  ├─ Method 1 (text()):', textContent.length, 'bytes');
+                  if (textContent.length > 0) {
+                    fullResponse = textContent;
+                  }
+                } catch (e: any) {
+                  debugLog('│  ├─ Method 1 failed:', e.message);
+                }
+                
+                // Method 2: Try streaming reader if text() didn't work
+                if (!fullResponse && response.body) {
+                  try {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let chunkCount = 0;
+                    
+                    while (true) {
+                      const { done, value } = await reader.read();
+                      if (done) break;
+                      chunkCount++;
+                      fullResponse += decoder.decode(value);
+                    }
+                    debugLog('│  ├─ Method 2 (stream):', chunkCount, 'chunks,', fullResponse.length, 'bytes');
+                  } catch (e: any) {
+                    debugLog('│  ├─ Method 2 failed:', e.message);
+                  }
+                }
+                
+                debugLog('│  └─ Final response length:', fullResponse.length);
+                debugLog('├─ 📄 Raw response (first 2000 chars):');
+                debugLog(fullResponse.substring(0, 2000) || '(empty)');
+                
+                // Parse the streamed response
+                debugLog('├─ 🔍 Parsing SSE response:');
+                const lines = fullResponse.split('\n');
+                debugLog('│  ├─ total lines:', lines.length);
+                let assistantMessage = '';
+                let dataLineCount = 0;
+                let parsedEventCount = 0;
+                
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    dataLineCount++;
+                    try {
+                      const data = JSON.parse(line.slice(6));
+                      parsedEventCount++;
+                      // Log first few events to understand structure
+                      if (parsedEventCount <= 3) {
+                        debugLog(`│  ├─ event ${parsedEventCount} keys:`, Object.keys(data));
+                        debugLog(`│  │  sample:`, JSON.stringify(data).substring(0, 200));
+                      }
+                      if (data.completion) {
+                        assistantMessage += data.completion;
+                      }
+                      // Also check for other common field names
+                      if (data.text) {
+                        assistantMessage += data.text;
+                      }
+                      if (data.content) {
+                        assistantMessage += typeof data.content === 'string' ? data.content : '';
+                      }
+                      if (data.delta?.text) {
+                        assistantMessage += data.delta.text;
+                      }
+                    } catch (e) {
+                      // Ignore parse errors
+                    }
+                  }
+                }
+                debugLog('│  ├─ data lines found:', dataLineCount);
+                debugLog('│  ├─ events parsed:', parsedEventCount);
+                debugLog('│  └─ assistant message length:', assistantMessage.length);
+                
+                // Parse tool_use blocks from the response
+                const toolUses: any[] = [];
+                const toolUseRegex = /```tool_use\s*([\s\S]*?)```/g;
+                let match;
+                
+                while ((match = toolUseRegex.exec(assistantMessage)) !== null) {
+                  try {
+                    const toolJson = JSON.parse(match[1].trim());
+                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
+                      // Generate ID if not provided
+                      if (!toolJson.id) {
+                        toolJson.id = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                      }
+                      toolUses.push(toolJson);
+                    }
+                  } catch (e) {
+                    console.warn('[BG] Failed to parse tool_use block:', e);
+                  }
+                }
+                
+                // Also try to find inline JSON tool_use (without code blocks)
+                const inlineToolRegex = /\{"type"\s*:\s*"tool_use"\s*,\s*"id"\s*:\s*"([^"]+)"\s*,\s*"name"\s*:\s*"([^"]+)"\s*,\s*"input"\s*:\s*(\{[^}]+\})\}/g;
+                while ((match = inlineToolRegex.exec(assistantMessage)) !== null) {
+                  try {
+                    toolUses.push({
+                      type: 'tool_use',
+                      id: match[1],
+                      name: match[2],
+                      input: JSON.parse(match[3])
+                    });
+                  } catch (e) {
+                    console.warn('[BG] Failed to parse inline tool_use:', e);
+                  }
+                }
+                
+                // Extract text content (remove tool_use blocks)
+                const textContent = assistantMessage
+                  .replace(/```tool_use[\s\S]*?```/g, '')
+                  .replace(/\{"type"\s*:\s*"tool_use"[\s\S]*?\}/g, '')
+                  .trim();
+                
+                debugLog('├─ ✅ Final result:');
+                debugLog('│  ├─ tool_uses found:', toolUses.length);
+                debugLog('│  ├─ text content length:', textContent.length);
+                debugLog('│  └─ text preview:', textContent.substring(0, 200) || '(empty)');
+                if (toolUses.length > 0) {
+                  debugLog('│  └─ tools:', toolUses.map(t => t.name).join(', '));
+                }
+                debugGroupEnd();
+                
+                sendResponse({
+                  success: true,
+                  data: {
+                    text: textContent,
+                    tool_uses: toolUses,
+                    content: assistantMessage,
+                    response: textContent
+                  }
+                });
+              } catch (error: any) {
+                console.error('[BG] send-chat-message-with-tools error:', error);
+                debugGroupEnd();
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              debugLog('└─ ❌ Not authenticated');
+              debugGroupEnd();
               sendResponse({ success: false, error: 'Not authenticated' });
             }
             break;
@@ -543,8 +962,43 @@ export default defineBackground(() => {
               try {
                 // Try to get models from bootstrap data
                 const bootstrap = await apiClient.getBootstrapData();
-                if (bootstrap?.account?.models || bootstrap?.models) {
-                  sendResponse({ success: true, data: bootstrap.account?.models || bootstrap.models });
+                
+                // Models are in organization.claude_ai_bootstrap_models_config
+                const modelsConfig = bootstrap?.account?.memberships?.[0]?.organization?.claude_ai_bootstrap_models_config;
+                // modelsConfig is an array of model objects
+                let models: any[] = [];
+                if (Array.isArray(modelsConfig)) {
+                  // Parse model objects - structure is { model: "claude-xxx", name: "Claude Xxx", ... }
+                  const allModels = modelsConfig.map((m: any) => {
+                    const modelId = m.model || m.model_id || m.id || '';
+                    const displayName = m.name || m.display_name || modelId;
+                    return {
+                      id: modelId,
+                      name: displayName,
+                      family: extractModelFamily(displayName),
+                      version: extractModelVersion(modelId)
+                    };
+                  });
+                  
+                  // Filter to only latest version of each family (Haiku, Sonnet, Opus)
+                  const familyLatest: Record<string, any> = {};
+                  for (const model of allModels) {
+                    if (model.family && (!familyLatest[model.family] || model.version > familyLatest[model.family].version)) {
+                      familyLatest[model.family] = model;
+                    }
+                  }
+                  
+                  // Sort by family priority: Sonnet, Opus, Haiku
+                  const familyOrder = ['sonnet', 'opus', 'haiku'];
+                  models = familyOrder
+                    .filter(f => familyLatest[f])
+                    .map(f => familyLatest[f]);
+                  
+                  debugLog('[API] Filtered models (latest per family):', models);
+                }
+                
+                if (models && models.length > 0) {
+                  sendResponse({ success: true, data: models });
                 } else {
                   // Return default models if bootstrap doesn't have them
                   sendResponse({ success: true, data: null });
@@ -585,7 +1039,7 @@ export default defineBackground(() => {
           case 'get-api-client-session':
             // Validate sender is from extension pages, not content scripts
             // Check if request is from an extension page (chrome-extension://) vs external page
-            const isExtensionPage = sender.url?.startsWith(browser.runtime.getURL(''));
+            const isExtensionPage = sender.url?.startsWith(chrome.runtime.getURL(''));
             if (!isExtensionPage) {
               console.warn('Session key requested from non-extension page - denied');
               sendResponse({ success: false, error: 'Unauthorized access' });
@@ -656,7 +1110,7 @@ export default defineBackground(() => {
                     sameSite: 'lax' as 'lax' // Use 'lax' instead of 'no_restriction' for Firefox
                   };
 
-                  console.log('Setting cookie with details:', {
+                  debugLog('[Session] Setting cookie with details:', {
                     domain: cookieDetails.domain,
                     path: cookieDetails.path,
                     sameSite: cookieDetails.sameSite
@@ -664,7 +1118,7 @@ export default defineBackground(() => {
 
                   await browser.cookies.set(cookieDetails);
 
-                  console.log('Manual session key cookie set successfully');
+                  debugLog('[Session] Manual session key cookie set successfully');
 
                   // Verify the cookie was set - try multiple methods
                   let verifyCookie = await browser.cookies.get({
@@ -677,7 +1131,7 @@ export default defineBackground(() => {
                     const allCookies = await browser.cookies.getAll({ domain: '.claude.ai' });
                     const sessionCookie = allCookies.find(c => c.name === 'sessionKey');
                     if (sessionCookie) {
-                      console.log('Cookie found via getAll. Details:', {
+                      debugLog('[Session] Cookie found via getAll. Details:', {
                         domain: sessionCookie.domain,
                         path: sessionCookie.path,
                         secure: sessionCookie.secure,
@@ -687,15 +1141,15 @@ export default defineBackground(() => {
                     }
                   }
 
-                  console.log('Verified cookie:', verifyCookie ? `EXISTS (domain: ${verifyCookie.domain})` : 'NOT FOUND');
+                  debugLog('[Session] Verified cookie:', verifyCookie ? `EXISTS (domain: ${verifyCookie.domain})` : 'NOT FOUND');
 
                 } catch (cookieError: any) {
-                  console.error('Failed to set cookie:', cookieError);
+                  console.error('[Session] Failed to set cookie:', cookieError);
                   sendResponse({ success: false, error: `Cookie error: ${cookieError.message}` });
                   return;
                 }
 
-                console.log('Manual session key saved and cookie set');
+                debugLog('[Session] Manual session key saved and cookie set');
 
                 // Clear existing session to force re-validation with new key
                 sessionKey = sessionKeyValue; // Set it directly instead of clearing
@@ -716,30 +1170,44 @@ export default defineBackground(() => {
           // ================================================================
           
           case 'browser-take-screenshot':
-            // Take a screenshot of the current tab using CDP
+            // Take a screenshot of a tab using CDP
+            // Supports tabId parameter for specific tab (like official extension)
             try {
-              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-              if (!tab?.id) {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab?.id) {
                 sendResponse({ success: false, error: 'No active tab' });
                 break;
               }
               
+              // Get effective tab ID - validates requested tab is in same group
+              let screenshotTabId: number;
+              try {
+                screenshotTabId = await getEffectiveTabId(request.tabId, activeTab.id);
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+                break;
+              }
+              
+              // Hide indicator before screenshot (like official)
+              await hideIndicatorForToolUse(screenshotTabId);
+              
               // Attach debugger and capture screenshot
-              await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+              await chrome.debugger.attach({ tabId: screenshotTabId }, '1.3');
               try {
                 const result = await chrome.debugger.sendCommand(
-                  { tabId: tab.id },
+                  { tabId: screenshotTabId },
                   'Page.captureScreenshot',
                   { format: request.format || 'png', quality: request.quality || 80 }
                 );
                 sendResponse({ 
                   success: true, 
                   data: { 
-                    screenshot: `data:image/${request.format || 'png'};base64,${(result as any).data}` 
+                    screenshot: `data:image/${request.format || 'png'};base64,${(result as any).data}`,
+                    tabId: screenshotTabId
                   } 
                 });
               } finally {
-                await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                await chrome.debugger.detach({ tabId: screenshotTabId }).catch(() => {});
               }
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
@@ -747,22 +1215,44 @@ export default defineBackground(() => {
             break;
             
           case 'browser-get-accessibility-tree':
-            // Get the accessibility tree from the current tab
+            // Get the accessibility tree from a tab
+            // Supports tabId parameter for specific tab (like official extension)
             try {
-              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-              if (!tab?.id) {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab?.id) {
                 sendResponse({ success: false, error: 'No active tab' });
                 break;
               }
               
+              // Get effective tab ID - validates requested tab is in same group
+              let treeTabId: number;
+              try {
+                treeTabId = await getEffectiveTabId(request.tabId, activeTab.id);
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+                break;
+              }
+              
               const results = await browser.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: () => {
-                  return (window as any).__generateAccessibilityTree?.(10, false) || null;
-                }
+                target: { tabId: treeTabId },
+                func: (depth: number, interactiveOnly: boolean) => {
+                  return (window as any).__generateAccessibilityTree?.(depth, interactiveOnly) || null;
+                },
+                args: [request.depth || 15, request.filter === 'interactive']
               });
               
-              sendResponse({ success: true, data: results[0]?.result });
+              // Get page info
+              const tabInfo = await browser.tabs.get(treeTabId);
+              
+              sendResponse({ 
+                success: true, 
+                data: {
+                  tree: results[0]?.result,
+                  url: tabInfo.url,
+                  title: tabInfo.title,
+                  tabId: treeTabId
+                }
+              });
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
             }
@@ -770,9 +1260,10 @@ export default defineBackground(() => {
             
           case 'browser-execute-action':
             // Execute a browser action (click, type, scroll, etc.)
+            // Supports tabId parameter to operate on specific tab (like official Claude extension)
             try {
-              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-              if (!tab?.id) {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!activeTab?.id) {
                 sendResponse({ success: false, error: 'No active tab' });
                 break;
               }
@@ -783,17 +1274,29 @@ export default defineBackground(() => {
                 break;
               }
               
+              // Get effective tab ID - validates requested tab is in same group
+              let effectiveTabId: number;
+              try {
+                effectiveTabId = await getEffectiveTabId(request.tabId ?? action.tabId, activeTab.id);
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+                break;
+              }
+              
+              // Hide indicator before tool use (like official)
+              await hideIndicatorForToolUse(effectiveTabId);
+              
               // Handle different action types
               switch (action.type) {
                 case 'click':
                 case 'left_click': {
-                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  await chrome.debugger.attach({ tabId: effectiveTabId }, '1.3');
                   try {
                     // Get coordinates from ref or use provided coordinates
                     let x = action.x, y = action.y;
                     if (action.target) {
                       const coordResults = await browser.scripting.executeScript({
-                        target: { tabId: tab.id },
+                        target: { tabId: effectiveTabId },
                         func: (ref: string) => {
                           const bounds = (window as any).__getBoundsByRef?.(ref);
                           if (!bounds) return null;
@@ -810,66 +1313,129 @@ export default defineBackground(() => {
                       y = coords.y;
                     }
                     
-                    // Click
-                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                    // Click with proper mouse move first (like official)
+                    await chrome.debugger.sendCommand({ tabId: effectiveTabId }, 'Input.dispatchMouseEvent', {
+                      type: 'mouseMoved', x, y, button: 'none', buttons: 0
+                    });
+                    await new Promise(r => setTimeout(r, 100));
+                    await chrome.debugger.sendCommand({ tabId: effectiveTabId }, 'Input.dispatchMouseEvent', {
                       type: 'mousePressed', x, y, button: 'left', clickCount: 1
                     });
-                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                    await new Promise(r => setTimeout(r, 12));
+                    await chrome.debugger.sendCommand({ tabId: effectiveTabId }, 'Input.dispatchMouseEvent', {
                       type: 'mouseReleased', x, y, button: 'left', clickCount: 1
                     });
                     
-                    sendResponse({ success: true, data: { x, y } });
+                    sendResponse({ success: true, data: { x, y, tabId: effectiveTabId } });
                   } finally {
-                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                    await chrome.debugger.detach({ tabId: effectiveTabId }).catch(() => {});
                   }
                   break;
                 }
                 
                 case 'type': {
-                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  await chrome.debugger.attach({ tabId: effectiveTabId }, '1.3');
                   try {
                     if (action.target) {
                       // Focus element first
                       await browser.scripting.executeScript({
-                        target: { tabId: tab.id },
+                        target: { tabId: effectiveTabId },
                         func: (ref: string) => (window as any).__focusRef?.(ref),
                         args: [action.target]
                       });
                     }
-                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.insertText', {
+                    await chrome.debugger.sendCommand({ tabId: effectiveTabId }, 'Input.insertText', {
                       text: action.value || ''
                     });
-                    sendResponse({ success: true });
+                    sendResponse({ success: true, data: { tabId: effectiveTabId } });
                   } finally {
-                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                    await chrome.debugger.detach({ tabId: effectiveTabId }).catch(() => {});
                   }
                   break;
                 }
                 
                 case 'scroll': {
-                  await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+                  await chrome.debugger.attach({ tabId: effectiveTabId }, '1.3');
                   try {
-                    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
+                    await chrome.debugger.sendCommand({ tabId: effectiveTabId }, 'Input.dispatchMouseEvent', {
                       type: 'mouseWheel',
                       x: action.x || 100,
                       y: action.y || 100,
                       deltaX: action.deltaX || 0,
                       deltaY: action.deltaY || 0
                     });
-                    sendResponse({ success: true });
+                    sendResponse({ success: true, data: { tabId: effectiveTabId } });
                   } finally {
-                    await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+                    await chrome.debugger.detach({ tabId: effectiveTabId }).catch(() => {});
                   }
                   break;
                 }
                 
                 case 'navigate': {
                   let url = action.value || '';
+                  // Handle back/forward navigation like official extension
+                  if (url.toLowerCase() === 'back') {
+                    await chrome.tabs.goBack(effectiveTabId);
+                    sendResponse({ success: true, data: { action: 'back', tabId: effectiveTabId } });
+                    break;
+                  } else if (url.toLowerCase() === 'forward') {
+                    await chrome.tabs.goForward(effectiveTabId);
+                    sendResponse({ success: true, data: { action: 'forward', tabId: effectiveTabId } });
+                    break;
+                  }
+                  
                   if (!url.startsWith('http://') && !url.startsWith('https://')) {
                     url = 'https://' + url;
                   }
-                  await browser.tabs.update(tab.id, { url });
-                  sendResponse({ success: true, data: { url } });
+                  await browser.tabs.update(effectiveTabId, { url });
+                  sendResponse({ success: true, data: { url, tabId: effectiveTabId } });
+                  break;
+                }
+                
+                case 'screenshot': {
+                  // Take screenshot of specific tab
+                  await chrome.debugger.attach({ tabId: effectiveTabId }, '1.3');
+                  try {
+                    const result = await chrome.debugger.sendCommand(
+                      { tabId: effectiveTabId },
+                      'Page.captureScreenshot',
+                      { format: action.format || 'png', quality: action.quality || 80 }
+                    );
+                    sendResponse({ 
+                      success: true, 
+                      data: { 
+                        screenshot: `data:image/${action.format || 'png'};base64,${(result as any).data}`,
+                        tabId: effectiveTabId
+                      } 
+                    });
+                  } finally {
+                    await chrome.debugger.detach({ tabId: effectiveTabId }).catch(() => {});
+                  }
+                  break;
+                }
+                
+                case 'read_page': {
+                  // Get accessibility tree from specific tab
+                  const results = await browser.scripting.executeScript({
+                    target: { tabId: effectiveTabId },
+                    func: (depth: number, interactiveOnly: boolean) => {
+                      return (window as any).__generateAccessibilityTree?.(depth, interactiveOnly) || null;
+                    },
+                    args: [action.depth || 15, action.filter === 'interactive']
+                  });
+                  
+                  // Get page info
+                  const tab = await browser.tabs.get(effectiveTabId);
+                  
+                  sendResponse({ 
+                    success: true, 
+                    data: {
+                      tree: results[0]?.result,
+                      url: tab.url,
+                      title: tab.title,
+                      tabId: effectiveTabId
+                    }
+                  });
                   break;
                 }
                 
@@ -894,6 +1460,147 @@ export default defineBackground(() => {
                   active: t.active,
                   groupId: t.groupId
                 }))
+              });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'tabs-context':
+            // Get ALL tabs in current window with tab group information
+            try {
+              const [currentTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!currentTab?.id) {
+                sendResponse({ success: false, error: 'No active tab found' });
+                break;
+              }
+              
+              // Get all tabs in current window
+              const allTabs = await browser.tabs.query({ currentWindow: true });
+              
+              // Get tab group info for all groups
+              const tabGroups: { [key: number]: { id: number; title: string; color: string; collapsed: boolean } } = {};
+              try {
+                const groups = await chrome.tabGroups.query({ windowId: currentTab.windowId });
+                for (const group of groups) {
+                  tabGroups[group.id] = {
+                    id: group.id,
+                    title: group.title || '',
+                    color: group.color || 'grey',
+                    collapsed: group.collapsed || false
+                  };
+                }
+              } catch (e) {
+                // Tab groups API might not be available in all contexts
+                console.log('[Background] Tab groups query failed:', e);
+              }
+              
+              // Map all tabs with their group info
+              const availableTabs = allTabs
+                .filter(t => t.id !== undefined)
+                .map(t => {
+                  const groupId = t.groupId !== undefined && t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE 
+                    ? t.groupId 
+                    : undefined;
+                  const groupInfo = groupId ? tabGroups[groupId] : undefined;
+                  
+                  return {
+                    tabId: t.id!,
+                    title: t.title || 'Untitled',
+                    url: t.url || '',
+                    favIconUrl: t.favIconUrl,
+                    active: t.active,
+                    index: t.index,
+                    groupId,
+                    groupTitle: groupInfo?.title,
+                    groupColor: groupInfo?.color
+                  };
+                });
+              
+              // Sort tabs: grouped tabs first (sorted by group), then ungrouped
+              availableTabs.sort((a, b) => {
+                // Both in groups - sort by group, then by index
+                if (a.groupId !== undefined && b.groupId !== undefined) {
+                  if (a.groupId !== b.groupId) return a.groupId - b.groupId;
+                  return a.index - b.index;
+                }
+                // One in group, one not - grouped first
+                if (a.groupId !== undefined) return -1;
+                if (b.groupId !== undefined) return 1;
+                // Both ungrouped - sort by index
+                return a.index - b.index;
+              });
+              
+              const result = {
+                currentTabId: currentTab.id,
+                currentTabGroupId: currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE ? currentTab.groupId : undefined,
+                availableTabs,
+                tabGroups: Object.values(tabGroups),
+                tabCount: availableTabs.length
+              };
+              
+              sendResponse({
+                success: true,
+                data: result
+              });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'tabs-create':
+            // Create a new tab in the same group as the current tab (like official)
+            try {
+              const [currentTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              if (!currentTab?.id) {
+                sendResponse({ success: false, error: 'No active tab found' });
+                break;
+              }
+              
+              // Create new tab
+              const newTab = await browser.tabs.create({
+                url: request.url || 'chrome://newtab',
+                active: request.active !== false // Default to active
+              });
+              
+              if (!newTab.id) {
+                sendResponse({ success: false, error: 'Failed to create tab - no tab ID returned' });
+                break;
+              }
+              
+              // If current tab is in a group, add new tab to same group
+              if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                await chrome.tabs.group({ tabIds: newTab.id, groupId: currentTab.groupId });
+              }
+              
+              // Get updated tabs list
+              let availableTabs: { tabId: number; title: string; url: string }[] = [];
+              if (currentTab.groupId && currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                const allTabs = await browser.tabs.query({ currentWindow: true });
+                availableTabs = allTabs
+                  .filter(t => t.groupId === currentTab.groupId && t.id !== undefined)
+                  .map(t => ({
+                    tabId: t.id!,
+                    title: t.title || 'Untitled',
+                    url: t.url || ''
+                  }));
+              } else {
+                availableTabs = [{
+                  tabId: newTab.id,
+                  title: newTab.title || 'Untitled',
+                  url: newTab.url || ''
+                }];
+              }
+              
+              sendResponse({
+                success: true,
+                data: {
+                  newTabId: newTab.id,
+                  currentTabId: currentTab.id,
+                  availableTabs,
+                  tabCount: availableTabs.length
+                },
+                output: `Created new tab. Tab ID: ${newTab.id}`
               });
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
@@ -927,29 +1634,72 @@ export default defineBackground(() => {
             break;
             
           case 'show-agent-indicator':
-            // Show the agent indicator on the current tab
+            // Show the agent indicator on a tab
+            // Supports tabId parameter for specific tab
             try {
-              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-              if (tab?.id) {
-                await browser.tabs.sendMessage(tab.id, {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              const indicatorTabId = request.tabId ?? activeTab?.id;
+              
+              if (indicatorTabId) {
+                await browser.tabs.sendMessage(indicatorTabId, {
                   type: 'SHOW_AGENT_INDICATOR',
                   message: request.message || 'Eidolon is working...'
                 });
               }
-              sendResponse({ success: true });
+              sendResponse({ success: true, data: { tabId: indicatorTabId } });
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
             }
             break;
             
           case 'hide-agent-indicator':
-            // Hide the agent indicator
+            // Hide the agent indicator on a tab
+            // Supports tabId parameter for specific tab
             try {
-              const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-              if (tab?.id) {
-                await browser.tabs.sendMessage(tab.id, { type: 'HIDE_AGENT_INDICATOR' });
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              const indicatorTabId = request.tabId ?? activeTab?.id;
+              
+              if (indicatorTabId) {
+                await browser.tabs.sendMessage(indicatorTabId, { type: 'HIDE_AGENT_INDICATOR' });
               }
-              sendResponse({ success: true });
+              sendResponse({ success: true, data: { tabId: indicatorTabId } });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'update-agent-status':
+            // Update agent status message on a tab
+            try {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              const statusTabId = request.tabId ?? activeTab?.id;
+              
+              if (statusTabId) {
+                await browser.tabs.sendMessage(statusTabId, {
+                  type: 'UPDATE_AGENT_STATUS',
+                  message: request.message || ''
+                });
+              }
+              sendResponse({ success: true, data: { tabId: statusTabId } });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'show-click-indicator':
+            // Show click animation at coordinates on a tab
+            try {
+              const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+              const clickTabId = request.tabId ?? activeTab?.id;
+              
+              if (clickTabId && request.x !== undefined && request.y !== undefined) {
+                await browser.tabs.sendMessage(clickTabId, {
+                  type: 'SHOW_CLICK_INDICATOR',
+                  x: request.x,
+                  y: request.y
+                });
+              }
+              sendResponse({ success: true, data: { tabId: clickTabId } });
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
             }
@@ -976,11 +1726,17 @@ export default defineBackground(() => {
       changeInfo.cookie.domain === '.claude.ai' &&
       changeInfo.cookie.name === 'sessionKey'
     ) {
-      if (changeInfo.removed) {
+      // Only clear session if cookie was explicitly deleted (not just updated/refreshed)
+      // When a cookie is updated, Chrome fires 'removed' for old value then 'added' for new
+      // changeInfo.cause tells us why it changed: 'explicit', 'overwrite', 'expired', etc.
+      if (changeInfo.removed && changeInfo.cause === 'explicit') {
+        debugLog('[BG] Session cookie explicitly removed, clearing session');
         sessionKey = null;
         apiClient = null;
         currentOrg = null;
         browser.storage.local.set({ sessionValid: false });
+      } else if (changeInfo.removed) {
+        debugLog('[BG] Session cookie changed (cause:', changeInfo.cause, ') - not clearing session');
       }
     }
   });
@@ -1003,7 +1759,7 @@ export default defineBackground(() => {
         }, 800);
       }
     } catch (e) {
-      console.log('Failed to open side panel:', e);
+      debugLog('[SidePanel] Failed to open side panel:', e);
     }
   }
 

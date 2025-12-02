@@ -15,7 +15,26 @@ interface Tab {
   url: string;
   favIconUrl?: string;
   active: boolean;
+  inGroup?: boolean; // Whether tab is in the agent's tab group
+  groupId?: number; // Tab group ID if in a group
+  groupTitle?: string; // Tab group name
+  groupColor?: string; // Tab group color
 }
+
+// View types for platform switching
+type ViewType = 'eidolon' | 'claude-code' | 'chatgpt' | 'gemini' | 'custom';
+
+interface CustomPlatform {
+  name: string;
+  url: string;
+}
+
+// View URLs for each platform
+const VIEW_URLS: Record<Exclude<ViewType, 'eidolon' | 'custom'>, string> = {
+  'claude-code': 'https://claude.ai/code',
+  'chatgpt': 'https://chatgpt.com',
+  'gemini': 'https://gemini.google.com/app'
+};
 
 interface Project {
   uuid: string;
@@ -45,31 +64,203 @@ interface Attachment {
   content: string;
 }
 
+// ========================================================================
+// BROWSER AGENT TOOL DEFINITIONS
+// ========================================================================
+
+/**
+ * Tool definitions for browser agent mode
+ * These are sent to Claude when agent mode is enabled
+ * Based on official Claude extension's computer use tools for browser
+ */
+interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
+interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, any>;
+}
+
+interface ToolResultBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
+  is_error?: boolean;
+}
+
+const BROWSER_TOOLS: ToolDefinition[] = [
+  {
+    name: 'computer',
+    description: `Use this tool to interact with the browser page. You can take screenshots, click elements, type text, scroll, and navigate.
+
+Available actions:
+- screenshot: Take a screenshot of the current page
+- left_click: Click at coordinates [x, y]
+- right_click: Right-click at coordinates [x, y]
+- double_click: Double-click at coordinates [x, y]
+- type: Type text (use this after clicking an input field)
+- key: Press a key or key combination (e.g., "Enter", "Tab", "ctrl+a")
+- scroll: Scroll the page. Use coordinate to scroll at a specific position, or omit for page scroll
+- mouse_move: Move mouse to coordinates [x, y]
+- wait: Wait for a specified number of milliseconds
+- navigate: Navigate to a URL or use "back"/"forward" for history navigation
+
+After each action, a screenshot will be returned showing the result.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['screenshot', 'left_click', 'right_click', 'double_click', 'middle_click', 'type', 'key', 'scroll', 'mouse_move', 'left_click_drag', 'wait', 'navigate'],
+          description: 'The action to perform'
+        },
+        coordinate: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'The [x, y] coordinates for click, scroll, or mouse_move actions'
+        },
+        text: {
+          type: 'string',
+          description: 'The text to type (for type action) or URL to navigate to (for navigate action)'
+        },
+        key: {
+          type: 'string',
+          description: 'The key or key combination to press (for key action). Examples: "Enter", "Tab", "Escape", "ctrl+a", "ctrl+c"'
+        },
+        scroll_direction: {
+          type: 'string',
+          enum: ['up', 'down', 'left', 'right'],
+          description: 'Direction to scroll (for scroll action)'
+        },
+        scroll_amount: {
+          type: 'number',
+          description: 'Amount to scroll in pixels (for scroll action). Default is 300'
+        },
+        start_coordinate: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Starting [x, y] coordinates for drag action'
+        },
+        duration: {
+          type: 'number',
+          description: 'Duration in milliseconds (for wait action)'
+        }
+      },
+      required: ['action']
+    }
+  },
+  {
+    name: 'read_page',
+    description: `Get the accessibility tree of the current page. This provides a structured representation of all interactive elements on the page, including their roles, labels, and positions.
+
+Use this to understand the page structure and find elements to interact with. Each element includes:
+- role: The type of element (button, link, textbox, etc.)
+- name: The accessible name/label of the element
+- bounds: The position {x, y, width, height} for clicking
+- focused: Whether the element is currently focused
+- value: Current value for input elements`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        max_depth: {
+          type: 'number',
+          description: 'Maximum depth to traverse the accessibility tree. Default is 10.'
+        }
+      }
+    }
+  },
+  {
+    name: 'tabs_context',
+    description: `Get information about available browser tabs. Returns the current tab and all tabs that can be controlled.
+
+Use this to:
+- See what tabs are open
+- Get the current URL and title
+- Check which tab is currently active`,
+    input_schema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'tabs_create',
+    description: `Create a new browser tab and optionally navigate to a URL.
+
+The new tab will be added to the agent's tab group and can be controlled with subsequent actions.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'URL to open in the new tab. If not provided, opens a blank tab.'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_page_text',
+    description: `Get the text content of the current page. Returns the visible text from the page body.
+
+Use this when you need to read or analyze the text content of a page without the full accessibility tree structure.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        max_length: {
+          type: 'number',
+          description: 'Maximum number of characters to return. Default is 50000.'
+        }
+      }
+    }
+  }
+];
+
+interface TabGroup {
+  id: number;
+  title: string;
+  color: string;
+  collapsed: boolean;
+}
+
 interface AppState {
   currentProject: Project | null;
   currentModel: string;
+  conversationModel: string | null; // Model used when conversation started (to detect mid-chat model changes)
   messages: Message[];
   conversations: Conversation[];
   projects: Project[];
   tabs: Tab[];
+  tabGroups: Map<number, TabGroup>; // Tab group info by group ID
   currentTab: Tab | null;
+  targetTabId: number | null; // Tab ID to target for agent actions (defaults to currentTab)
+  tabGroupId: number | null; // Tab group ID for agent session
   isLoading: boolean;
   isAuthenticated: boolean;
   darkMode: boolean;
   attachments: Attachment[];
   currentConversationId: string | null;
+  agentMode: boolean;
+  agentRunning: boolean;
+  // View switching state
+  currentView: ViewType;
+  iframesLoaded: Set<ViewType>;
+  customUrl: string | null;
 }
 
 // Default models fallback - will be updated from Claude.ai if available
 // These model IDs match what Claude.ai web interface uses
+// Model selection - use empty string to let Claude.ai use default model
+// The actual model IDs are fetched dynamically from Claude.ai bootstrap API
 let AVAILABLE_MODELS: Array<{ id: string; name: string; default: boolean }> = [
-  { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', default: true },
-  { id: 'claude-opus-4-5-20250514', name: 'Claude Opus 4.5', default: false },
-  { id: 'claude-haiku-4-5-20250514', name: 'Claude Haiku 4.5', default: false },
-  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', default: false },
-  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', default: false },
-  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', default: false },
-  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', default: false },
+  { id: '', name: 'Default (Claude picks)', default: true },
 ];
 
 // Model display names lookup - will be updated dynamically
@@ -89,16 +280,26 @@ const DEFAULT_MODEL = AVAILABLE_MODELS.find(m => m.default)?.id || 'claude-sonne
 const state: AppState = {
   currentProject: null,
   currentModel: localStorage.getItem('eidolon-model') || DEFAULT_MODEL,
+  conversationModel: null, // Set when conversation starts, used to detect mid-chat model changes
   messages: [],
   conversations: [],
   projects: [],
   tabs: [],
+  tabGroups: new Map(),
   currentTab: null,
+  targetTabId: null,
+  tabGroupId: null,
   isLoading: false,
   isAuthenticated: false,
   darkMode: localStorage.getItem('eidolon-dark-mode') === 'true',
   attachments: [],
-  currentConversationId: null
+  currentConversationId: null,
+  agentMode: false, // Disabled by default - experimental feature
+  agentRunning: false,
+  // View switching state
+  currentView: 'eidolon',
+  iframesLoaded: new Set(),
+  customUrl: localStorage.getItem('eidolon-custom-url')
 };
 
 // ========================================================================
@@ -136,8 +337,9 @@ async function init() {
     document.documentElement.setAttribute('data-mode', 'light');
   }
   
-  // Setup event listeners
+  // Setup event listeners (including view toggle)
   setupEventListeners();
+  setupViewToggle();
   
   // Set initial model indicator
   updateModelIndicator();
@@ -156,25 +358,216 @@ async function init() {
 }
 
 // ========================================================================
+// VIEW TOGGLE FUNCTIONS
+// ========================================================================
+
+/**
+ * Setup view toggle event listeners
+ */
+function setupViewToggle() {
+  // View toggle buttons
+  const viewToggle = document.getElementById('view-toggle');
+  if (viewToggle) {
+    viewToggle.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.getAttribute('data-view') as ViewType;
+        if (view) {
+          switchView(view);
+        }
+      });
+    });
+  }
+  
+  // Open external button - opens current view in new tab
+  const openExternalBtn = document.getElementById('open-external-btn');
+  openExternalBtn?.addEventListener('click', openCurrentViewExternal);
+  
+  // Custom URL handling
+  const customUrlInput = document.getElementById('custom-url-input') as HTMLInputElement;
+  const customUrlLoad = document.getElementById('custom-url-load');
+  const customUrlCancel = document.getElementById('custom-url-cancel');
+  
+  customUrlLoad?.addEventListener('click', () => {
+    const url = customUrlInput?.value?.trim();
+    if (url) {
+      loadCustomUrl(url);
+    }
+  });
+  
+  customUrlCancel?.addEventListener('click', () => {
+    switchView('eidolon');
+  });
+  
+  // Enter key in custom URL input
+  customUrlInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const url = customUrlInput.value?.trim();
+      if (url) {
+        loadCustomUrl(url);
+      }
+    }
+  });
+  
+  // Preset buttons
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = btn.getAttribute('data-url');
+      if (url && customUrlInput) {
+        customUrlInput.value = url;
+        loadCustomUrl(url);
+      }
+    });
+  });
+}
+
+/**
+ * Switch between views (Eidolon, Claude Code, ChatGPT, Gemini, Custom)
+ */
+function switchView(view: ViewType) {
+  console.log('[Eidolon] Switching to view:', view);
+  
+  state.currentView = view;
+  
+  // Update toggle button states
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-view') === view);
+  });
+  
+  // Hide all view containers
+  document.querySelectorAll('.view-container').forEach(container => {
+    container.classList.remove('active');
+  });
+  
+  // Show the selected view container
+  const viewContainer = document.getElementById(`view-container-${view}`);
+  if (viewContainer) {
+    viewContainer.classList.add('active');
+  }
+  
+  // Handle iframe loading for non-Eidolon views
+  if (view !== 'eidolon' && view !== 'custom') {
+    loadIframeIfNeeded(view);
+  }
+  
+  // For custom view, show the prompt if no URL is set
+  if (view === 'custom') {
+    const customPrompt = document.getElementById('custom-url-prompt');
+    const customIframe = document.getElementById('iframe-custom');
+    
+    if (state.customUrl) {
+      // Already have a custom URL, load the iframe
+      customPrompt?.classList.add('hidden');
+      customIframe?.classList.remove('hidden');
+      loadIframeIfNeeded('custom', state.customUrl);
+    } else {
+      // Show the URL input prompt
+      customPrompt?.classList.remove('hidden');
+      customIframe?.classList.add('hidden');
+    }
+  }
+}
+
+/**
+ * Load an iframe if it hasn't been loaded yet (lazy loading)
+ */
+function loadIframeIfNeeded(view: ViewType, customUrl?: string) {
+  const iframeId = `iframe-${view}`;
+  const iframe = document.getElementById(iframeId) as HTMLIFrameElement;
+  
+  if (!iframe) return;
+  
+  // Check if already loaded
+  if (state.iframesLoaded.has(view) && !customUrl) {
+    return;
+  }
+  
+  // Get the URL to load
+  let url: string;
+  if (view === 'custom' && customUrl) {
+    url = customUrl;
+  } else if (view !== 'eidolon' && view !== 'custom') {
+    url = VIEW_URLS[view];
+  } else {
+    return;
+  }
+  
+  // Load the iframe
+  console.log(`[Eidolon] Loading iframe for ${view}: ${url}`);
+  iframe.src = url;
+  state.iframesLoaded.add(view);
+}
+
+/**
+ * Load a custom URL in the custom iframe
+ */
+function loadCustomUrl(url: string) {
+  // Validate and normalize URL
+  let normalizedUrl = url;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    normalizedUrl = 'https://' + url;
+  }
+  
+  try {
+    new URL(normalizedUrl); // Validate URL format
+  } catch {
+    alert('Please enter a valid URL');
+    return;
+  }
+  
+  // Save and load
+  state.customUrl = normalizedUrl;
+  localStorage.setItem('eidolon-custom-url', normalizedUrl);
+  
+  // Hide prompt, show iframe
+  const customPrompt = document.getElementById('custom-url-prompt');
+  const customIframe = document.getElementById('iframe-custom') as HTMLIFrameElement;
+  
+  customPrompt?.classList.add('hidden');
+  customIframe?.classList.remove('hidden');
+  
+  // Load the iframe (force reload even if already loaded)
+  state.iframesLoaded.delete('custom');
+  loadIframeIfNeeded('custom', normalizedUrl);
+}
+
+/**
+ * Open current view in a new browser tab
+ */
+function openCurrentViewExternal() {
+  let url: string;
+  
+  switch (state.currentView) {
+    case 'eidolon':
+      // For Eidolon, open Claude.ai with current conversation if any
+      if (state.currentConversationId) {
+        url = `https://claude.ai/chat/${state.currentConversationId}`;
+      } else {
+        url = 'https://claude.ai/new';
+      }
+      break;
+    case 'custom':
+      if (state.customUrl) {
+        url = state.customUrl;
+      } else {
+        return; // No custom URL set
+      }
+      break;
+    default:
+      url = VIEW_URLS[state.currentView];
+  }
+  
+  browser.tabs.create({ url, active: true });
+}
+
+// ========================================================================
 // EVENT LISTENERS
 // ========================================================================
 
 function setupEventListeners() {
-  // Open Full Claude button - opens current conversation or new chat
-  const openClaudeBtn = getElement('open-claude-btn');
-  openClaudeBtn.addEventListener('click', () => {
-    let url = 'https://claude.ai/new';
-    // If we have an active conversation, open that instead
-    if (state.currentConversationId) {
-      url = `https://claude.ai/chat/${state.currentConversationId}`;
-    }
-    browser.tabs.create({ url, active: true });
-  });
-
-  // Dashboard button
-  const dashboardBtn = getElement('dashboard-btn');
-  dashboardBtn.addEventListener('click', () => {
-    browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html') });
+  // Dashboard button (now in global header)
+  const dashboardBtn = document.getElementById('dashboard-btn');
+  dashboardBtn?.addEventListener('click', () => {
+    browser.tabs.create({ url: chrome.runtime.getURL('/dashboard.html') });
   });
   
   // Project selector
@@ -193,25 +586,20 @@ function setupEventListeners() {
     updateModelIndicator();
   });
   
-  // Browser context toggle
-  const contextToggle = getElement('context-toggle');
-  const browserContext = getElement('browser-context');
-  contextToggle.addEventListener('click', () => {
-    browserContext.classList.toggle('collapsed');
-  });
+  // Browser context toggle (optional - may be hidden)
+  const contextToggle = document.getElementById('context-toggle');
+  const browserContext = document.getElementById('browser-context');
+  if (contextToggle && browserContext) {
+    contextToggle.addEventListener('click', () => {
+      browserContext.classList.toggle('collapsed');
+    });
+  }
   
   // History toggle
   const historyToggle = getElement('history-toggle');
   const historyPanel = getElement('conversation-history');
   historyToggle.addEventListener('click', () => {
     historyPanel.classList.toggle('collapsed');
-  });
-  
-  // Browser tools button
-  const browserToolsBtn = getElement('browser-tools-btn');
-  browserToolsBtn.addEventListener('click', () => {
-    const browserContext = getElement('browser-context');
-    browserContext.classList.remove('collapsed');
   });
   
   // Settings button
@@ -231,22 +619,6 @@ function setupEventListeners() {
     });
   });
   
-  // Capture page button
-  const capturePageBtn = getElement('capture-page-btn');
-  capturePageBtn.addEventListener('click', capturePage);
-  
-  // Screenshot button
-  const screenshotBtn = getElement('screenshot-btn');
-  screenshotBtn.addEventListener('click', takeScreenshot);
-  
-  // Add to project button
-  const addToProjectBtn = getElement('add-to-project-btn');
-  addToProjectBtn.addEventListener('click', addCurrentPageToProject);
-  
-  // Refresh tabs button
-  const refreshTabsBtn = getElement('refresh-tabs-btn');
-  refreshTabsBtn.addEventListener('click', loadTabs);
-  
   // Send message
   const sendBtn = getElement('send-btn');
   const messageInput = getElement<HTMLTextAreaElement>('message-input');
@@ -265,19 +637,173 @@ function setupEventListeners() {
     messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
   });
   
-  // Attach button
-  const attachBtn = getElement('attach-btn');
-  attachBtn.addEventListener('click', showAttachOptions);
-  
-  // Inline toolbar buttons
-  const captureInlineBtn = getElement('capture-inline-btn');
-  captureInlineBtn.addEventListener('click', capturePage);
-  
-  const screenshotInlineBtn = getElement('screenshot-inline-btn');
-  screenshotInlineBtn.addEventListener('click', takeScreenshot);
-  
+  // New Chat button
   const newChatBtn = getElement('new-chat-btn');
   newChatBtn.addEventListener('click', startNewChat);
+  
+  // ========================================================================
+  // CLAUDE-STYLE MENU HANDLERS
+  // ========================================================================
+  
+  // Plus Menu Button
+  const plusMenuBtn = getElement('plus-menu-btn');
+  const browserContextSubmenu = getElement('browser-context-submenu');
+  const projectsSubmenu = getElement('projects-submenu');
+  
+  plusMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleClaudeMenu('plus-menu');
+  });
+  
+  // Plus Menu Items
+  const plusMenuItems = getElement('plus-menu-items');
+  plusMenuItems.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('.claude-menu-item');
+    if (!target) return;
+    
+    const action = target.getAttribute('data-action');
+    
+    switch (action) {
+      case 'screenshot':
+        closeAllClaudeMenus();
+        takeScreenshot();
+        break;
+      case 'capture':
+        closeAllClaudeMenus();
+        capturePage();
+        break;
+      case 'browser-context':
+        showClaudeSubmenu('browser-context-submenu');
+        break;
+      case 'use-project':
+        showClaudeSubmenu('projects-submenu');
+        break;
+    }
+  });
+  
+  // Plus Menu Search
+  const plusMenuSearch = getElement<HTMLInputElement>('plus-menu-search');
+  plusMenuSearch.addEventListener('input', () => {
+    filterClaudeMenuItems('plus-menu-items', plusMenuSearch.value);
+  });
+  
+  // Browser Context Submenu Back Button
+  const browserContextBackBtn = browserContextSubmenu.querySelector('.claude-back-btn');
+  browserContextBackBtn?.addEventListener('click', () => {
+    hideClaudeSubmenu('browser-context-submenu');
+  });
+  
+  // Tabs Search in Browser Context Submenu - use grouped render with search
+  const tabsSearch = getElement<HTMLInputElement>('tabs-search');
+  tabsSearch.addEventListener('input', () => {
+    renderTabsSubmenu(tabsSearch.value);
+  });
+  
+  // Projects Submenu Back Button
+  const projectsBackBtn = projectsSubmenu.querySelector('.claude-back-btn');
+  projectsBackBtn?.addEventListener('click', () => {
+    hideClaudeSubmenu('projects-submenu');
+  });
+  
+  // Projects Search
+  const projectsSearch = getElement<HTMLInputElement>('projects-search');
+  projectsSearch.addEventListener('input', () => {
+    filterClaudeMenuItems('projects-list', projectsSearch.value);
+  });
+  
+  // Refresh Projects Button
+  const refreshProjectsBtn = document.getElementById('refresh-projects-btn');
+  refreshProjectsBtn?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    refreshProjectsBtn.classList.add('loading');
+    await loadProjects();
+    refreshProjectsBtn.classList.remove('loading');
+  });
+  
+  // Settings Menu Button
+  const settingsMenuBtn = getElement('settings-menu-btn');
+  const stylesSubmenu = getElement('styles-submenu');
+  
+  settingsMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleClaudeMenu('settings-menu');
+  });
+  
+  // Settings Menu Items
+  const settingsMenuItems = getElement('settings-menu-items');
+  settingsMenuItems.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('.claude-menu-item');
+    if (!target) return;
+    
+    const action = target.getAttribute('data-action');
+    
+    if (action === 'use-style') {
+      showClaudeSubmenu('styles-submenu');
+    }
+    // Agent mode toggle is handled separately
+  });
+  
+  // Settings Menu Search
+  const settingsMenuSearch = getElement<HTMLInputElement>('settings-menu-search');
+  settingsMenuSearch.addEventListener('input', () => {
+    filterClaudeMenuItems('settings-menu-items', settingsMenuSearch.value);
+  });
+  
+  // Styles Submenu Back Button
+  const stylesBackBtn = stylesSubmenu.querySelector('.claude-back-btn');
+  stylesBackBtn?.addEventListener('click', () => {
+    hideClaudeSubmenu('styles-submenu');
+  });
+  
+  // Styles Search
+  const stylesSearch = getElement<HTMLInputElement>('styles-search');
+  stylesSearch.addEventListener('input', () => {
+    filterClaudeMenuItems('styles-list', stylesSearch.value);
+  });
+  
+  // Style Selection
+  const stylesList = getElement('styles-list');
+  stylesList.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('.style-item');
+    if (!target) return;
+    
+    const style = target.getAttribute('data-style');
+    if (style) {
+      selectStyle(style);
+    }
+  });
+  
+  // Agent Mode Toggle in Menu
+  const menuAgentModeToggle = getElement<HTMLInputElement>('menu-agent-mode-toggle');
+  menuAgentModeToggle.checked = state.agentMode;
+  menuAgentModeToggle.addEventListener('change', () => {
+    toggleAgentMode();
+    // Keep all toggles in sync
+    menuAgentModeToggle.checked = state.agentMode;
+  });
+  
+  // Model Selector Button
+  const modelSelectorBtn = getElement('model-selector-btn');
+  
+  modelSelectorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleClaudeMenu('model-menu');
+  });
+  
+  // Close menus when clicking outside
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.claude-menu') && !target.closest('.claude-icon-btn') && !target.closest('.claude-model-btn')) {
+      closeAllClaudeMenus();
+    }
+  });
+  
+  // Escape key closes menus
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeAllClaudeMenus();
+    }
+  });
   
   // Quick action buttons
   document.querySelectorAll('.quick-action-btn').forEach(btn => {
@@ -292,6 +818,14 @@ function setupEventListeners() {
   darkModeToggle.checked = state.darkMode;
   darkModeToggle.addEventListener('change', toggleDarkMode);
   
+  // Debug mode toggle
+  const debugModeToggle = getElement<HTMLInputElement>('debug-mode-toggle');
+  // Load initial state from storage
+  chrome.storage.local.get(['eidolon_debug_mode'], (result) => {
+    debugModeToggle.checked = result.eidolon_debug_mode === true;
+  });
+  debugModeToggle.addEventListener('change', toggleDebugMode);
+  
   // Validate session button
   const validateBtn = getElement('validate-session-btn');
   validateBtn.addEventListener('click', validateSession);
@@ -301,6 +835,23 @@ function setupEventListeners() {
   historySearchInput.addEventListener('input', (e) => {
     filterConversations((e.target as HTMLInputElement).value);
   });
+  
+  // Agent mode toggle (in browser context panel)
+  const agentModeToggle = getElement<HTMLInputElement>('agent-mode-toggle');
+  agentModeToggle.checked = state.agentMode;
+  agentModeToggle.addEventListener('change', toggleAgentMode);
+  
+  // Agent mode toggle (in settings panel) - keep in sync
+  const settingsAgentModeToggle = getElement<HTMLInputElement>('settings-agent-mode-toggle');
+  settingsAgentModeToggle.checked = state.agentMode;
+  settingsAgentModeToggle.addEventListener('change', toggleAgentMode);
+  
+  // Stop agent button
+  const stopAgentBtn = getElement('stop-agent-btn');
+  stopAgentBtn.addEventListener('click', stopAgent);
+  
+  // Update agent UI state on init
+  updateAgentModeUI();
 }
 
 // ========================================================================
@@ -314,6 +865,7 @@ async function loadProjects() {
     if (response.success && response.data) {
       state.projects = response.data;
       renderProjectSelector();
+      renderProjectsSubmenu();
     }
   } catch (error) {
     console.error('[Eidolon] Failed to load projects:', error);
@@ -335,15 +887,62 @@ async function loadConversations() {
 
 async function loadTabs() {
   try {
-    const tabs = await browser.tabs.query({ currentWindow: true });
-    state.tabs = tabs.map(tab => ({
-      id: tab.id!,
-      title: tab.title || 'Untitled',
-      url: tab.url || '',
-      favIconUrl: tab.favIconUrl,
-      active: tab.active
-    }));
-    renderTabList();
+    // Use tabs-context API to get ALL tabs with group info
+    const response = await browser.runtime.sendMessage({ action: 'tabs-context' });
+    
+    if (response.success && response.data) {
+      const { currentTabId, currentTabGroupId, availableTabs, tabGroups } = response.data;
+      
+      // Store current tab's group ID
+      state.tabGroupId = currentTabGroupId ?? null;
+      
+      // Set default target tab to current tab
+      if (!state.targetTabId) {
+        state.targetTabId = currentTabId;
+      }
+      
+      // Store tab group info
+      state.tabGroups.clear();
+      if (tabGroups) {
+        for (const group of tabGroups) {
+          state.tabGroups.set(group.id, {
+            id: group.id,
+            title: group.title || '',
+            color: group.color || 'grey',
+            collapsed: group.collapsed || false
+          });
+        }
+      }
+      
+      // Map all tabs with their group info
+      state.tabs = availableTabs.map((t: any) => ({
+        id: t.tabId,
+        title: t.title,
+        url: t.url,
+        favIconUrl: t.favIconUrl,
+        active: t.active,
+        inGroup: t.groupId !== undefined,
+        groupId: t.groupId,
+        groupTitle: t.groupTitle,
+        groupColor: t.groupColor
+      }));
+      
+      renderTabList();
+      renderTabsSubmenu();
+    } else {
+      // Fallback to regular tab query
+      const tabs = await browser.tabs.query({ currentWindow: true });
+      state.tabs = tabs.map(tab => ({
+        id: tab.id!,
+        title: tab.title || 'Untitled',
+        url: tab.url || '',
+        favIconUrl: tab.favIconUrl,
+        active: tab.active,
+        inGroup: false
+      }));
+      renderTabList();
+      renderTabsSubmenu();
+    }
   } catch (error) {
     console.error('[Eidolon] Failed to load tabs:', error);
   }
@@ -368,15 +967,32 @@ async function getCurrentTab() {
 }
 
 async function checkAuthentication() {
-  try {
-    const response = await browser.runtime.sendMessage({ action: 'validate-session' });
-    state.isAuthenticated = response.success;
-    updateAuthStatus();
-  } catch (error) {
-    console.error('[Eidolon] Auth check failed:', error);
-    state.isAuthenticated = false;
-    updateAuthStatus();
+  // Retry a few times since background script might still be initializing
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await browser.runtime.sendMessage({ action: 'validate-session' });
+      if (response.success) {
+        state.isAuthenticated = true;
+        updateAuthStatus();
+        console.log('[Eidolon] Authentication successful');
+        return;
+      }
+      // Wait a bit before retrying
+      if (attempt < 2) {
+        console.log(`[Eidolon] Auth attempt ${attempt + 1} failed, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    } catch (error) {
+      console.error('[Eidolon] Auth check failed:', error);
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
   }
+  
+  state.isAuthenticated = false;
+  updateAuthStatus();
+  console.log('[Eidolon] Authentication failed after retries');
 }
 
 async function loadAvailableModels() {
@@ -385,17 +1001,21 @@ async function loadAvailableModels() {
     
     if (response.success && response.data && response.data.length > 0) {
       // Update the models list with data from Claude.ai
-      AVAILABLE_MODELS = response.data.map((model: any) => ({
-        id: model.id || model.model_id,
-        name: model.name || model.display_name || model.id,
-        default: model.default || model.id === 'claude-sonnet-4-20250514'
+      // Models come pre-filtered to latest per family from background
+      AVAILABLE_MODELS = response.data.map((model: any, index: number) => ({
+        id: model.id || model.model_id || '',
+        name: model.name || model.display_name || model.id || 'Unknown Model',
+        default: index === 0 // First model (Sonnet) is default
       }));
+      
+      console.log('[Eidolon] Loaded models from Claude.ai:', AVAILABLE_MODELS.map(m => m.name));
       
       // Update model names lookup
       updateModelNames();
       
       // Re-render the model selector with new models
       renderModelSelector();
+      renderModelMenu();
       
       // Update the indicator in case model name changed
       updateModelIndicator();
@@ -479,20 +1099,45 @@ function renderTabList() {
   const list = getElement('tab-list');
   
   if (state.tabs.length === 0) {
-    list.innerHTML = '<div class="empty-state">No tabs open</div>';
+    list.innerHTML = '<div class="empty-state">No tabs in group</div>';
     return;
   }
   
-  list.innerHTML = state.tabs.map(tab => `
-    <div class="tab-item ${tab.active ? 'active' : ''}" data-id="${tab.id}">
-      <img class="tab-favicon" src="${tab.favIconUrl || '/icon-16.png'}" alt="">
-      <span class="tab-title">${escapeHtml(tab.title)}</span>
-    </div>
-  `).join('');
+  // Show tab group info if in a group
+  const groupInfo = state.tabGroupId 
+    ? `<div class="tab-group-info">Tab Group (${state.tabs.length} tabs)</div>`
+    : '';
   
-  // Add click handlers
+  list.innerHTML = groupInfo + state.tabs.map(tab => {
+    const isTarget = tab.id === state.targetTabId;
+    const isActive = tab.active;
+    return `
+      <div class="tab-item ${isActive ? 'active' : ''} ${isTarget ? 'target' : ''} ${tab.inGroup ? 'in-group' : ''}" 
+           data-id="${tab.id}"
+           title="${isTarget ? 'Target tab for agent actions' : 'Click to set as target'}">
+        <div class="tab-target-indicator">${isTarget ? '🎯' : ''}</div>
+        <img class="tab-favicon" src="${tab.favIconUrl || '/icon-16.png'}" alt="">
+        <span class="tab-title">${escapeHtml(tab.title)}</span>
+        ${isActive ? '<span class="tab-active-badge">Active</span>' : ''}
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers - click to set as target, double-click to focus
   list.querySelectorAll('.tab-item').forEach(item => {
+    // Single click - set as target tab for agent actions
     item.addEventListener('click', () => {
+      const id = parseInt((item as HTMLElement).dataset.id || '0');
+      if (id) {
+        state.targetTabId = id;
+        renderTabList(); // Re-render to show new target
+        updateCurrentTabDisplay();
+        console.log('[Eidolon] Target tab set to:', id);
+      }
+    });
+    
+    // Double click - focus the tab
+    item.addEventListener('dblclick', () => {
       const id = parseInt((item as HTMLElement).dataset.id || '0');
       if (id) focusTab(id);
     });
@@ -500,10 +1145,40 @@ function renderTabList() {
 }
 
 function updateCurrentTabDisplay() {
-  if (!state.currentTab) return;
+  // Show target tab info (for agent actions), or current tab as fallback
+  const targetTab = state.tabs.find(t => t.id === state.targetTabId) || state.currentTab;
   
-  getElement('current-tab-title').textContent = state.currentTab.title;
-  getElement('current-tab-url').textContent = state.currentTab.url;
+  // Update hidden elements for compatibility
+  const titleEl = document.getElementById('current-tab-title');
+  const urlEl = document.getElementById('current-tab-url');
+  
+  if (!targetTab) {
+    if (titleEl) titleEl.textContent = 'No tab selected';
+    if (urlEl) urlEl.textContent = '';
+    
+    // Also update the menu current tab display
+    const menuTitleEl = document.getElementById('menu-current-tab-title');
+    if (menuTitleEl) menuTitleEl.textContent = 'No tab selected';
+    return;
+  }
+  
+  // Update hidden elements
+  if (titleEl) {
+    if (state.targetTabId && state.targetTabId !== state.currentTab?.id) {
+      titleEl.textContent = `🎯 ${targetTab.title}`;
+      titleEl.title = 'Target tab for agent actions';
+    } else {
+      titleEl.textContent = targetTab.title;
+      titleEl.title = '';
+    }
+  }
+  if (urlEl) urlEl.textContent = targetTab.url;
+  
+  // Also update the menu current tab display
+  const menuTitleEl = document.getElementById('menu-current-tab-title');
+  if (menuTitleEl) {
+    menuTitleEl.textContent = targetTab.title;
+  }
 }
 
 function updateAuthStatus() {
@@ -743,6 +1418,17 @@ async function sendMessage() {
   
   if (!content && state.attachments.length === 0) return;
   
+  // Ensure we're authenticated before sending (same as clicking validate in settings)
+  if (!state.isAuthenticated) {
+    showActivity('Authenticating...');
+    await validateSession();
+    if (!state.isAuthenticated) {
+      hideActivity();
+      alert('Please log in to Claude.ai first, then try again.');
+      return;
+    }
+  }
+  
   // Build message with context
   let fullContent = content;
   
@@ -786,6 +1472,36 @@ async function sendMessage() {
   showActivity('Claude is thinking...');
   
   try {
+    // ====================================================================
+    // DETECT MID-CHAT MODEL CHANGE
+    // If the model changed since the conversation started, we need to:
+    // 1. Force a new conversation (Claude.ai requires this)
+    // 2. Include the chat history in the first message so context is preserved
+    // ====================================================================
+    let chatHistoryContext = '';
+    const modelChanged = state.conversationModel && 
+                         state.currentModel !== state.conversationModel && 
+                         state.messages.length > 1; // More than just the message we just added
+    
+    if (modelChanged) {
+      console.log(`[Eidolon] Model changed mid-chat: ${state.conversationModel} -> ${state.currentModel}`);
+      
+      // Build chat history context from previous messages (excluding the one we just added)
+      const previousMessages = state.messages.slice(0, -1);
+      if (previousMessages.length > 0) {
+        chatHistoryContext = '\n\n---\n**[Continuing conversation from a different model. Previous chat history:]**\n\n';
+        for (const msg of previousMessages) {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          chatHistoryContext += `**${role}:** ${msg.content}\n\n`;
+        }
+        chatHistoryContext += '---\n**[End of previous history. Please continue the conversation naturally based on the context above.]**\n\n';
+      }
+      
+      // Force new conversation by clearing the ID
+      state.currentConversationId = null;
+      console.log('[Eidolon] Forcing new conversation due to model change');
+    }
+    
     // Check if we have an active conversation, if not create one
     if (!state.currentConversationId) {
       const convName = content.slice(0, 50) + (content.length > 50 ? '...' : '');
@@ -800,10 +1516,80 @@ async function sendMessage() {
       }
       
       state.currentConversationId = createResponse.data.uuid;
-      console.log('[Eidolon] Created conversation:', state.currentConversationId);
+      state.conversationModel = state.currentModel; // Track the model for this conversation
+      console.log('[Eidolon] Created conversation:', state.currentConversationId, 'with model:', state.conversationModel);
     }
     
-    // Send the message with selected model
+    // Prepend chat history context if model changed
+    if (chatHistoryContext) {
+      fullContent = chatHistoryContext + '**Current message:** ' + fullContent;
+    }
+    
+    // ====================================================================
+    // AGENT MODE: Use agentic loop with tools
+    // ====================================================================
+    if (state.agentMode) {
+      console.log('[Eidolon] Agent mode enabled - running agentic loop');
+      state.agentRunning = true;
+      updateAgentModeUI();
+      
+      // Show agent indicator on target tab
+      const targetId = state.targetTabId ?? state.currentTab?.id;
+      if (targetId) {
+        await browser.runtime.sendMessage({
+          action: 'show-agent-indicator',
+          tabId: targetId,
+          message: 'Agent is working...'
+        });
+      }
+      
+      try {
+        // Build context for agent
+        let agentPrompt = fullContent;
+        
+        // Add page context if we have attachments
+        if (apiAttachments.length > 0) {
+          agentPrompt += '\n\nContext from attached content:\n';
+          for (const att of apiAttachments) {
+            agentPrompt += `\n--- ${att.file_name} ---\n${att.extracted_content}\n`;
+          }
+        }
+        
+        // Run the agentic loop
+        const response = await runAgenticLoop(agentPrompt);
+        
+        // Add assistant response
+        const assistantMessage: Message = {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: response || 'Agent completed the task.',
+          timestamp: new Date()
+        };
+        
+        state.messages.push(assistantMessage);
+        renderMessages();
+        
+      } finally {
+        // Always clean up agent state
+        state.agentRunning = false;
+        updateAgentModeUI();
+        
+        // Hide agent indicator
+        if (targetId) {
+          await browser.runtime.sendMessage({
+            action: 'hide-agent-indicator',
+            tabId: targetId
+          });
+        }
+      }
+      
+      hideActivity();
+      return;
+    }
+    
+    // ====================================================================
+    // NORMAL MODE: Simple chat without tools
+    // ====================================================================
     const response = await browser.runtime.sendMessage({
       action: 'send-chat-message',
       conversationId: state.currentConversationId,
@@ -831,6 +1617,12 @@ async function sendMessage() {
   } catch (error: any) {
     console.error('[Eidolon] Chat error:', error);
     hideActivity();
+    
+    // Clean up agent state if running
+    if (state.agentRunning) {
+      state.agentRunning = false;
+      updateAgentModeUI();
+    }
     
     // Show error in chat
     const errorMessage: Message = {
@@ -867,16 +1659,7 @@ async function handleQuickAction(action: string) {
   input.focus();
 }
 
-function showAttachOptions() {
-  // Simple for now - just show options
-  const choice = confirm('Capture current page content?\n\nClick OK to capture page, Cancel to take screenshot.');
-  
-  if (choice) {
-    capturePage();
-  } else {
-    takeScreenshot();
-  }
-}
+
 
 async function validateSession() {
   showLoading('Validating session...');
@@ -907,6 +1690,565 @@ function toggleDarkMode() {
   localStorage.setItem('eidolon-dark-mode', state.darkMode.toString());
 }
 
+function toggleDebugMode() {
+  const toggle = getElement<HTMLInputElement>('debug-mode-toggle');
+  const enabled = toggle.checked;
+  
+  // Save to chrome.storage.local (background script listens for changes)
+  chrome.storage.local.set({ eidolon_debug_mode: enabled }, () => {
+    console.log('[Eidolon] Debug mode:', enabled ? 'ON' : 'OFF');
+  });
+}
+
+// ========================================================================
+// AGENT MODE FUNCTIONS
+// ========================================================================
+
+async function toggleAgentMode() {
+  state.agentMode = !state.agentMode;
+  localStorage.setItem('eidolon-agent-mode', state.agentMode.toString());
+  updateAgentModeUI();
+  
+  if (state.agentMode) {
+    console.log('[Eidolon] Agent mode enabled');
+    
+    // Create a tab group for the agent session if not already in one
+    const targetId = state.targetTabId ?? state.currentTab?.id;
+    if (targetId && !state.tabGroupId) {
+      try {
+        const response = await browser.runtime.sendMessage({
+          action: 'browser-create-tab-group',
+          tabIds: [targetId],
+          title: 'Eidolon Agent',
+          color: 'orange'
+        });
+        if (response.success) {
+          state.tabGroupId = response.data.groupId;
+          console.log('[Eidolon] Created tab group:', state.tabGroupId);
+          // Reload tabs to show the new group
+          await loadTabs();
+        }
+      } catch (error) {
+        console.log('[Eidolon] Could not create tab group:', error);
+      }
+    }
+    
+    // Show agent indicator on target tab
+    if (targetId) {
+      browser.runtime.sendMessage({
+        action: 'show-agent-indicator',
+        tabId: targetId,
+        message: 'Agent mode enabled'
+      });
+    }
+  } else {
+    console.log('[Eidolon] Agent mode disabled');
+    stopAgent();
+  }
+}
+
+function updateAgentModeUI() {
+  const banner = document.getElementById('agent-mode-banner');
+  const agentActions = document.getElementById('agent-actions');
+  const toggle = document.getElementById('agent-mode-toggle') as HTMLInputElement | null;
+  const settingsToggle = document.getElementById('settings-agent-mode-toggle') as HTMLInputElement | null;
+  const menuToggle = document.getElementById('menu-agent-mode-toggle') as HTMLInputElement | null;
+  
+  // Sync all toggles
+  if (toggle) toggle.checked = state.agentMode;
+  if (settingsToggle) settingsToggle.checked = state.agentMode;
+  if (menuToggle) menuToggle.checked = state.agentMode;
+  
+  if (state.agentMode) {
+    agentActions?.classList.remove('hidden');
+    if (state.agentRunning) {
+      banner?.classList.remove('hidden');
+    }
+  } else {
+    agentActions?.classList.add('hidden');
+    banner?.classList.add('hidden');
+  }
+}
+
+async function stopAgent() {
+  state.agentRunning = false;
+  updateAgentModeUI();
+  
+  // Hide indicator on all tabs in the group
+  const targetId = state.targetTabId ?? state.currentTab?.id;
+  if (targetId) {
+    browser.runtime.sendMessage({
+      action: 'hide-agent-indicator',
+      tabId: targetId
+    });
+  }
+  
+  hideActivity();
+  console.log('[Eidolon] Agent stopped');
+}
+
+async function getAccessibilityTree() {
+  const targetId = state.targetTabId ?? state.currentTab?.id;
+  if (!targetId) {
+    alert('No target tab selected');
+    return;
+  }
+  
+  const targetTab = state.tabs.find(t => t.id === targetId);
+  showActivity('Getting page structure...');
+  
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'browser-get-accessibility-tree',
+      tabId: targetId
+    });
+    
+    if (response.success && response.data) {
+      console.log('[Eidolon] Accessibility tree:', response.data);
+      
+      // Add as attachment for context
+      const treeJson = JSON.stringify(response.data.tree || response.data, null, 2);
+      state.attachments.push({
+        type: 'page-content',
+        name: 'Page Structure (Accessibility Tree)',
+        content: `Accessibility tree for: ${response.data.url || targetTab?.url || 'unknown'}\n\n${treeJson}`
+      });
+      renderAttachments();
+      
+      hideActivity();
+    } else {
+      throw new Error(response.error || 'Failed to get accessibility tree');
+    }
+  } catch (error: any) {
+    console.error('[Eidolon] Failed to get accessibility tree:', error);
+    hideActivity();
+    alert('Failed to get page structure: ' + error.message);
+  }
+}
+
+async function takeCdpScreenshot() {
+  const targetId = state.targetTabId ?? state.currentTab?.id;
+  if (!targetId) {
+    alert('No target tab selected');
+    return;
+  }
+  
+  showActivity('Taking full screenshot...');
+  
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'browser-take-screenshot',
+      tabId: targetId,
+      format: 'png',
+      quality: 80
+    });
+    
+    if (response.success && response.data?.screenshot) {
+      state.attachments.push({
+        type: 'screenshot',
+        name: `Full Screenshot - ${new Date().toLocaleTimeString()}`,
+        content: response.data.screenshot
+      });
+      renderAttachments();
+      
+      hideActivity();
+    } else {
+      throw new Error(response.error || 'Failed to take screenshot');
+    }
+  } catch (error: any) {
+    console.error('[Eidolon] CDP Screenshot failed:', error);
+    hideActivity();
+    alert('Failed to take screenshot: ' + error.message);
+  }
+}
+
+// ========================================================================
+// TOOL EXECUTOR - Maps tool calls to browser actions
+// ========================================================================
+
+/**
+ * Execute a tool call from Claude and return the result
+ */
+async function executeToolCall(toolName: string, toolInput: Record<string, any>): Promise<{
+  content: string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
+  is_error?: boolean;
+}> {
+  const targetId = state.targetTabId ?? state.currentTab?.id;
+  
+  if (!targetId && toolName !== 'tabs_context' && toolName !== 'tabs_create') {
+    return { content: 'Error: No target tab available', is_error: true };
+  }
+  
+  console.log(`[Eidolon Agent] Executing tool: ${toolName}`, toolInput);
+  showActivity(`Executing: ${toolName}...`);
+  
+  try {
+    switch (toolName) {
+      case 'computer': {
+        return await executeComputerTool(targetId!, toolInput);
+      }
+      
+      case 'read_page': {
+        const response = await browser.runtime.sendMessage({
+          action: 'browser-get-accessibility-tree',
+          tabId: targetId,
+          maxDepth: toolInput.max_depth || 10
+        });
+        
+        if (response.success && response.data) {
+          const treeJson = JSON.stringify(response.data.tree || response.data, null, 2);
+          return { content: `Page accessibility tree for ${response.data.url}:\n\n${treeJson}` };
+        }
+        return { content: `Error getting accessibility tree: ${response.error}`, is_error: true };
+      }
+      
+      case 'tabs_context': {
+        const response = await browser.runtime.sendMessage({ action: 'tabs-context' });
+        
+        if (response.success && response.data) {
+          const { currentTabId, availableTabs, tabGroupId } = response.data;
+          const result = {
+            current_tab_id: currentTabId,
+            tab_group_id: tabGroupId,
+            tabs: availableTabs.map((t: any) => ({
+              id: t.tabId,
+              title: t.title,
+              url: t.url
+            }))
+          };
+          return { content: JSON.stringify(result, null, 2) };
+        }
+        return { content: `Error getting tabs context: ${response.error}`, is_error: true };
+      }
+      
+      case 'tabs_create': {
+        const response = await browser.runtime.sendMessage({
+          action: 'tabs-create',
+          url: toolInput.url
+        });
+        
+        if (response.success && response.data) {
+          // Update target to the new tab
+          state.targetTabId = response.data.tabId;
+          await loadTabs();
+          return { content: `Created new tab (ID: ${response.data.tabId})${toolInput.url ? ` and navigated to ${toolInput.url}` : ''}` };
+        }
+        return { content: `Error creating tab: ${response.error}`, is_error: true };
+      }
+      
+      case 'get_page_text': {
+        const results = await browser.scripting.executeScript({
+          target: { tabId: targetId! },
+          func: () => document.body.innerText
+        });
+        
+        if (results && results[0]?.result) {
+          const maxLength = toolInput.max_length || 50000;
+          const text = results[0].result.slice(0, maxLength);
+          return { content: text };
+        }
+        return { content: 'Error: Could not get page text', is_error: true };
+      }
+      
+      default:
+        return { content: `Unknown tool: ${toolName}`, is_error: true };
+    }
+  } catch (error: any) {
+    console.error(`[Eidolon Agent] Tool execution error:`, error);
+    return { content: `Error executing ${toolName}: ${error.message}`, is_error: true };
+  }
+}
+
+/**
+ * Execute the 'computer' tool actions
+ */
+async function executeComputerTool(tabId: number, input: Record<string, any>): Promise<{
+  content: string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
+  is_error?: boolean;
+}> {
+  const action = input.action;
+  
+  // Show visual indicator for the action
+  if (action !== 'screenshot') {
+    await browser.runtime.sendMessage({
+      action: 'update-agent-status',
+      tabId,
+      message: `${action}${input.coordinate ? ` at (${input.coordinate[0]}, ${input.coordinate[1]})` : ''}`
+    });
+  }
+  
+  // Map the action to our browser-execute-action format
+  let browserAction: any = { type: action };
+  
+  switch (action) {
+    case 'screenshot': {
+      // Just take a screenshot
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-take-screenshot',
+        tabId,
+        format: 'png',
+        quality: 80
+      });
+      
+      if (response.success && response.data?.screenshot) {
+        // Return as image content block
+        const base64Data = response.data.screenshot.replace(/^data:image\/\w+;base64,/, '');
+        return {
+          content: [{
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: base64Data
+            }
+          }]
+        };
+      }
+      return { content: `Screenshot failed: ${response.error}`, is_error: true };
+    }
+    
+    case 'left_click':
+    case 'right_click':
+    case 'double_click':
+    case 'middle_click': {
+      if (!input.coordinate || input.coordinate.length !== 2) {
+        return { content: 'Error: coordinate [x, y] is required for click actions', is_error: true };
+      }
+      browserAction = {
+        type: action === 'left_click' ? 'click' : action,
+        x: input.coordinate[0],
+        y: input.coordinate[1]
+      };
+      break;
+    }
+    
+    case 'type': {
+      if (!input.text) {
+        return { content: 'Error: text is required for type action', is_error: true };
+      }
+      browserAction = { type: 'type', text: input.text };
+      break;
+    }
+    
+    case 'key': {
+      if (!input.key) {
+        return { content: 'Error: key is required for key action', is_error: true };
+      }
+      browserAction = { type: 'key', key: input.key };
+      break;
+    }
+    
+    case 'scroll': {
+      browserAction = {
+        type: 'scroll',
+        x: input.coordinate?.[0],
+        y: input.coordinate?.[1],
+        direction: input.scroll_direction || 'down',
+        amount: input.scroll_amount || 300
+      };
+      break;
+    }
+    
+    case 'mouse_move': {
+      if (!input.coordinate || input.coordinate.length !== 2) {
+        return { content: 'Error: coordinate [x, y] is required for mouse_move', is_error: true };
+      }
+      browserAction = {
+        type: 'mouse_move',
+        x: input.coordinate[0],
+        y: input.coordinate[1]
+      };
+      break;
+    }
+    
+    case 'left_click_drag': {
+      if (!input.start_coordinate || !input.coordinate) {
+        return { content: 'Error: start_coordinate and coordinate are required for drag', is_error: true };
+      }
+      browserAction = {
+        type: 'drag',
+        startX: input.start_coordinate[0],
+        startY: input.start_coordinate[1],
+        endX: input.coordinate[0],
+        endY: input.coordinate[1]
+      };
+      break;
+    }
+    
+    case 'wait': {
+      const duration = input.duration || 1000;
+      await new Promise(resolve => setTimeout(resolve, duration));
+      // Take screenshot after waiting
+      return executeComputerTool(tabId, { action: 'screenshot' });
+    }
+    
+    case 'navigate': {
+      if (!input.text) {
+        return { content: 'Error: text (URL or "back"/"forward") is required for navigate', is_error: true };
+      }
+      browserAction = { type: 'navigate', url: input.text };
+      break;
+    }
+    
+    default:
+      return { content: `Unknown computer action: ${action}`, is_error: true };
+  }
+  
+  // Execute the action
+  const response = await browser.runtime.sendMessage({
+    action: 'browser-execute-action',
+    tabId,
+    browserAction
+  });
+  
+  if (!response.success) {
+    return { content: `Action failed: ${response.error}`, is_error: true };
+  }
+  
+  // After action, take a screenshot to show the result
+  await new Promise(resolve => setTimeout(resolve, 300)); // Wait for UI to update
+  return executeComputerTool(tabId, { action: 'screenshot' });
+}
+
+// ========================================================================
+// AGENTIC LOOP - Handle tool_use responses and continue conversation
+// ========================================================================
+
+/**
+ * Parse Claude's response to extract tool use blocks
+ */
+function parseToolUseBlocks(response: string): ToolUseBlock[] {
+  const toolUses: ToolUseBlock[] = [];
+  
+  // Claude's streaming response may contain tool_use in various formats
+  // Look for JSON tool_use blocks in the response
+  try {
+    // Try to parse as JSON array of content blocks
+    const parsed = JSON.parse(response);
+    if (Array.isArray(parsed)) {
+      for (const block of parsed) {
+        if (block.type === 'tool_use') {
+          toolUses.push(block as ToolUseBlock);
+        }
+      }
+    }
+  } catch {
+    // If not JSON, try to extract tool_use from text patterns
+    // This handles cases where the response is streamed text
+    const toolUseRegex = /\{"type":\s*"tool_use",\s*"id":\s*"([^"]+)",\s*"name":\s*"([^"]+)",\s*"input":\s*(\{[^}]+\})\}/g;
+    let match;
+    while ((match = toolUseRegex.exec(response)) !== null) {
+      try {
+        toolUses.push({
+          type: 'tool_use',
+          id: match[1],
+          name: match[2],
+          input: JSON.parse(match[3])
+        });
+      } catch {
+        // Skip malformed tool use
+      }
+    }
+  }
+  
+  return toolUses;
+}
+
+/**
+ * Run the agentic loop - send message, execute tools, continue until done
+ */
+async function runAgenticLoop(userMessage: string, maxIterations: number = 10): Promise<string> {
+  let iterations = 0;
+  let conversationHistory: Array<{ role: string; content: any }> = [];
+  let finalResponse = '';
+  
+  // Start with user message
+  conversationHistory.push({ role: 'user', content: userMessage });
+  
+  while (iterations < maxIterations) {
+    iterations++;
+    console.log(`[Eidolon Agent] Iteration ${iterations}/${maxIterations}`);
+    
+    // Send message to Claude with tools
+    showActivity(`Thinking... (step ${iterations})`);
+    
+    try {
+      const response = await browser.runtime.sendMessage({
+        action: 'send-chat-message-with-tools',
+        conversationId: state.currentConversationId,
+        messages: conversationHistory,
+        tools: BROWSER_TOOLS,
+        model: state.currentModel
+      });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to get response from Claude');
+      }
+      
+      const assistantResponse = response.data;
+      console.log('[Eidolon Agent] Claude response:', assistantResponse);
+      
+      // Check if response contains tool_use
+      const toolUses = assistantResponse.tool_uses || [];
+      
+      if (toolUses.length === 0) {
+        // No tool use - Claude is done
+        finalResponse = assistantResponse.text || assistantResponse.response || '';
+        console.log('[Eidolon Agent] No more tool uses, completing');
+        break;
+      }
+      
+      // Add assistant response to history
+      conversationHistory.push({
+        role: 'assistant',
+        content: assistantResponse.content || assistantResponse.text
+      });
+      
+      // Execute each tool and collect results
+      const toolResults: ToolResultBlock[] = [];
+      
+      for (const toolUse of toolUses) {
+        console.log(`[Eidolon Agent] Executing tool: ${toolUse.name}`);
+        
+        const result = await executeToolCall(toolUse.name, toolUse.input);
+        
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: typeof result.content === 'string' ? result.content : JSON.stringify(result.content),
+          is_error: result.is_error
+        });
+        
+        // If it's an image result, we need to handle it specially
+        if (Array.isArray(result.content)) {
+          // For image content, store it differently
+          toolResults[toolResults.length - 1].content = result.content as any;
+        }
+      }
+      
+      // Add tool results to conversation
+      conversationHistory.push({
+        role: 'user',
+        content: toolResults
+      });
+      
+      // Update the final response to include tool execution info
+      finalResponse = assistantResponse.text || '';
+      
+    } catch (error: any) {
+      console.error('[Eidolon Agent] Error in agentic loop:', error);
+      finalResponse = `Error during agent execution: ${error.message}`;
+      break;
+    }
+  }
+  
+  if (iterations >= maxIterations) {
+    finalResponse += '\n\n(Agent reached maximum iterations limit)';
+  }
+  
+  return finalResponse;
+}
+
 function togglePanel(panelId: string) {
   const panel = getElement(panelId);
   const isHidden = panel.classList.contains('hidden');
@@ -922,6 +2264,394 @@ function togglePanel(panelId: string) {
     panel.classList.remove('hidden');
     setTimeout(() => panel.classList.add('active'), 10);
   }
+}
+
+// ========================================================================
+// CLAUDE-STYLE MENU FUNCTIONS
+// ========================================================================
+
+/**
+ * Toggle a Claude-style menu open/closed
+ */
+function toggleClaudeMenu(menuId: string) {
+  const menu = getElement(menuId);
+  const isHidden = menu.classList.contains('hidden');
+  
+  // Close all menus and submenus first
+  closeAllClaudeMenus();
+  
+  // Open the requested menu
+  if (isHidden) {
+    menu.classList.remove('hidden');
+    
+    // Update button active state
+    if (menuId === 'plus-menu') {
+      getElement('plus-menu-btn').classList.add('active');
+    } else if (menuId === 'settings-menu') {
+      getElement('settings-menu-btn').classList.add('active');
+    }
+    
+    // Focus search input if present
+    const searchInput = menu.querySelector('.claude-menu-search-input') as HTMLInputElement;
+    if (searchInput) {
+      setTimeout(() => searchInput.focus(), 50);
+    }
+  }
+}
+
+/**
+ * Close all Claude-style menus and submenus
+ */
+function closeAllClaudeMenus() {
+  // Close all menus
+  document.querySelectorAll('.claude-menu').forEach(menu => {
+    menu.classList.add('hidden');
+  });
+  
+  // Close all submenus
+  document.querySelectorAll('.claude-submenu').forEach(submenu => {
+    submenu.classList.add('hidden');
+  });
+  
+  // Reset button states
+  getElement('plus-menu-btn').classList.remove('active');
+  getElement('settings-menu-btn').classList.remove('active');
+  
+  // Show main menu items, hide submenus
+  const plusMenuItems = document.getElementById('plus-menu-items');
+  const settingsMenuItems = document.getElementById('settings-menu-items');
+  if (plusMenuItems) plusMenuItems.style.display = '';
+  if (settingsMenuItems) settingsMenuItems.style.display = '';
+}
+
+/**
+ * Show a submenu within a Claude-style menu
+ */
+function showClaudeSubmenu(submenuId: string) {
+  const submenu = getElement(submenuId);
+  
+  // Hide the main menu items
+  if (submenuId === 'browser-context-submenu' || submenuId === 'projects-submenu') {
+    const plusMenuItems = document.getElementById('plus-menu-items');
+    const plusMenuSearch = document.querySelector('#plus-menu .claude-menu-search');
+    if (plusMenuItems) plusMenuItems.style.display = 'none';
+    if (plusMenuSearch) (plusMenuSearch as HTMLElement).style.display = 'none';
+  } else if (submenuId === 'styles-submenu') {
+    const settingsMenuItems = document.getElementById('settings-menu-items');
+    const settingsMenuSearch = document.querySelector('#settings-menu .claude-menu-search');
+    if (settingsMenuItems) settingsMenuItems.style.display = 'none';
+    if (settingsMenuSearch) (settingsMenuSearch as HTMLElement).style.display = 'none';
+  }
+  
+  submenu.classList.remove('hidden');
+  
+  // Focus search input if present
+  const searchInput = submenu.querySelector('.claude-menu-search-input') as HTMLInputElement;
+  if (searchInput) {
+    setTimeout(() => searchInput.focus(), 50);
+  }
+}
+
+/**
+ * Hide a submenu and show the parent menu items
+ */
+function hideClaudeSubmenu(submenuId: string) {
+  const submenu = getElement(submenuId);
+  submenu.classList.add('hidden');
+  
+  // Show the main menu items again
+  if (submenuId === 'browser-context-submenu' || submenuId === 'projects-submenu') {
+    const plusMenuItems = document.getElementById('plus-menu-items');
+    const plusMenuSearch = document.querySelector('#plus-menu .claude-menu-search');
+    if (plusMenuItems) plusMenuItems.style.display = '';
+    if (plusMenuSearch) (plusMenuSearch as HTMLElement).style.display = '';
+  } else if (submenuId === 'styles-submenu') {
+    const settingsMenuItems = document.getElementById('settings-menu-items');
+    const settingsMenuSearch = document.querySelector('#settings-menu .claude-menu-search');
+    if (settingsMenuItems) settingsMenuItems.style.display = '';
+    if (settingsMenuSearch) (settingsMenuSearch as HTMLElement).style.display = '';
+  }
+}
+
+/**
+ * Filter menu items based on search query
+ */
+function filterClaudeMenuItems(containerId: string, query: string) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  
+  const items = container.querySelectorAll('.claude-menu-item');
+  const lowerQuery = query.toLowerCase();
+  
+  items.forEach(item => {
+    const text = item.textContent?.toLowerCase() || '';
+    const matches = text.includes(lowerQuery);
+    (item as HTMLElement).style.display = matches ? '' : 'none';
+  });
+}
+
+/**
+ * Select a style (placeholder - styles are not supported by API yet)
+ */
+function selectStyle(style: string) {
+  // Update UI to show selected style
+  const stylesList = document.getElementById('styles-list');
+  if (stylesList) {
+    stylesList.querySelectorAll('.style-item').forEach(item => {
+      item.classList.remove('selected');
+      if (item.getAttribute('data-style') === style) {
+        item.classList.add('selected');
+      }
+    });
+  }
+  
+  // Update the current style name display
+  const currentStyleName = document.getElementById('current-style-name');
+  if (currentStyleName) {
+    // Capitalize first letter
+    currentStyleName.textContent = style.charAt(0).toUpperCase() + style.slice(1);
+  }
+  
+  // Store in localStorage (even though it's placeholder for now)
+  localStorage.setItem('eidolon-style', style);
+  
+  // Close the menu
+  closeAllClaudeMenus();
+  
+  console.log('[Eidolon] Selected style:', style, '(placeholder - not sent to API)');
+}
+
+/**
+ * Select a model from the model menu
+ */
+function selectModel(modelId: string) {
+  state.currentModel = modelId;
+  localStorage.setItem('eidolon-model', modelId);
+  
+  // Update the model button text
+  updateModelIndicator();
+  
+  // Update model menu selection
+  renderModelMenu();
+  
+  // Also update the old model selector for compatibility
+  const oldSelector = document.getElementById('model-selector') as HTMLSelectElement;
+  if (oldSelector) {
+    oldSelector.value = modelId;
+  }
+  
+  closeAllClaudeMenus();
+}
+
+/**
+ * Render the model menu with current models
+ */
+function renderModelMenu() {
+  const modelMenuItems = document.getElementById('model-menu-items');
+  if (!modelMenuItems) return;
+  
+  modelMenuItems.innerHTML = AVAILABLE_MODELS.map(model => `
+    <button class="claude-menu-item model-item ${model.id === state.currentModel ? 'selected' : ''}" data-model="${model.id}">
+      <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+        <path d="M2 7l4 4 6-8"/>
+      </svg>
+      <span>${escapeHtml(model.name)}</span>
+    </button>
+  `).join('');
+  
+  // Add click handlers
+  modelMenuItems.querySelectorAll('.model-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const modelId = item.getAttribute('data-model') || '';
+      selectModel(modelId);
+    });
+  });
+}
+
+/**
+ * Render the tabs list in the browser context submenu - grouped by tab groups
+ */
+function renderTabsSubmenu(searchQuery?: string) {
+  const tabsList = document.getElementById('tabs-list');
+  if (!tabsList) return;
+  
+  if (state.tabs.length === 0) {
+    tabsList.innerHTML = '<div class="tabs-empty-search">No tabs available</div>';
+    return;
+  }
+  
+  // Filter tabs if search query provided
+  let filteredTabs = state.tabs;
+  if (searchQuery && searchQuery.trim()) {
+    const query = searchQuery.toLowerCase();
+    filteredTabs = state.tabs.filter(tab => 
+      tab.title.toLowerCase().includes(query) ||
+      tab.url.toLowerCase().includes(query)
+    );
+  }
+  
+  if (filteredTabs.length === 0) {
+    tabsList.innerHTML = '<div class="tabs-empty-search">No tabs match your search</div>';
+    return;
+  }
+  
+  // Group tabs by their groupId
+  const groupedTabs = new Map<number | 'ungrouped', Tab[]>();
+  
+  for (const tab of filteredTabs) {
+    const key = tab.groupId ?? 'ungrouped';
+    if (!groupedTabs.has(key)) {
+      groupedTabs.set(key, []);
+    }
+    groupedTabs.get(key)!.push(tab);
+  }
+  
+  // Build HTML with groups
+  let html = '<div class="tabs-group-container">';
+  
+  // Render grouped tabs first
+  for (const [groupId, tabs] of groupedTabs) {
+    if (groupId === 'ungrouped') continue; // Handle ungrouped last
+    
+    const groupInfo = state.tabGroups.get(groupId as number);
+    const groupTitle = groupInfo?.title || tabs[0]?.groupTitle || 'Group';
+    const groupColor = groupInfo?.color || tabs[0]?.groupColor || 'grey';
+    
+    html += `
+      <div class="tabs-group" data-group-id="${groupId}">
+        <div class="tabs-group-header">
+          <span class="tabs-group-color ${groupColor}"></span>
+          <span class="tabs-group-name">${escapeHtml(groupTitle || 'Untitled Group')}</span>
+          <span class="tabs-group-count">${tabs.length}</span>
+        </div>
+        <div class="tabs-group-items">
+    `;
+    
+    for (const tab of tabs) {
+      html += renderTabItem(tab, searchQuery);
+    }
+    
+    html += `
+        </div>
+      </div>
+    `;
+  }
+  
+  // Render ungrouped tabs
+  const ungroupedTabs = groupedTabs.get('ungrouped');
+  if (ungroupedTabs && ungroupedTabs.length > 0) {
+    html += `
+      <div class="tabs-group" data-group-id="ungrouped">
+        <div class="tabs-ungrouped-header">
+          <span>Other Tabs</span>
+          <span class="tabs-group-count">${ungroupedTabs.length}</span>
+        </div>
+        <div class="tabs-group-items">
+    `;
+    
+    for (const tab of ungroupedTabs) {
+      html += renderTabItem(tab, searchQuery);
+    }
+    
+    html += `
+        </div>
+      </div>
+    `;
+  }
+  
+  html += '</div>';
+  tabsList.innerHTML = html;
+  
+  // Update current tab display
+  const currentTabTitle = document.getElementById('menu-current-tab-title');
+  if (currentTabTitle && state.currentTab) {
+    currentTabTitle.textContent = state.currentTab.title;
+  }
+  
+  // Add click handlers
+  tabsList.querySelectorAll('.tab-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const tabId = parseInt(item.getAttribute('data-tab-id') || '0');
+      if (tabId) {
+        state.targetTabId = tabId;
+        await focusTab(tabId);
+        closeAllClaudeMenus();
+      }
+    });
+  });
+}
+
+/**
+ * Render a single tab item HTML
+ */
+function renderTabItem(tab: Tab, searchQuery?: string): string {
+  const isActive = tab.active;
+  const isTarget = tab.id === state.targetTabId;
+  
+  // Highlight search match in title
+  let titleHtml = escapeHtml(tab.title);
+  if (searchQuery) {
+    const query = searchQuery.toLowerCase();
+    const titleLower = tab.title.toLowerCase();
+    const idx = titleLower.indexOf(query);
+    if (idx >= 0) {
+      const before = escapeHtml(tab.title.slice(0, idx));
+      const match = escapeHtml(tab.title.slice(idx, idx + query.length));
+      const after = escapeHtml(tab.title.slice(idx + query.length));
+      titleHtml = `${before}<span class="search-highlight">${match}</span>${after}`;
+    }
+  }
+  
+  return `
+    <button class="claude-menu-item tab-item ${isActive ? 'active-tab' : ''} ${isTarget ? 'target-tab' : ''}" data-tab-id="${tab.id}">
+      <img class="tab-favicon" src="${tab.favIconUrl || '/icon-16.png'}" alt="" onerror="this.src='/icon-16.png'">
+      <span class="tab-title">${titleHtml}</span>
+      ${isActive ? '<span class="tab-active-indicator"></span>' : ''}
+    </button>
+  `;
+}
+
+/**
+ * Render the projects list in the projects submenu
+ */
+function renderProjectsSubmenu() {
+  const projectsList = document.getElementById('projects-list');
+  if (!projectsList) return;
+  
+  if (state.projects.length === 0) {
+    projectsList.innerHTML = '<div class="empty-state" style="padding: 12px; text-align: center; color: var(--text-400);">No projects found</div>';
+    return;
+  }
+  
+  projectsList.innerHTML = state.projects.map(project => `
+    <button class="claude-menu-item project-item ${project.uuid === state.currentProject?.uuid ? 'selected' : ''}" data-project-id="${project.uuid}">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 4h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"></path>
+        <path d="M2 4V3a1 1 0 011-1h4l1 2h5"></path>
+      </svg>
+      <span>${escapeHtml(project.name)}</span>
+    </button>
+  `).join('');
+  
+  // Add click handlers
+  projectsList.querySelectorAll('.project-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const projectId = item.getAttribute('data-project-id') || '';
+      selectProject(projectId);
+      
+      // Update the old project selector for compatibility
+      const oldSelector = document.getElementById('project-selector') as HTMLSelectElement;
+      if (oldSelector) {
+        oldSelector.value = projectId;
+      }
+      
+      // Update selection state
+      projectsList.querySelectorAll('.project-item').forEach(p => p.classList.remove('selected'));
+      item.classList.add('selected');
+      
+      closeAllClaudeMenus();
+    });
+  });
 }
 
 function filterConversations(query: string) {
@@ -964,12 +2694,30 @@ function hideActivity() {
 }
 
 function updateModelIndicator() {
-  const indicator = getElement('model-indicator');
-  indicator.textContent = MODEL_NAMES[state.currentModel] || state.currentModel;
+  // Update the new model button text
+  const modelNameSpan = document.getElementById('current-model-name');
+  if (modelNameSpan) {
+    // Get display name, or extract short name from model ID
+    let displayName = MODEL_NAMES[state.currentModel];
+    if (!displayName && state.currentModel) {
+      // Extract model family name (e.g., "claude-sonnet-4-..." -> "Sonnet 4")
+      if (state.currentModel.includes('sonnet')) {
+        displayName = 'Sonnet';
+      } else if (state.currentModel.includes('opus')) {
+        displayName = 'Opus';
+      } else if (state.currentModel.includes('haiku')) {
+        displayName = 'Haiku';
+      } else {
+        displayName = 'Default';
+      }
+    }
+    modelNameSpan.textContent = displayName || 'Default';
+  }
 }
 
 function startNewChat() {
   state.currentConversationId = null;
+  state.conversationModel = null; // Reset so next message sets it fresh
   state.messages = [];
   renderMessages();
   
