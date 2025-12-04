@@ -216,10 +216,16 @@ export default defineContentScript({
     }
 
     /**
-     * Generate unique ref for element
+     * Generate unique ref for element or find existing ref
      */
-    function generateRef(): string {
-      return `eidolon_ref_${++(window as any).__eidolonRefCounter}`;
+    function getOrCreateRef(element: Element): string {
+      // Check if element already has a ref
+      const existingMap = (window as any).__eidolonElementMap;
+      for (const [ref, el] of Object.entries(existingMap)) {
+        if (el === element) return ref;
+      }
+      // Generate new ref
+      return `ref_${++(window as any).__eidolonRefCounter}`;
     }
 
     /**
@@ -256,14 +262,14 @@ export default defineContentScript({
         if (children.length === 1) return children[0];
         // Return a group of children
         return {
-          ref: generateRef(),
+          ref: getOrCreateRef(element),
           role: 'group',
           name: '',
           children
         };
       }
 
-      const ref = generateRef();
+      const ref = getOrCreateRef(element);
       (window as any).__eidolonElementMap[ref] = element;
 
       const rect = element.getBoundingClientRect();
@@ -331,15 +337,29 @@ export default defineContentScript({
 
     /**
      * Generate accessibility tree for the page
+     * Preserves existing refs for elements still in DOM (incremental update)
      */
     (window as any).__generateAccessibilityTree = function(
       maxDepth: number = 10,
       includeHidden: boolean = false,
-      rootRef?: string
+      rootRef?: string,
+      preserveRefs: boolean = true // New option to preserve existing refs
     ): AccessibilityNode | null {
-      // Clear previous mapping
-      (window as any).__eidolonElementMap = {};
-      (window as any).__eidolonRefCounter = 0;
+      // If preserveRefs is false or first time, clear everything
+      if (!preserveRefs || Object.keys((window as any).__eidolonElementMap).length === 0) {
+        (window as any).__eidolonElementMap = {};
+        (window as any).__eidolonRefCounter = 0;
+      } else {
+        // Clean up refs for elements no longer in DOM
+        const oldMap = (window as any).__eidolonElementMap;
+        const newMap: Record<string, Element> = {};
+        for (const [ref, element] of Object.entries(oldMap)) {
+          if (document.body.contains(element as Element)) {
+            newMap[ref] = element as Element;
+          }
+        }
+        (window as any).__eidolonElementMap = newMap;
+      }
 
       // Find root element
       let root: Element;

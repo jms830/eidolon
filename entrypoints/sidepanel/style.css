@@ -498,6 +498,41 @@ body {
   color: var(--text-300);
 }
 
+.history-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-refresh-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-400);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.history-refresh-btn:hover {
+  background: var(--bg-300);
+  color: var(--text-100);
+}
+
+.history-refresh-btn.spinning svg {
+  animation: spin 0.5s linear;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .history-chevron {
   font-size: 10px;
   color: var(--text-400);
@@ -1807,6 +1842,85 @@ body {
   font-weight: 500;
 }
 
+/* Style Menu Section Titles */
+.claude-menu-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-300);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 12px 4px;
+  margin-top: 4px;
+}
+
+.claude-menu-section-title:first-child {
+  margin-top: 0;
+}
+
+/* Style Type Badge */
+.style-type-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.style-type-badge.default {
+  background: var(--bg-300);
+  color: var(--text-300);
+}
+
+.style-type-badge.custom {
+  background: var(--accent-main-100);
+  color: white;
+  opacity: 0.8;
+}
+
+/* Style Item Name */
+.style-item .style-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Create & Edit Styles Button */
+.create-edit-styles-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.create-edit-styles-btn:hover {
+  background: var(--bg-300);
+}
+
+.create-edit-styles-btn svg {
+  color: var(--text-300);
+  flex-shrink: 0;
+}
+
+.create-edit-styles-btn:hover svg {
+  color: var(--text-100);
+}
+
+.create-edit-styles-btn .create-edit-styles-text {
+  color: var(--text-300);
+  font-size: 13px;
+}
+
+.create-edit-styles-btn:hover .create-edit-styles-text {
+  color: var(--text-100);
+}
+
 /* Model Menu Items */
 .claude-menu-item.model-item {
   padding-left: 36px;
@@ -2543,4 +2657,389 @@ body {
 
 [data-mode="dark"] .platform-input {
   background: var(--bg-200);
+}
+
+/* ========================================================================
+   ACCOUNT SWITCHER STYLES
+   Gmail-style account switching for Claude.ai
+   ======================================================================== */
+
+/* Accounts List in Settings */
+.accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.accounts-loading {
+  color: var(--text-400);
+  font-size: 13px;
+  padding: 12px;
+  text-align: center;
+}
+
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.account-item:hover {
+  background: var(--bg-300);
+}
+
+.account-item.active {
+  background: var(--accent-secondary-100);
+  border: 1px solid var(--accent-main-100);
+}
+
+.account-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--accent-main-100);
+  border-radius: 0 2px 2px 0;
+}
+
+/* Account Avatar */
+.account-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  color: white;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+/* Account Info */
+.account-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-100);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-org {
+  font-size: 12px;
+  color: var(--text-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Account Badge */
+.account-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.account-badge.work {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+}
+
+.account-badge.personal {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+}
+
+/* Account Actions */
+.account-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.account-item:hover .account-actions {
+  opacity: 1;
+}
+
+.account-action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-400);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.account-action-btn:hover {
+  background: var(--bg-400);
+  color: var(--text-100);
+}
+
+.account-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+}
+
+/* Accounts Actions Row */
+.accounts-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.panel-btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px dashed var(--border-300);
+  border-radius: var(--radius-md);
+  color: var(--text-300);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.panel-btn-secondary:hover {
+  background: var(--bg-200);
+  border-color: var(--accent-main-100);
+  color: var(--accent-main-100);
+}
+
+/* Account Edit Modal */
+.account-modal {
+  max-width: 360px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-200);
+  margin-bottom: 6px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-md);
+  color: var(--text-100);
+  font-size: 14px;
+  transition: all 0.15s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent-main-100);
+  background: var(--bg-100);
+}
+
+/* Account Type Selector */
+.account-type-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.type-btn {
+  flex: 1;
+  padding: 10px;
+  background: var(--bg-200);
+  border: 1px solid var(--border-200);
+  border-radius: var(--radius-md);
+  color: var(--text-300);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.type-btn:hover {
+  background: var(--bg-300);
+  color: var(--text-100);
+}
+
+.type-btn.selected {
+  background: var(--accent-secondary-100);
+  border-color: var(--accent-main-100);
+  color: var(--accent-main-100);
+}
+
+/* Account Color Selector */
+.account-color-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color-option {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.color-option:hover {
+  transform: scale(1.1);
+}
+
+.color-option.selected {
+  border-color: var(--text-100);
+  box-shadow: 0 0 0 2px var(--bg-100), 0 0 0 4px currentColor;
+}
+
+/* Modal Actions */
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-100);
+}
+
+.btn-primary {
+  flex: 1;
+  padding: 10px 16px;
+  background: var(--accent-main-100);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--accent-main-200);
+}
+
+.btn-danger {
+  padding: 10px 16px;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #EF4444;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* No Accounts State */
+.no-accounts {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-400);
+}
+
+.no-accounts-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.no-accounts-text {
+  font-size: 13px;
+}
+
+/* Expired Session Indicator */
+.account-item.expired {
+  opacity: 0.6;
+}
+
+.account-item.expired .account-name::after {
+  content: ' (expired)';
+  color: var(--error);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* Dark mode adjustments for accounts */
+[data-mode="dark"] .account-item {
+  background: var(--bg-200);
+}
+
+[data-mode="dark"] .account-item:hover {
+  background: var(--bg-300);
+}
+
+[data-mode="dark"] .account-modal {
+  background: var(--bg-100);
+}
+
+/* Header Account Button */
+.header-account-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-account-btn:hover {
+  transform: scale(1.1);
+}
+
+.header-account-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-main-100);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
