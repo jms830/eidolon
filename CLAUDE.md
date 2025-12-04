@@ -247,6 +247,106 @@ chrome.storage.local: {
 
 **Conversations:** `getConversations(orgId)`, `createConversation(orgId, name, projectUuid)`, `deleteConversations(orgId, uuids[])`
 
+### Claude.ai API Reference (Updated Dec 2025)
+
+**Base URL:** `https://claude.ai/api`
+
+**Authentication:** Cookie-based with `sessionKey` (format: `sk-ant-...`)
+
+#### Chat Completion API (CRITICAL UPDATE)
+
+**Endpoint:** `POST /organizations/{org_id}/chat_conversations/{conversation_id}/completion`
+
+**Required Request Body:**
+```json
+{
+  "prompt": "Your message here",
+  "timezone": "UTC",
+  "rendering_mode": "messages",  // CRITICAL - API times out without this!
+  "attachments": [],              // Required even if empty
+  "files": [],                    // Required even if empty
+  "model": "claude-sonnet-4-20250514"  // Optional - omit for default
+}
+```
+
+**SSE Response Format (New):**
+The API returns Server-Sent Events. The response format changed - text content is now in `content_block_delta` events:
+
+```
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Response text here"}}
+```
+
+**Event Types to Handle:**
+- `message_start` - Message metadata (id, model, uuid)
+- `content_block_start` - Start of content block (thinking or text)
+- `content_block_delta` - Incremental content:
+  - `delta.type === "thinking_delta"` - Extended thinking content
+  - `delta.type === "text_delta"` - Actual response text in `delta.text`
+  - `delta.type === "thinking_summary_delta"` - Thinking summaries
+- `content_block_stop` - End of content block
+- `message_delta` - Message completion info (`stop_reason: "end_turn"`)
+- `message_limit` - Rate limit info with `remaining` count
+- `message_stop` - End of stream
+
+**Legacy Format (still supported):**
+```json
+{"completion": "Response text"}
+```
+
+#### Get Conversation API
+
+**Endpoint:** `GET /organizations/{org_id}/chat_conversations/{conversation_id}?rendering_mode=raw`
+
+#### Claude Code Sessions API (NEW - v0.7.4+)
+
+**Base URL:** `https://claude.ai` (NOT under `/api`)
+
+**Note:** These endpoints require `x-organization-uuid` header.
+
+**List Sessions:**
+`GET /v1/sessions`
+
+**Create Session:**
+`POST /v1/sessions`
+```json
+{
+  "title": "Session title",
+  "environment_id": "env_xxx",
+  "session_context": {
+    "model": "claude-sonnet-4-5-20250929",
+    "sources": [{"type": "git_repository", "url": "https://github.com/..."}],
+    "outcomes": [{
+      "type": "git_repository",
+      "git_info": {
+        "type": "github",
+        "repo": "owner/repo",
+        "branches": ["claude/branch-name"]
+      }
+    }]
+  }
+}
+```
+
+**Archive Session:**
+`POST /v1/sessions/{session_id}/archive`
+
+**Stream Session Events:**
+`GET /v1/sessions/{session_id}/events` (SSE stream)
+
+**Get Environments:**
+`GET /v1/environment_providers/private/organizations/{org_id}/environments`
+
+**Get Code Repos:**
+`GET /organizations/{org_id}/code/repos?skip_status=true`
+
+#### Organization Capabilities
+
+Valid organization capabilities for chat access:
+- `chat` + `claude_pro`
+- `chat` + `raven`
+- `chat` + `claude_max`
+
 ### Error Handling
 
 - `ClaudeAPIError` thrown for all API failures with `statusCode` and `errorType`

@@ -2,330 +2,253 @@
 
 Current session state, goals, and progress for the Eidolon project.
 
-## Project Status: Development Phase
+## Project Status: Active Development
 
-**Last Updated:** 2025-10-10
+**Last Updated:** 2025-12-03
 
 ### Current State
 
 Eidolon is a Chrome extension (Manifest V3) that integrates with Claude.ai for advanced project and knowledge management. Built using the WXT framework.
 
-**Development Status:** ✅ **FEATURE COMPLETE**
-- Successfully migrated from vanilla Vite to WXT framework v0.20.11
-- All planned features implemented and tested
-- Build output: 79.46 kB (optimized)
-- Ready for testing and deployment
+**Development Status:** Agent Mode Improved + Styles API Implemented
+- Core extension features implemented
+- Sidepanel with Claude-style UI completed
+- Dark mode support added across all components
+- Dynamic model fetching implemented
+- **Agent Mode significantly improved** - ref-based clicking, focus action, retry logic
+- **Styles API implemented** - Load/select/send personalized styles like claude.ai
+- Build output: 468.77 kB
+- **Next Phase:** Testing styles and agent mode
 
-### Completed Features ✅
+### Recent Session Progress (2025-12-03)
 
-1. **Core Infrastructure**
-   - WXT framework setup with manifest V3
-   - Background service worker with Claude.ai API integration
-   - Session management via cookie extraction
-   - Cross-browser compatibility (Chrome/Firefox)
+**Completed:**
+1. **Agent Mode Improvements:**
+   - Added `ref` parameter to `computer` tool for clicking by element reference
+   - Added `focus` action for explicit element focusing before typing
+   - Added `take_screenshot: false` option to skip automatic screenshots
+   - Updated `accessibility-tree.content.ts` with persistent refs (`getOrCreateRef()`)
+   - Improved tool parsing with multiple strategies (code blocks, inline JSON, auto-fix)
+   - Enhanced `runAgenticLoop()` with retry logic, consecutive error tracking
+   - Conversation history management (max 15 iterations, keeps last 20 messages)
 
-2. **Extension Components**
-   - **Popup UI** (`entrypoints/popup/`)
-     - Project list view
-     - Recent conversations
-     - Quick actions
-     - XSS-safe DOM manipulation
+2. **Textarea Auto-resize Bugfix:**
+   - Quick action buttons now trigger textarea resize via `input.dispatchEvent()`
 
-   - **Dashboard Page** (`entrypoints/dashboard/`)
-     - Full-page interface with advanced features
-     - Tabbed navigation (Projects, Files, Conversations, Analytics)
-     - Grid and list view modes
-     - Responsive design with Tailwind-inspired CSS
+3. **Styles API Implementation:**
+   - API endpoint: `GET /api/organizations/{orgId}/list_styles`
+   - Added `StyleAttribute`, `PersonalizedStyle`, `StylesListResponse` types
+   - Added `getStyles(orgId)` method in ClaudeAPIClient
+   - Added `get-styles` message handler in background.ts
+   - Updated `sendMessage()` to accept `personalizedStyles` parameter
+   - Added styles state/UI in sidepanel (`loadStyles()`, `renderStylesList()`, etc.)
+   - Styles persist in localStorage via `eidolon-style-key`
+   - Added CSS for `.style-type-badge`, `.claude-menu-section-title`
 
-   - **Content Script** (`entrypoints/claude.content.ts`)
-     - Injected into Claude.ai pages
-     - Quick Save button overlay
-     - Save to Project functionality
-     - In-page notifications
-     - SPA navigation detection
+### Previous Session Progress (2025-11-29)
 
-3. **Search Functionality**
-   - **Web Worker-based search** (`utils/search/indexWorker.ts`)
-     - Non-blocking full-text search
-     - Fuzzy matching with Levenshtein distance
-     - Term tokenization and indexing
-     - Filter support (type, tags, date range, project)
+**Completed:**
+1. Fixed `defineContentScript` WXT import errors in content scripts
+2. Added gif.js library to the project for GIF generation
+3. Implemented Agent Mode in sidepanel with toggle UI
+4. Created browser action execution from sidepanel
+5. Added accessibility tree capture UI
+6. Added CDP screenshot UI in sidepanel
+7. Successfully built extension with all features
 
-   - **Search Service** (`utils/search/searchService.ts`)
-     - Singleton pattern for app-wide search
-     - Async API with Promise-based methods
-     - Helper functions to convert API data to searchable items
-     - Index management (add/remove/clear operations)
+**New Files Created:**
+- `entrypoints/accessibility-tree.content.ts` - Accessibility tree generation (428 lines)
+- `entrypoints/agent-indicator.content.ts` - Visual feedback during agent actions (295 lines)
+- `entrypoints/offscreen/main.ts` - GIF generation with action overlays (589 lines)
+- `entrypoints/offscreen/index.html` - Offscreen document shell
+- `utils/browser/cdp.ts` - CDP wrapper for screenshots/input (544 lines)
+- `utils/browser/tools.ts` - High-level browser tools (487 lines)
+- `utils/browser/tabGroups.ts` - Tab group management (421 lines)
+- `utils/tasks/scheduler.ts` - Task scheduling system (300 lines)
 
-   - **Dashboard Integration**
-     - Global search bar
-     - Real-time search results display
-     - Results grouped by type (projects/files/conversations)
-     - Search state management
+**Modified Files:**
+- `wxt.config.ts` - Added debugger, tabGroups, alarms, offscreen permissions
+- `entrypoints/sidepanel/index.html` - Added agent mode UI elements
+- `entrypoints/sidepanel/style.css` - Added agent mode styles
+- `entrypoints/sidepanel/main.ts` - Added agent mode functions
+- `public/gif.js` - gif.js library
+- `public/gif.worker.js` - gif.js web worker
 
-4. **Tagging System** (`utils/tags/`)
-   - **Tags Service** (`tagsService.ts`)
-     - CRUD operations for tags
-     - Tag assignment across projects, files, and conversations
-     - Color-coded tag system with 10 preset colors
-     - Import/export functionality
-     - Search and filter by tags
-     - Singleton pattern implementation
+### Current Models (Updated)
 
-   - **Tags UI** (`tagsUI.ts`)
-     - Reusable tag badge components
-     - Tag selection modal with creation UI
-     - Tag filter dropdown for dashboard
-     - Color picker integration
-     - XSS-safe DOM manipulation
+```typescript
+// entrypoints/sidepanel/main.ts
+AVAILABLE_MODELS = [
+  { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', default: true },
+  { id: 'claude-opus-4-5-20250514', name: 'Claude Opus 4.5', default: false },
+  { id: 'claude-haiku-4-5-20250514', name: 'Claude Haiku 4.5', default: false },
+  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', default: false },
+  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', default: false },
+  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', default: false },
+  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', default: false },
+]
+```
 
-   - **Dashboard Integration**
-     - Tag display on project cards
-     - Tag filtering in Projects view
-     - Tag management buttons on all items
-     - Bulk tag assignment for selected items
+---
 
-5. **Bulk Operations**
-   - Multi-select functionality for projects and files
-   - Bulk action menu with:
-     - Export selected items (JSON format)
-     - Add tags to multiple items
-     - Delete multiple items with confirmation
-   - Selection state visualization
-   - "Select All" toggle buttons
+## Browser Agent Implementation Status
 
-6. **Export Functionality**
-   - **JSON Export**
-     - Comprehensive single-file export
-     - Includes all projects, files, conversations, and tags
-     - Metadata and timestamps preserved
+### Completed Features
 
-   - **CSV Export**
-     - Separate CSV files for each entity type
-     - Projects, files, and conversations exports
-     - Tag information included in exports
-     - Proper CSV escaping and formatting
-     - Staggered downloads to prevent blocking
+| Feature | Status | File Location |
+|---------|--------|---------------|
+| CDP screenshot capture | Implemented | `utils/browser/cdp.ts:captureScreenshot()` |
+| CDP mouse events | Implemented | `utils/browser/cdp.ts:click/drag/scroll()` |
+| CDP keyboard events | Implemented | `utils/browser/cdp.ts:type/pressKey()` |
+| Accessibility tree | Implemented | `entrypoints/accessibility-tree.content.ts` |
+| Agent visual indicator | Implemented | `entrypoints/agent-indicator.content.ts` |
+| Tab group management | Implemented | `utils/browser/tabGroups.ts` |
+| Task scheduler | Implemented | `utils/tasks/scheduler.ts` |
+| GIF generation | Implemented | `entrypoints/offscreen/main.ts` |
+| Agent mode toggle | Implemented | `entrypoints/sidepanel/` |
 
-   - Export modal with format selection
-   - Export All Data button in Analytics tab
+### Background Message Handlers
 
-7. **Enhanced Analytics**
-   - **Statistics Dashboard**
-     - Total projects, files, conversations count
-     - Storage usage calculation
-     - Average files per project
-     - Tagged items count
-     - Active projects count
-     - Recent projects (last 7 days)
+```typescript
+// entrypoints/background.ts - Available actions
+'browser-take-screenshot'         // CDP screenshot
+'browser-get-accessibility-tree'  // Get page structure
+'browser-execute-action'          // Execute click/type/scroll
+'browser-get-tabs'                // List tabs
+'browser-create-tab-group'        // Create tab group
+'show-agent-indicator'            // Show visual feedback
+'hide-agent-indicator'            // Hide visual feedback
+```
 
-   - **Visualizations**
-     - Activity timeline with chronological events
-     - Top 5 most active projects (bar chart)
-     - Insight cards with key metrics
-     - Gradient-styled charts
+### Permissions (Updated wxt.config.ts)
 
-   - **Data Export**
-     - Export all analytics data
-     - Multiple format support (JSON/CSV)
+```typescript
+permissions: [
+  'cookies', 'storage', 'contextMenus', 'tabs', 'activeTab',
+  'notifications', 'sidePanel', 'scripting',
+  'debugger',       // CDP access for screenshots, input simulation
+  'tabGroups',      // Tab group management for sessions
+  'alarms',         // Scheduled task execution
+  'webNavigation',  // Navigation event monitoring
+  'offscreen',      // Background media processing (GIF generation)
+  'downloads',      // File downloads
+  'system.display', // Display info for screenshots
+]
+```
 
-8. **API Integration**
-   - Claude.ai REST API client (`utils/api/`)
-   - Organization and project management
-   - File upload/download operations
-   - Conversation management
-   - Error handling with exponential backoff
+---
 
-### File Structure
+## Testing Checklist
+
+### Manual Testing Required
+
+- [ ] Load extension in Chrome
+- [ ] Open sidepanel from popup
+- [ ] Enable agent mode toggle
+- [ ] Test "Get Page Tree" button
+- [ ] Test "Full Screenshot" (CDP) button
+- [ ] Verify agent indicator shows on page
+- [ ] Test stop agent button
+- [ ] Test page capture functionality
+- [ ] Test dark mode with agent features
+
+### Known Issues to Watch
+
+1. CDP debugger attachment requires user permission on first use
+2. Agent indicator may not show on restricted pages (chrome://, etc.)
+3. Accessibility tree generation may be slow on large pages
+
+---
+
+## Current File Structure
 
 ```
 eidolon/
 ├── entrypoints/
-│   ├── background.ts              # Service worker
-│   ├── popup/
-│   │   ├── index.html
-│   │   ├── main.ts
-│   │   └── style.css
-│   ├── dashboard/
-│   │   ├── index.html
-│   │   ├── main.ts               # Dashboard app logic
-│   │   └── style.css
-│   └── claude.content.ts          # Content script
+│   ├── background.ts                    # Service worker + API client + browser tools
+│   ├── popup/                           # Browser action popup
+│   ├── dashboard/                       # Full-page dashboard (4000+ lines)
+│   ├── sidepanel/                       # Claude-style sidepanel with agent mode
+│   │   ├── index.html                   # UI with agent mode banner
+│   │   ├── main.ts                      # Agent mode functions
+│   │   └── style.css                    # Agent mode styles
+│   ├── offscreen/                       # Offscreen document for media
+│   │   ├── index.html                   # Loads gif.js
+│   │   └── main.ts                      # GIF generation, audio playback
+│   ├── accessibility-tree.content.ts    # DOM tree extraction
+│   ├── agent-indicator.content.ts       # Visual feedback
+│   ├── claude.content.ts                # Content script for Claude.ai
+│   └── claude-export.content.ts         # Export functionality
 ├── utils/
-│   ├── api/
-│   │   ├── client.ts              # API client
-│   │   └── types.ts               # Type definitions
-│   ├── search/
-│   │   ├── indexWorker.ts         # Web Worker for search
-│   │   └── searchService.ts       # Search service wrapper
-│   └── tags/
-│       ├── tagsService.ts         # Tag management service
-│       └── tagsUI.ts              # Tag UI components
-├── components/                     # (Future) Shared components
-├── public/                        # Static assets
-├── wxt.config.ts                  # WXT configuration
-├── tsconfig.json                  # TypeScript config
-└── package.json
+│   ├── api/                             # Claude.ai API client
+│   ├── browser/                         # Browser interaction tools
+│   │   ├── cdp.ts                       # Chrome Debugger Protocol wrapper
+│   │   ├── tools.ts                     # High-level tool functions
+│   │   ├── tabGroups.ts                 # Tab group management
+│   │   └── types.ts                     # TypeScript types
+│   ├── tasks/                           # Task management
+│   │   ├── scheduler.ts                 # Alarm-based scheduling
+│   │   └── types.ts                     # Task types
+│   ├── search/                          # Search service
+│   ├── sync/                            # Workspace sync
+│   └── tags/                            # Tagging system
+├── public/
+│   ├── gif.js                           # GIF generation library
+│   └── gif.worker.js                    # GIF worker
+└── example-extensions/
+    └── Claude-Chrome-Web-Store/         # Official extension (reference)
 ```
 
-### Current Session Progress
+---
 
-**Status:** ✅ **ALL FEATURES COMPLETE**
-
-**Completed in this session:**
-1. ✅ Dashboard page with tabbed interface
-2. ✅ Content script for Claude.ai integration
-3. ✅ Local search with Web Worker implementation
-4. ✅ Search service integration with dashboard
-5. ✅ Tagging/labeling system with full UI
-6. ✅ Bulk operations for projects and files
-7. ✅ Export functionality (JSON and CSV)
-8. ✅ Enhanced usage analytics with visualizations
-9. ✅ Build verification (79.46 kB total)
-
-**All Planned Features Implemented:**
-- All tasks from the development roadmap completed
-- Extension is feature-complete and ready for testing
-- No known bugs or issues
-- Documentation updated
-
-### Known Technical Details
-
-**Message Passing Actions:**
-- `validate-session` - Check session validity
-- `get-organizations` - Fetch organizations
-- `get-projects` - Fetch projects
-- `get-project-files` - List files in project
-- `get-conversations` - Fetch conversations
-- `upload-file` - Upload content to project
-- `create-project` - Create new project
-- `store-pending-upload` - Store content for upload
-- `open-popup` - Open extension popup
-
-**Storage Schema:**
-```typescript
-chrome.storage.local: {
-  sessionKey: string,
-  currentOrg: Organization,
-  sessionValid: boolean,
-  pendingUpload: {
-    type: 'text' | 'page' | 'selection' | 'conversation',
-    content: string,
-    source: string,
-    timestamp: string
-  },
-  eidolon_tags: {
-    tags: Tag[],              // All available tags
-    assignments: TagAssignment[]  // Tag-to-item mappings
-  }
-}
-
-// Tag Schema
-interface Tag {
-  id: string;
-  name: string;
-  color: string;
-  createdAt: string;
-}
-
-interface TagAssignment {
-  itemId: string;
-  itemType: 'project' | 'file' | 'conversation';
-  tagIds: string[];
-}
-```
-
-**Search Index Schema:**
-```typescript
-interface SearchableItem {
-  id: string;
-  type: 'project' | 'file' | 'conversation';
-  title: string;
-  content?: string;
-  description?: string;
-  metadata: {
-    createdAt?: string;
-    updatedAt?: string;
-    tags?: string[];
-    projectId?: string;
-    projectName?: string;
-  };
-}
-```
-
-### Next Steps
-
-**Development Complete - Ready for Testing Phase**
-
-**Recommended Next Actions:**
-1. **Manual Testing**
-   - Load extension in Chrome/Firefox
-   - Test all features end-to-end
-   - Verify Claude.ai integration works correctly
-   - Test bulk operations and export functionality
-   - Validate search performance with large datasets
-
-2. **User Acceptance Testing**
-   - Share with beta testers
-   - Gather feedback on UX/UI
-   - Identify any edge cases or bugs
-   - Document any issues found
-
-3. **Prepare for Distribution**
-   - Create promotional materials (screenshots, description)
-   - Write comprehensive user documentation
-   - Prepare Chrome Web Store listing
-   - Consider Firefox Add-ons listing
-
-**Future Enhancement Ideas:**
-- Multi-platform support (ChatGPT, Gemini)
-- Offline mode with cached data
-- Cloud sync options (optional)
-- Advanced filters and search operators
-- Keyboard shortcuts for power users
-- Conversation summarization with AI
-- Project templates and presets
-- Collaboration features (share projects)
-- Browser sync across devices
-
-### Development Commands
+## Development Commands
 
 ```bash
-# Development
 npm run dev              # Chrome dev mode
 npm run dev:firefox      # Firefox dev mode
-
-# Production
 npm run build            # Build for Chrome
 npm run build:firefox    # Build for Firefox
 npm run zip              # Create distributable ZIP
-
-# Utilities
-npm run postinstall      # Generate WXT types
-npm test                 # Run tests
 ```
 
-### Important Notes
+---
 
-- All async message handlers MUST return `true` for async responses
-- Use `browser` namespace (not `chrome`) for cross-browser compatibility
-- DOM manipulation must be XSS-safe (textContent, createElement only)
-- Background script limitations: avoid complex imports, inline code when necessary
-- WXT entrypoints: no duplicate names, use subdirectories for multi-file entrypoints
+## Next Steps
 
-### Recent Decisions
+1. **Immediate:** Test Styles API - verify loading, selection, and sending with messages
+2. **Next:** Test Agent Mode improvements - ref clicking, focus action, retry logic
+3. **Then:** Fix any bugs found during testing
+4. **After:** Consider native messaging for Claude Desktop integration
 
-1. **WXT Migration:** Adopted WXT framework for better development experience and cross-browser support
-2. **Search Architecture:** Web Worker implementation for non-blocking search operations
-3. **Content Script Strategy:** Overlay buttons on Claude.ai pages rather than full UI injection
-4. **State Management:** Simple state object pattern, no external library needed yet
-5. **File Organization:** Dashboard moved to subdirectory to avoid WXT naming conflicts
-6. **Tagging System:** Generic tag assignment with itemType discriminator for flexibility across entity types
-7. **Tag Storage:** Single storage key with atomic updates for consistency
-8. **Bulk Operations:** Separate Set<string> for tracking selections to avoid performance issues
-9. **Export Strategy:** Multiple formats (JSON, CSV) to support different use cases
-10. **CSV Exports:** Separate files per entity type with staggered downloads to prevent browser blocking
-11. **Analytics Visualizations:** CSS-based charts (no external library) for simplicity and bundle size
+---
+
+## Styles API Details
+
+**Endpoint:** `GET /api/organizations/{orgId}/list_styles`
+
+**Response Format:**
+```json
+{
+  "default": [...],
+  "custom": [...]
+}
+```
+
+**Style Object Structure:**
+```typescript
+interface PersonalizedStyle {
+  type: 'default' | 'custom';
+  uuid: string;
+  key: string;
+  name: string;
+  prompt: string;       // Full style instructions
+  summary: string;
+  isDefault: boolean;
+  attributes: { name: string; percentage: number }[];
+}
+```
+
+**Sending Styles:** Styles are sent in the completion request as `personalized_styles` array.
 
 ---
 

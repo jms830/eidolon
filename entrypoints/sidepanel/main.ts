@@ -116,9 +116,11 @@ const PRESET_PLATFORMS: Omit<Platform, 'order' | 'isVisible'>[] = [
 
 // Platform icon SVGs (for built-in platforms)
 const PLATFORM_ICONS: Record<string, string> = {
-  claude: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`,
+  // Claude Code - "CC" text icon
+  claude: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="16" font-size="10" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">CC</text></svg>`,
   chatgpt: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>`,
-  gemini: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.352 0 0 5.352 0 12s5.352 12 12 12 12-5.352 12-12S18.648 0 12 0zm0 4.8a7.2 7.2 0 1 1 0 14.4 7.2 7.2 0 0 1 0-14.4z"/><circle cx="12" cy="12" r="4"/></svg>`,
+  // Gemini - "G" letter icon
+  gemini: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="17" font-size="14" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">G</text></svg>`,
   perplexity: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
   poe: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path fill="white" d="M8 8h8v2H8zM8 11h8v2H8zM8 14h5v2H8z"/></svg>`,
   you: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
@@ -222,29 +224,35 @@ const BROWSER_TOOLS: ToolDefinition[] = [
 
 Available actions:
 - screenshot: Take a screenshot of the current page
-- left_click: Click at coordinates [x, y]
-- right_click: Right-click at coordinates [x, y]
-- double_click: Double-click at coordinates [x, y]
-- type: Type text (use this after clicking an input field)
+- left_click: Click an element by ref (preferred) or coordinates [x, y]
+- right_click: Right-click an element by ref or coordinates [x, y]
+- double_click: Double-click an element by ref or coordinates [x, y]
+- type: Type text into the focused element or a specific element by ref
 - key: Press a key or key combination (e.g., "Enter", "Tab", "ctrl+a")
-- scroll: Scroll the page. Use coordinate to scroll at a specific position, or omit for page scroll
+- scroll: Scroll the page or a specific element. Use ref, coordinate, or omit for page scroll
 - mouse_move: Move mouse to coordinates [x, y]
 - wait: Wait for a specified number of milliseconds
 - navigate: Navigate to a URL or use "back"/"forward" for history navigation
+- focus: Focus an element by ref (useful before typing)
 
-After each action, a screenshot will be returned showing the result.`,
+IMPORTANT: Use "ref" parameter (from read_page results) instead of coordinates when possible - it's more reliable!
+Set "take_screenshot": false to skip the automatic screenshot after the action (faster, saves tokens).`,
     input_schema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['screenshot', 'left_click', 'right_click', 'double_click', 'middle_click', 'type', 'key', 'scroll', 'mouse_move', 'left_click_drag', 'wait', 'navigate'],
+          enum: ['screenshot', 'left_click', 'right_click', 'double_click', 'middle_click', 'type', 'key', 'scroll', 'mouse_move', 'left_click_drag', 'wait', 'navigate', 'focus'],
           description: 'The action to perform'
+        },
+        ref: {
+          type: 'string',
+          description: 'Element reference from read_page (e.g., "ref_5"). PREFERRED over coordinates for clicking, typing, scrolling, and focusing.'
         },
         coordinate: {
           type: 'array',
           items: { type: 'number' },
-          description: 'The [x, y] coordinates for click, scroll, or mouse_move actions'
+          description: 'The [x, y] coordinates. Only needed if ref is not provided.'
         },
         text: {
           type: 'string',
@@ -271,6 +279,10 @@ After each action, a screenshot will be returned showing the result.`,
         duration: {
           type: 'number',
           description: 'Duration in milliseconds (for wait action)'
+        },
+        take_screenshot: {
+          type: 'boolean',
+          description: 'Whether to take a screenshot after the action. Default is true. Set to false for faster execution.'
         }
       },
       required: ['action']
@@ -348,6 +360,23 @@ interface TabGroup {
   collapsed: boolean;
 }
 
+// Style types for Claude's personalized styles
+interface StyleAttribute {
+  name: string;
+  percentage: number;
+}
+
+interface PersonalizedStyle {
+  type: 'default' | 'custom';
+  uuid: string;
+  key: string;
+  name: string;
+  prompt: string;
+  summary: string;
+  isDefault: boolean;
+  attributes: StyleAttribute[];
+}
+
 interface AppState {
   currentProject: Project | null;
   currentModel: string;
@@ -373,6 +402,9 @@ interface AppState {
   customUrl: string | null;
   // Multi-platform support
   platforms: Platform[];
+  // Personalized styles
+  styles: PersonalizedStyle[];
+  currentStyle: PersonalizedStyle | null;
 }
 
 // Default models fallback - will be updated from Claude.ai if available
@@ -436,6 +468,9 @@ const state: AppState = {
   // View switching state
   currentView: 'eidolon',
   iframesLoaded: new Set(),
+  // Personalized styles
+  styles: [],
+  currentStyle: null,
   customUrl: localStorage.getItem('eidolon-custom-url'),
   // Multi-platform support
   platforms: loadSavedPlatforms()
@@ -490,7 +525,8 @@ async function init() {
     loadTabs(),
     getCurrentTab(),
     checkAuthentication(),
-    loadAvailableModels()
+    loadAvailableModels(),
+    loadAccounts()
   ]);
   
   console.log('[Eidolon SidePanel] Ready!');
@@ -679,8 +715,20 @@ function renderActivePlatforms() {
   
   const sortedPlatforms = [...state.platforms].sort((a, b) => a.order - b.order);
   
-  list.innerHTML = sortedPlatforms.map(platform => `
+  list.innerHTML = sortedPlatforms.map((platform, index) => `
     <div class="platform-item ${platform.isVisible ? '' : 'hidden-platform'}" data-id="${platform.id}">
+      <div class="platform-reorder-btns">
+        <button class="platform-reorder-btn move-up" ${index === 0 ? 'disabled' : ''} title="Move up">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 10l4-4 4 4"/>
+          </svg>
+        </button>
+        <button class="platform-reorder-btn move-down" ${index === sortedPlatforms.length - 1 ? 'disabled' : ''} title="Move down">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 6l4 4 4-4"/>
+          </svg>
+        </button>
+      </div>
       <div class="platform-item-icon">
         ${getPlatformIconHtml(platform)}
       </div>
@@ -723,6 +771,54 @@ function renderActivePlatforms() {
       if (id) removePlatform(id);
     });
   });
+  
+  // Reorder buttons
+  list.querySelectorAll('.move-up').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest('.platform-item');
+      const id = item?.getAttribute('data-id');
+      if (id) movePlatform(id, -1);
+    });
+  });
+  
+  list.querySelectorAll('.move-down').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest('.platform-item');
+      const id = item?.getAttribute('data-id');
+      if (id) movePlatform(id, 1);
+    });
+  });
+}
+
+/**
+ * Move a platform up or down in the order
+ */
+function movePlatform(platformId: string, direction: number) {
+  const sortedPlatforms = [...state.platforms].sort((a, b) => a.order - b.order);
+  const currentIndex = sortedPlatforms.findIndex(p => p.id === platformId);
+  
+  if (currentIndex < 0) return;
+  
+  const newIndex = currentIndex + direction;
+  if (newIndex < 0 || newIndex >= sortedPlatforms.length) return;
+  
+  // Swap orders
+  const currentPlatform = sortedPlatforms[currentIndex];
+  const swapPlatform = sortedPlatforms[newIndex];
+  
+  // Find in state and update
+  const current = state.platforms.find(p => p.id === currentPlatform.id);
+  const swap = state.platforms.find(p => p.id === swapPlatform.id);
+  
+  if (current && swap) {
+    const tempOrder = current.order;
+    current.order = swap.order;
+    swap.order = tempOrder;
+    
+    savePlatforms();
+    renderActivePlatforms();
+    renderPlatformButtons();
+  }
 }
 
 /**
@@ -1117,8 +1213,20 @@ function setupEventListeners() {
   // History toggle
   const historyToggle = getElement('history-toggle');
   const historyPanel = getElement('conversation-history');
-  historyToggle.addEventListener('click', () => {
+  historyToggle.addEventListener('click', (e) => {
+    // Don't toggle if clicking the refresh button
+    if ((e.target as HTMLElement).closest('#refresh-conversations-btn')) return;
     historyPanel.classList.toggle('collapsed');
+  });
+  
+  // Refresh conversations button
+  const refreshConversationsBtn = document.getElementById('refresh-conversations-btn');
+  refreshConversationsBtn?.addEventListener('click', async (e) => {
+    e.stopPropagation(); // Prevent history panel toggle
+    const btn = e.currentTarget as HTMLElement;
+    btn.classList.add('spinning');
+    await loadConversations();
+    setTimeout(() => btn.classList.remove('spinning'), 300);
   });
   
   // Settings button
@@ -1371,6 +1479,9 @@ function setupEventListeners() {
   
   // Update agent UI state on init
   updateAgentModeUI();
+  
+  // Setup account switcher
+  setupAccountSwitcher();
 }
 
 // ========================================================================
@@ -1711,6 +1822,395 @@ function updateAuthStatus() {
     statusText.textContent = 'Not authenticated';
     if (statusIcon) statusIcon.textContent = '❌';
   }
+}
+
+// ========================================================================
+// ACCOUNT MANAGEMENT
+// ========================================================================
+
+interface EidolonAccount {
+  id: string;
+  name: string;
+  email?: string;
+  type: 'work' | 'personal';
+  color: string;
+  sessionKey: string;
+  organizationId?: string;
+  organizationName?: string;
+  createdAt: string;
+  lastUsedAt: string;
+  isActive: boolean;
+}
+
+interface AccountsStorage {
+  accounts: EidolonAccount[];
+  activeAccountId: string | null;
+  version: number;
+}
+
+const ACCOUNT_COLORS = [
+  '#E07850', '#3B82F6', '#10B981', '#8B5CF6',
+  '#F59E0B', '#EC4899', '#06B6D4', '#EF4444',
+];
+
+/**
+ * Load and render accounts list in settings panel
+ */
+async function loadAccounts(): Promise<void> {
+  const accountsList = document.getElementById('accounts-list');
+  
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-accounts' });
+    
+    if (response.success && response.data) {
+      renderAccountsList(response.data);
+      updateHeaderAccountAvatar(response.data);
+    } else {
+      if (accountsList) {
+        accountsList.innerHTML = `
+          <div class="no-accounts">
+            <div class="no-accounts-icon">👤</div>
+            <div class="no-accounts-text">No accounts saved yet.<br>Log in to Claude.ai to auto-save.</div>
+          </div>
+        `;
+      }
+      updateHeaderAccountAvatar(null);
+    }
+  } catch (error) {
+    console.error('[Eidolon] Failed to load accounts:', error);
+    if (accountsList) {
+      accountsList.innerHTML = `
+        <div class="no-accounts">
+          <div class="no-accounts-text">Failed to load accounts</div>
+        </div>
+      `;
+    }
+    updateHeaderAccountAvatar(null);
+  }
+}
+
+/**
+ * Update the header account avatar with active account
+ */
+function updateHeaderAccountAvatar(storage: AccountsStorage | null): void {
+  const avatarEl = document.getElementById('header-account-avatar');
+  const btnEl = document.getElementById('settings-btn'); // Now uses settings-btn (combined button)
+  
+  if (!avatarEl) return;
+  
+  if (!storage || !storage.accounts || storage.accounts.length === 0) {
+    avatarEl.textContent = '?';
+    avatarEl.style.backgroundColor = 'var(--text-400)';
+    if (btnEl) btnEl.title = 'Settings & Accounts';
+    return;
+  }
+  
+  // Find active account
+  const activeAccount = storage.accounts.find(a => a.isActive) || 
+                       storage.accounts.find(a => a.id === storage.activeAccountId) ||
+                       storage.accounts[0];
+  
+  if (activeAccount) {
+    avatarEl.textContent = getAccountInitials(activeAccount.name);
+    avatarEl.style.backgroundColor = activeAccount.color;
+    if (btnEl) btnEl.title = `${activeAccount.name} - Settings & Accounts`;
+  }
+}
+
+/**
+ * Render the accounts list
+ */
+function renderAccountsList(storage: AccountsStorage): void {
+  const accountsList = document.getElementById('accounts-list');
+  if (!accountsList) return;
+  
+  if (!storage.accounts || storage.accounts.length === 0) {
+    accountsList.innerHTML = `
+      <div class="no-accounts">
+        <div class="no-accounts-icon">👤</div>
+        <div class="no-accounts-text">No accounts saved yet.<br>Log in to Claude.ai to auto-save.</div>
+      </div>
+    `;
+    return;
+  }
+  
+  // Sort: active first, then by lastUsedAt
+  const sortedAccounts = [...storage.accounts].sort((a, b) => {
+    if (a.isActive && !b.isActive) return -1;
+    if (!a.isActive && b.isActive) return 1;
+    return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
+  });
+  
+  accountsList.innerHTML = sortedAccounts.map(account => {
+    const initials = getAccountInitials(account.name);
+    const isActive = account.isActive || account.id === storage.activeAccountId;
+    
+    return `
+      <div class="account-item ${isActive ? 'active' : ''}" data-account-id="${account.id}">
+        <div class="account-avatar" style="background-color: ${account.color}">${initials}</div>
+        <div class="account-info">
+          <div class="account-name">${escapeHtml(account.name)}</div>
+          <div class="account-org">${escapeHtml(account.organizationName || 'Unknown org')}</div>
+        </div>
+        <span class="account-badge ${account.type}">${account.type}</span>
+        <div class="account-actions">
+          <button class="account-action-btn edit-account-btn" data-account-id="${account.id}" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M10 2l2 2-7 7H3v-2l7-7z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers
+  accountsList.querySelectorAll('.account-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      // Don't switch if clicking edit button
+      if ((e.target as HTMLElement).closest('.account-action-btn')) return;
+      
+      const accountId = item.getAttribute('data-account-id');
+      if (accountId && !item.classList.contains('active')) {
+        await switchAccount(accountId);
+      }
+    });
+  });
+  
+  // Add edit handlers
+  accountsList.querySelectorAll('.edit-account-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const accountId = (btn as HTMLElement).getAttribute('data-account-id');
+      if (accountId) {
+        const account = storage.accounts.find(a => a.id === accountId);
+        if (account) openAccountEditModal(account);
+      }
+    });
+  });
+}
+
+/**
+ * Get initials from account name
+ */
+function getAccountInitials(name: string): string {
+  const parts = name.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
+/**
+ * Switch to a different account
+ */
+async function switchAccount(accountId: string): Promise<void> {
+  showLoading('Switching account...');
+  
+  try {
+    const response = await browser.runtime.sendMessage({ 
+      action: 'switch-account',
+      accountId 
+    });
+    
+    if (response.success) {
+      // Reload data after account switch
+      await Promise.all([
+        loadAccounts(),
+        loadProjects(),
+        loadConversations(),
+        checkAuthentication()
+      ]);
+      
+      showNotification('Switched account successfully');
+    } else {
+      showNotification(`Failed to switch: ${response.error}`, 'error');
+    }
+  } catch (error: any) {
+    showNotification(`Error: ${error.message}`, 'error');
+  } finally {
+    hideLoading();
+  }
+}
+
+/**
+ * Open account edit modal
+ */
+function openAccountEditModal(account: EidolonAccount): void {
+  const modal = document.getElementById('account-edit-modal');
+  if (!modal) return;
+  
+  // Populate form
+  const accountIdInput = document.getElementById('edit-account-id') as HTMLInputElement;
+  const nameInput = document.getElementById('edit-account-name') as HTMLInputElement;
+  const colorSelector = document.getElementById('account-color-selector');
+  
+  if (accountIdInput) accountIdInput.value = account.id;
+  if (nameInput) nameInput.value = account.name;
+  
+  // Render color options
+  if (colorSelector) {
+    colorSelector.innerHTML = ACCOUNT_COLORS.map(color => `
+      <button class="color-option ${color === account.color ? 'selected' : ''}" 
+              data-color="${color}" 
+              style="background-color: ${color}">
+      </button>
+    `).join('');
+    
+    colorSelector.querySelectorAll('.color-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        colorSelector.querySelectorAll('.color-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
+  }
+  
+  // Set type buttons
+  document.querySelectorAll('.type-btn').forEach(btn => {
+    const type = btn.getAttribute('data-type');
+    btn.classList.toggle('selected', type === account.type);
+  });
+  
+  // Show modal
+  modal.classList.remove('hidden');
+}
+
+/**
+ * Close account edit modal
+ */
+function closeAccountEditModal(): void {
+  const modal = document.getElementById('account-edit-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+/**
+ * Save account edits
+ */
+async function saveAccountEdit(): Promise<void> {
+  const accountIdInput = document.getElementById('edit-account-id') as HTMLInputElement;
+  const nameInput = document.getElementById('edit-account-name') as HTMLInputElement;
+  const selectedColor = document.querySelector('.color-option.selected') as HTMLElement;
+  const selectedType = document.querySelector('.type-btn.selected') as HTMLElement;
+  
+  if (!accountIdInput?.value) return;
+  
+  const updates: { name?: string; type?: 'work' | 'personal'; color?: string } = {};
+  
+  if (nameInput?.value) updates.name = nameInput.value.trim();
+  if (selectedColor?.dataset.color) updates.color = selectedColor.dataset.color;
+  if (selectedType?.dataset.type) updates.type = selectedType.dataset.type as 'work' | 'personal';
+  
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'update-account',
+      accountId: accountIdInput.value,
+      updates
+    });
+    
+    if (response.success) {
+      closeAccountEditModal();
+      await loadAccounts();
+      showNotification('Account updated');
+    } else {
+      showNotification(`Failed to update: ${response.error}`, 'error');
+    }
+  } catch (error: any) {
+    showNotification(`Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Delete an account
+ */
+async function deleteCurrentAccount(): Promise<void> {
+  const accountIdInput = document.getElementById('edit-account-id') as HTMLInputElement;
+  if (!accountIdInput?.value) return;
+  
+  if (!confirm('Are you sure you want to delete this account? You can re-add it by logging in again.')) {
+    return;
+  }
+  
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'delete-account',
+      accountId: accountIdInput.value
+    });
+    
+    if (response.success) {
+      closeAccountEditModal();
+      await loadAccounts();
+      showNotification('Account deleted');
+    } else {
+      showNotification(`Failed to delete: ${response.error}`, 'error');
+    }
+  } catch (error: any) {
+    showNotification(`Error: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Show a simple notification
+ */
+function showNotification(message: string, type: 'success' | 'error' = 'success'): void {
+  // Use existing activity indicator as a simple notification
+  const indicator = document.getElementById('activity-indicator');
+  const text = document.getElementById('activity-text');
+  
+  if (indicator && text) {
+    text.textContent = message;
+    indicator.classList.remove('hidden');
+    indicator.style.background = type === 'error' ? 'var(--error)' : 'var(--success)';
+    
+    setTimeout(() => {
+      indicator.classList.add('hidden');
+      indicator.style.background = '';
+    }, 2000);
+  }
+}
+
+/**
+ * Setup account switcher event listeners
+ */
+function setupAccountSwitcher(): void {
+  // Close account modal button
+  const closeModalBtn = document.getElementById('close-account-modal');
+  closeModalBtn?.addEventListener('click', closeAccountEditModal);
+  
+  // Click outside modal to close
+  const modal = document.getElementById('account-edit-modal');
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeAccountEditModal();
+  });
+  
+  // Type buttons
+  document.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  
+  // Save button
+  const saveBtn = document.getElementById('save-account-btn');
+  saveBtn?.addEventListener('click', saveAccountEdit);
+  
+  // Delete button
+  const deleteBtn = document.getElementById('delete-account-btn');
+  deleteBtn?.addEventListener('click', deleteCurrentAccount);
+  
+  // Add account button - opens Claude.ai in new tab
+  const addAccountBtn = document.getElementById('add-account-btn');
+  addAccountBtn?.addEventListener('click', () => {
+    browser.tabs.create({ url: 'https://claude.ai/login' });
+    showNotification('Log in to Claude.ai - account will auto-save');
+  });
+  
+  // Load accounts when settings panel opens (settings-btn is now the account avatar)
+  const settingsBtn = document.getElementById('settings-btn');
+  settingsBtn?.addEventListener('click', () => {
+    // Small delay to ensure panel is visible
+    setTimeout(loadAccounts, 100);
+  });
 }
 
 function renderMessages() {
@@ -2114,7 +2614,8 @@ async function sendMessage() {
       conversationId: state.currentConversationId,
       message: fullContent,
       attachments: apiAttachments,
-      model: state.currentModel
+      model: state.currentModel,
+      personalizedStyles: state.currentStyle ? [state.currentStyle] : undefined
     });
     
     if (!response.success) {
@@ -2171,10 +2672,16 @@ async function handleQuickAction(action: string) {
       break;
       
     case 'help-browse':
-      input.value = 'I need help with browsing. What can you help me do?';
+      if (state.agentMode) {
+        input.value = 'I need help with browsing. What can you help me do?';
+      } else {
+        input.value = '[Agent mode must be enabled in Settings to use browser automation]\n\nI need help with browsing. What can you help me do?';
+      }
       break;
   }
   
+  // Trigger auto-resize by dispatching input event
+  input.dispatchEvent(new Event('input', { bubbles: true }));
   input.focus();
 }
 
@@ -2191,6 +2698,7 @@ async function validateSession() {
     if (response.success) {
       await loadProjects();
       await loadConversations();
+      await loadStyles(); // Load personalized styles
     }
   } catch (error) {
     console.error('[Eidolon] Session validation failed:', error);
@@ -2479,6 +2987,116 @@ async function executeToolCall(toolName: string, toolInput: Record<string, any>)
 }
 
 /**
+ * Helper to resolve ref to coordinates by getting element bounds
+ */
+async function resolveRefToCoordinates(tabId: number, ref: string): Promise<{ x: number; y: number } | null> {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string) => {
+        const getBounds = (window as any).__getBoundsByRef;
+        if (!getBounds) return null;
+        const bounds = getBounds(refId);
+        if (!bounds) return null;
+        // Return center of the element
+        return {
+          x: Math.round(bounds.x + bounds.width / 2),
+          y: Math.round(bounds.y + bounds.height / 2)
+        };
+      },
+      args: [ref]
+    });
+    return results?.[0]?.result || null;
+  } catch (error) {
+    console.error('[Eidolon Agent] Failed to resolve ref:', error);
+    return null;
+  }
+}
+
+/**
+ * Helper to click element by ref directly (more reliable than coordinate clicking)
+ */
+async function clickElementByRef(tabId: number, ref: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    // First scroll element into view
+    await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string) => {
+        const scrollToRef = (window as any).__scrollToRef;
+        if (scrollToRef) scrollToRef(refId);
+      },
+      args: [ref]
+    });
+    
+    // Small delay for scroll to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Then click
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string) => {
+        const clickRef = (window as any).__clickRef;
+        if (!clickRef) return { success: false, error: 'Click function not available' };
+        const result = clickRef(refId);
+        return { success: result, error: result ? undefined : 'Element not found' };
+      },
+      args: [ref]
+    });
+    return results?.[0]?.result || { success: false, error: 'Script execution failed' };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Helper to focus element by ref
+ */
+async function focusElementByRef(tabId: number, ref: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string) => {
+        const focusRef = (window as any).__focusRef;
+        const scrollToRef = (window as any).__scrollToRef;
+        if (!focusRef) return { success: false, error: 'Focus function not available' };
+        // Scroll element into view first
+        if (scrollToRef) scrollToRef(refId);
+        const result = focusRef(refId);
+        return { success: result, error: result ? undefined : 'Element not found or not focusable' };
+      },
+      args: [ref]
+    });
+    return results?.[0]?.result || { success: false, error: 'Script execution failed' };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Helper to set value on element by ref
+ */
+async function setValueByRef(tabId: number, ref: string, value: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string, val: string) => {
+        const setValueByRef = (window as any).__setValueByRef;
+        const focusRef = (window as any).__focusRef;
+        if (!setValueByRef) return { success: false, error: 'SetValue function not available' };
+        // Focus first
+        if (focusRef) focusRef(refId);
+        const result = setValueByRef(refId, val);
+        return { success: result, error: result ? undefined : 'Element not found or not a valid input' };
+      },
+      args: [ref, value]
+    });
+    return results?.[0]?.result || { success: false, error: 'Script execution failed' };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Execute the 'computer' tool actions
  */
 async function executeComputerTool(tabId: number, input: Record<string, any>): Promise<{
@@ -2486,22 +3104,30 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
   is_error?: boolean;
 }> {
   const action = input.action;
+  const takeScreenshot = input.take_screenshot !== false; // Default to true
+  const ref = input.ref;
   
   // Show visual indicator for the action
   if (action !== 'screenshot') {
+    const targetInfo = ref ? ` on ${ref}` : (input.coordinate ? ` at (${input.coordinate[0]}, ${input.coordinate[1]})` : '');
     await browser.runtime.sendMessage({
       action: 'update-agent-status',
       tabId,
-      message: `${action}${input.coordinate ? ` at (${input.coordinate[0]}, ${input.coordinate[1]})` : ''}`
+      message: `${action}${targetInfo}`
     });
   }
   
-  // Map the action to our browser-execute-action format
-  let browserAction: any = { type: action };
+  // Helper to return success with optional screenshot
+  const successWithScreenshot = async (message: string) => {
+    if (takeScreenshot) {
+      await new Promise(resolve => setTimeout(resolve, 300)); // Wait for UI to update
+      return executeComputerTool(tabId, { action: 'screenshot' });
+    }
+    return { content: message };
+  };
   
   switch (action) {
     case 'screenshot': {
-      // Just take a screenshot
       const response = await browser.runtime.sendMessage({
         action: 'browser-take-screenshot',
         tabId,
@@ -2510,7 +3136,6 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
       });
       
       if (response.success && response.data?.screenshot) {
-        // Return as image content block
         const base64Data = response.data.screenshot.replace(/^data:image\/\w+;base64,/, '');
         return {
           content: [{
@@ -2530,103 +3155,221 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
     case 'right_click':
     case 'double_click':
     case 'middle_click': {
-      if (!input.coordinate || input.coordinate.length !== 2) {
-        return { content: 'Error: coordinate [x, y] is required for click actions', is_error: true };
+      // Prefer ref-based clicking
+      if (ref) {
+        // For left_click, use direct DOM click (more reliable)
+        if (action === 'left_click') {
+          const result = await clickElementByRef(tabId, ref);
+          if (!result.success) {
+            return { content: `Click on ${ref} failed: ${result.error}`, is_error: true };
+          }
+          return successWithScreenshot(`Clicked ${ref}`);
+        }
+        // For other click types, resolve to coordinates and use CDP
+        const coords = await resolveRefToCoordinates(tabId, ref);
+        if (!coords) {
+          return { content: `Error: Could not find element with ref "${ref}"`, is_error: true };
+        }
+        input.coordinate = [coords.x, coords.y];
       }
-      browserAction = {
+      
+      if (!input.coordinate || input.coordinate.length !== 2) {
+        return { content: 'Error: Either ref or coordinate [x, y] is required for click actions', is_error: true };
+      }
+      
+      const browserAction = {
         type: action === 'left_click' ? 'click' : action,
         x: input.coordinate[0],
         y: input.coordinate[1]
       };
-      break;
+      
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction
+      });
+      
+      if (!response.success) {
+        return { content: `Click failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Clicked at (${input.coordinate[0]}, ${input.coordinate[1]})`);
+    }
+    
+    case 'focus': {
+      if (!ref) {
+        return { content: 'Error: ref is required for focus action', is_error: true };
+      }
+      const result = await focusElementByRef(tabId, ref);
+      if (!result.success) {
+        return { content: `Focus on ${ref} failed: ${result.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Focused ${ref}`);
     }
     
     case 'type': {
       if (!input.text) {
         return { content: 'Error: text is required for type action', is_error: true };
       }
-      browserAction = { type: 'type', text: input.text };
-      break;
+      
+      // If ref is provided, focus/set value on that element first
+      if (ref) {
+        // Try to set value directly (works for input/textarea)
+        const setResult = await setValueByRef(tabId, ref, input.text);
+        if (setResult.success) {
+          return successWithScreenshot(`Typed "${input.text}" into ${ref}`);
+        }
+        // Fall back to focus + type via CDP
+        await focusElementByRef(tabId, ref);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Type via CDP (keyboard simulation)
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: { type: 'type', text: input.text }
+      });
+      
+      if (!response.success) {
+        return { content: `Type failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Typed "${input.text}"`);
     }
     
     case 'key': {
       if (!input.key) {
         return { content: 'Error: key is required for key action', is_error: true };
       }
-      browserAction = { type: 'key', key: input.key };
-      break;
+      
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: { type: 'key', key: input.key }
+      });
+      
+      if (!response.success) {
+        return { content: `Key press failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Pressed ${input.key}`);
     }
     
     case 'scroll': {
-      browserAction = {
-        type: 'scroll',
-        x: input.coordinate?.[0],
-        y: input.coordinate?.[1],
-        direction: input.scroll_direction || 'down',
-        amount: input.scroll_amount || 300
-      };
-      break;
+      // If ref is provided, scroll that element into view
+      if (ref) {
+        try {
+          await browser.scripting.executeScript({
+            target: { tabId },
+            func: (refId: string) => {
+              const scrollToRef = (window as any).__scrollToRef;
+              if (scrollToRef) scrollToRef(refId);
+            },
+            args: [ref]
+          });
+          return successWithScreenshot(`Scrolled to ${ref}`);
+        } catch (error: any) {
+          return { content: `Scroll to ${ref} failed: ${error.message}`, is_error: true };
+        }
+      }
+      
+      // Otherwise, scroll the page
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: {
+          type: 'scroll',
+          x: input.coordinate?.[0],
+          y: input.coordinate?.[1],
+          direction: input.scroll_direction || 'down',
+          amount: input.scroll_amount || 300
+        }
+      });
+      
+      if (!response.success) {
+        return { content: `Scroll failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Scrolled ${input.scroll_direction || 'down'}`);
     }
     
     case 'mouse_move': {
-      if (!input.coordinate || input.coordinate.length !== 2) {
-        return { content: 'Error: coordinate [x, y] is required for mouse_move', is_error: true };
+      if (ref) {
+        const coords = await resolveRefToCoordinates(tabId, ref);
+        if (!coords) {
+          return { content: `Error: Could not find element with ref "${ref}"`, is_error: true };
+        }
+        input.coordinate = [coords.x, coords.y];
       }
-      browserAction = {
-        type: 'mouse_move',
-        x: input.coordinate[0],
-        y: input.coordinate[1]
-      };
-      break;
+      
+      if (!input.coordinate || input.coordinate.length !== 2) {
+        return { content: 'Error: Either ref or coordinate [x, y] is required for mouse_move', is_error: true };
+      }
+      
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: {
+          type: 'mouse_move',
+          x: input.coordinate[0],
+          y: input.coordinate[1]
+        }
+      });
+      
+      if (!response.success) {
+        return { content: `Mouse move failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Moved mouse to (${input.coordinate[0]}, ${input.coordinate[1]})`);
     }
     
     case 'left_click_drag': {
       if (!input.start_coordinate || !input.coordinate) {
         return { content: 'Error: start_coordinate and coordinate are required for drag', is_error: true };
       }
-      browserAction = {
-        type: 'drag',
-        startX: input.start_coordinate[0],
-        startY: input.start_coordinate[1],
-        endX: input.coordinate[0],
-        endY: input.coordinate[1]
-      };
-      break;
+      
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: {
+          type: 'drag',
+          startX: input.start_coordinate[0],
+          startY: input.start_coordinate[1],
+          endX: input.coordinate[0],
+          endY: input.coordinate[1]
+        }
+      });
+      
+      if (!response.success) {
+        return { content: `Drag failed: ${response.error}`, is_error: true };
+      }
+      return successWithScreenshot(`Dragged from (${input.start_coordinate[0]}, ${input.start_coordinate[1]}) to (${input.coordinate[0]}, ${input.coordinate[1]})`);
     }
     
     case 'wait': {
       const duration = input.duration || 1000;
       await new Promise(resolve => setTimeout(resolve, duration));
-      // Take screenshot after waiting
-      return executeComputerTool(tabId, { action: 'screenshot' });
+      return successWithScreenshot(`Waited ${duration}ms`);
     }
     
     case 'navigate': {
       if (!input.text) {
         return { content: 'Error: text (URL or "back"/"forward") is required for navigate', is_error: true };
       }
-      browserAction = { type: 'navigate', url: input.text };
-      break;
+      
+      const response = await browser.runtime.sendMessage({
+        action: 'browser-execute-action',
+        tabId,
+        browserAction: { type: 'navigate', url: input.text }
+      });
+      
+      if (!response.success) {
+        return { content: `Navigate failed: ${response.error}`, is_error: true };
+      }
+      // Wait longer for navigation
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return successWithScreenshot(`Navigated to ${input.text}`);
     }
     
     default:
       return { content: `Unknown computer action: ${action}`, is_error: true };
   }
-  
-  // Execute the action
-  const response = await browser.runtime.sendMessage({
-    action: 'browser-execute-action',
-    tabId,
-    browserAction
-  });
-  
-  if (!response.success) {
-    return { content: `Action failed: ${response.error}`, is_error: true };
-  }
-  
-  // After action, take a screenshot to show the result
-  await new Promise(resolve => setTimeout(resolve, 300)); // Wait for UI to update
-  return executeComputerTool(tabId, { action: 'screenshot' });
 }
 
 // ========================================================================
@@ -2675,9 +3418,12 @@ function parseToolUseBlocks(response: string): ToolUseBlock[] {
 
 /**
  * Run the agentic loop - send message, execute tools, continue until done
+ * Includes retry logic for transient failures
  */
-async function runAgenticLoop(userMessage: string, maxIterations: number = 10): Promise<string> {
+async function runAgenticLoop(userMessage: string, maxIterations: number = 15): Promise<string> {
   let iterations = 0;
+  let consecutiveErrors = 0;
+  const maxConsecutiveErrors = 3;
   let conversationHistory: Array<{ role: string; content: any }> = [];
   let finalResponse = '';
   
@@ -2704,6 +3450,9 @@ async function runAgenticLoop(userMessage: string, maxIterations: number = 10): 
         throw new Error(response.error || 'Failed to get response from Claude');
       }
       
+      // Reset error counter on success
+      consecutiveErrors = 0;
+      
       const assistantResponse = response.data;
       console.log('[Eidolon Agent] Claude response:', assistantResponse);
       
@@ -2725,11 +3474,25 @@ async function runAgenticLoop(userMessage: string, maxIterations: number = 10): 
       
       // Execute each tool and collect results
       const toolResults: ToolResultBlock[] = [];
+      let hasErrors = false;
       
       for (const toolUse of toolUses) {
-        console.log(`[Eidolon Agent] Executing tool: ${toolUse.name}`);
+        console.log(`[Eidolon Agent] Executing tool: ${toolUse.name}`, toolUse.input);
+        showActivity(`Executing: ${toolUse.name}...`);
         
-        const result = await executeToolCall(toolUse.name, toolUse.input);
+        let result = await executeToolCall(toolUse.name, toolUse.input);
+        
+        // Retry logic for failed actions (except for "not found" errors)
+        if (result.is_error && !result.content.toString().includes('not found')) {
+          console.log(`[Eidolon Agent] Tool failed, retrying: ${toolUse.name}`);
+          await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay
+          result = await executeToolCall(toolUse.name, toolUse.input);
+        }
+        
+        if (result.is_error) {
+          hasErrors = true;
+          console.warn(`[Eidolon Agent] Tool error: ${result.content}`);
+        }
         
         toolResults.push({
           type: 'tool_result',
@@ -2751,13 +3514,49 @@ async function runAgenticLoop(userMessage: string, maxIterations: number = 10): 
         content: toolResults
       });
       
+      // If all tools errored, suggest Claude re-read the page
+      if (hasErrors && toolResults.every(r => r.is_error)) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          console.error('[Eidolon Agent] Too many consecutive errors, stopping');
+          finalResponse = 'Agent stopped due to repeated errors. The page may have changed or elements may not be accessible.';
+          break;
+        }
+        // Add a hint to re-read the page
+        conversationHistory.push({
+          role: 'user',
+          content: 'Note: The previous action(s) failed. Consider using read_page to get fresh element references before trying again.'
+        });
+      } else {
+        consecutiveErrors = 0;
+      }
+      
       // Update the final response to include tool execution info
       finalResponse = assistantResponse.text || '';
       
+      // Keep conversation history manageable (last 20 messages)
+      if (conversationHistory.length > 20) {
+        // Keep first message (original user request) and last 19
+        conversationHistory = [conversationHistory[0], ...conversationHistory.slice(-19)];
+      }
+      
     } catch (error: any) {
       console.error('[Eidolon Agent] Error in agentic loop:', error);
-      finalResponse = `Error during agent execution: ${error.message}`;
-      break;
+      consecutiveErrors++;
+      
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        finalResponse = `Agent stopped due to repeated errors: ${error.message}`;
+        break;
+      }
+      
+      // Add error to conversation so Claude knows about it
+      conversationHistory.push({
+        role: 'user',
+        content: `System error occurred: ${error.message}. Please try a different approach.`
+      });
+      
+      // Brief delay before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
   
@@ -2910,34 +3709,171 @@ function filterClaudeMenuItems(containerId: string, query: string) {
 }
 
 /**
- * Select a style (placeholder - styles are not supported by API yet)
+ * Load available styles from Claude.ai API
  */
-function selectStyle(style: string) {
-  // Update UI to show selected style
-  const stylesList = document.getElementById('styles-list');
-  if (stylesList) {
-    stylesList.querySelectorAll('.style-item').forEach(item => {
-      item.classList.remove('selected');
-      if (item.getAttribute('data-style') === style) {
-        item.classList.add('selected');
+async function loadStyles() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-styles' });
+    if (response.success && response.data) {
+      // Combine default and custom styles
+      const allStyles: PersonalizedStyle[] = [
+        ...(response.data.default || []),
+        ...(response.data.custom || [])
+      ];
+      state.styles = allStyles;
+      
+      // Restore previously selected style from localStorage
+      const savedStyleKey = localStorage.getItem('eidolon-style-key');
+      if (savedStyleKey) {
+        const savedStyle = allStyles.find(s => s.key === savedStyleKey);
+        if (savedStyle) {
+          state.currentStyle = savedStyle;
+        }
       }
+      
+      // Render the styles list
+      renderStylesList();
+      console.log('[Eidolon] Loaded', allStyles.length, 'styles');
+    }
+  } catch (error) {
+    console.error('[Eidolon] Failed to load styles:', error);
+  }
+}
+
+/**
+ * Render the styles list in the UI
+ */
+function renderStylesList() {
+  const stylesList = document.getElementById('styles-list');
+  if (!stylesList) return;
+  
+  // Add "Create & edit styles" link at the top
+  let html = `
+    <button class="claude-menu-item create-edit-styles-btn" id="create-edit-styles-btn">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 3C10.2761 3 10.5 3.22386 10.5 3.5V9.5H16.5L16.6006 9.50977C16.8286 9.55629 17 9.75829 17 10C17 10.2417 16.8286 10.4437 16.6006 10.4902L16.5 10.5H10.5V16.5C10.5 16.7761 10.2761 17 10 17C9.72386 17 9.5 16.7761 9.5 16.5V10.5H3.5C3.22386 10.5 3 10.2761 3 10C3 9.72386 3.22386 9.5 3.5 9.5H9.5V3.5C9.5 3.22386 9.72386 3 10 3Z"/>
+      </svg>
+      <span class="create-edit-styles-text">Create & edit styles</span>
+    </button>
+    <div class="claude-menu-divider"></div>
+  `;
+  
+  // Add "Normal" option (no style)
+  html += `
+    <button class="claude-menu-item style-item ${!state.currentStyle ? 'selected' : ''}" data-style-key="">
+      <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+        <path d="M2 7l4 4 6-8"/>
+      </svg>
+      <span>Normal</span>
+      <span class="style-type-badge">default</span>
+    </button>
+  `;
+  
+  // Separate default and custom styles
+  const defaultStyles = state.styles.filter(s => s.type === 'default');
+  const customStyles = state.styles.filter(s => s.type === 'custom');
+  
+  // Add default styles
+  if (defaultStyles.length > 0) {
+    for (const style of defaultStyles) {
+      const isSelected = state.currentStyle?.key === style.key;
+      html += `
+        <button class="claude-menu-item style-item ${isSelected ? 'selected' : ''}" 
+                data-style-key="${escapeHtml(style.key)}"
+                title="${escapeHtml(style.summary || '')}">
+          <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M2 7l4 4 6-8"/>
+          </svg>
+          <span>${escapeHtml(style.name)}</span>
+          <span class="style-type-badge">default</span>
+        </button>
+      `;
+    }
+  }
+  
+  // Add custom styles with separator
+  if (customStyles.length > 0) {
+    html += '<div class="claude-menu-divider"></div>';
+    html += '<div class="claude-menu-section-title">Custom Styles</div>';
+    
+    for (const style of customStyles) {
+      const isSelected = state.currentStyle?.key === style.key;
+      html += `
+        <button class="claude-menu-item style-item ${isSelected ? 'selected' : ''}" 
+                data-style-key="${escapeHtml(style.key)}"
+                title="${escapeHtml(style.summary || '')}">
+          <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M2 7l4 4 6-8"/>
+          </svg>
+          <span>${escapeHtml(style.name)}</span>
+        </button>
+      `;
+    }
+  }
+  
+  stylesList.innerHTML = html;
+  
+  // Attach click handler for "Create & edit styles" button
+  const createEditBtn = stylesList.querySelector('#create-edit-styles-btn');
+  if (createEditBtn) {
+    createEditBtn.addEventListener('click', () => {
+      // Open Claude.ai styles settings page
+      window.open('https://claude.ai/settings/styles', '_blank');
     });
   }
   
-  // Update the current style name display
-  const currentStyleName = document.getElementById('current-style-name');
-  if (currentStyleName) {
-    // Capitalize first letter
-    currentStyleName.textContent = style.charAt(0).toUpperCase() + style.slice(1);
+  // Re-attach click handlers for style items
+  stylesList.querySelectorAll('.style-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const styleKey = item.getAttribute('data-style-key') || '';
+      selectStyleByKey(styleKey);
+    });
+  });
+}
+
+/**
+ * Select a style by its key
+ */
+function selectStyleByKey(styleKey: string) {
+  if (!styleKey) {
+    // "Normal" - no style
+    state.currentStyle = null;
+    localStorage.removeItem('eidolon-style-key');
+  } else {
+    const style = state.styles.find(s => s.key === styleKey);
+    if (style) {
+      state.currentStyle = style;
+      localStorage.setItem('eidolon-style-key', styleKey);
+    }
   }
   
-  // Store in localStorage (even though it's placeholder for now)
-  localStorage.setItem('eidolon-style', style);
+  // Update UI
+  renderStylesList();
+  updateStyleIndicator();
   
   // Close the menu
   closeAllClaudeMenus();
   
-  console.log('[Eidolon] Selected style:', style, '(placeholder - not sent to API)');
+  console.log('[Eidolon] Selected style:', state.currentStyle?.name || 'Normal');
+}
+
+/**
+ * Update the style indicator in the UI
+ */
+function updateStyleIndicator() {
+  const currentStyleName = document.getElementById('current-style-name');
+  if (currentStyleName) {
+    currentStyleName.textContent = state.currentStyle?.name || 'Normal';
+  }
+}
+
+/**
+ * Select a style (legacy - for backwards compatibility)
+ */
+function selectStyle(style: string) {
+  // This function is kept for backwards compatibility with existing HTML
+  // Map old style names to new style keys
+  selectStyleByKey(style === 'normal' ? '' : style);
 }
 
 /**

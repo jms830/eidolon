@@ -142,6 +142,10 @@ export default defineBackground(() => {
       return this.request<any[]>(`/organizations/${orgId}/chat_conversations`);
     }
 
+    async getStyles(orgId: string): Promise<{ default: any[]; custom: any[] }> {
+      return this.request<{ default: any[]; custom: any[] }>(`/organizations/${orgId}/list_styles`);
+    }
+
     async createConversation(orgId: string, name: string, projectUuid?: string): Promise<any> {
       const uuid = crypto.randomUUID();
       return this.request<any>(`/organizations/${orgId}/chat_conversations`, {
@@ -160,7 +164,8 @@ export default defineBackground(() => {
       prompt: string,
       attachments: any[] = [],
       parentMessageUuid: string = '00000000-0000-4000-8000-000000000000',
-      model?: string
+      model?: string,
+      personalizedStyles?: any[]
     ): Promise<Response> {
       // This returns the raw response for streaming
       const url = `${this.baseUrl}/organizations/${orgId}/chat_conversations/${conversationId}/completion`;
@@ -178,6 +183,11 @@ export default defineBackground(() => {
       // Add model if specified (Claude.ai uses model parameter in completion requests)
       if (model) {
         body.model = model;
+      }
+      
+      // Add personalized styles if specified
+      if (personalizedStyles && personalizedStyles.length > 0) {
+        body.personalized_styles = personalizedStyles;
       }
       
       // Log full request body for debugging
@@ -267,6 +277,292 @@ export default defineBackground(() => {
   let apiClient: ClaudeAPIClient | null = null;
   let currentOrg: Organization | null = null;
   let sessionKey: string | null = null;
+
+  // ========================================================================
+  // ACCOUNT MANAGEMENT
+  // ========================================================================
+
+  // Types for account management (duplicated from utils/api/types.ts for background script)
+  interface EidolonAccount {
+    id: string;
+    name: string;
+    email?: string;
+    type: 'work' | 'personal';
+    color: string;
+    sessionKey: string;
+    organizationId?: string;
+    organizationName?: string;
+    createdAt: string;
+    lastUsedAt: string;
+    isActive: boolean;
+  }
+
+  interface AccountsStorage {
+    accounts: EidolonAccount[];
+    activeAccountId: string | null;
+    version: number;
+  }
+
+  const ACCOUNT_COLORS = [
+    '#E07850', '#3B82F6', '#10B981', '#8B5CF6',
+    '#F59E0B', '#EC4899', '#06B6D4', '#EF4444',
+  ];
+
+  const ACCOUNTS_STORAGE_KEY = 'eidolon_accounts';
+
+  /**
+   * Get all saved accounts from storage
+   */
+  async function getAccounts(): Promise<AccountsStorage> {
+    const result = await browser.storage.local.get(ACCOUNTS_STORAGE_KEY);
+    const stored = result[ACCOUNTS_STORAGE_KEY] as AccountsStorage | undefined;
+    
+    if (!stored) {
+      return { accounts: [], activeAccountId: null, version: 1 };
+    }
+    
+    return stored;
+  }
+
+  /**
+   * Save accounts to storage
+   */
+  async function saveAccounts(data: AccountsStorage): Promise<void> {
+    await browser.storage.local.set({ [ACCOUNTS_STORAGE_KEY]: data });
+  }
+
+  /**
+   * Get a random account color that isn't already used
+   */
+  function getNextAccountColor(existingAccounts: EidolonAccount[]): string {
+    const usedColors = new Set(existingAccounts.map(a => a.color));
+    const availableColors = ACCOUNT_COLORS.filter(c => !usedColors.has(c));
+    
+    if (availableColors.length > 0) {
+      return availableColors[0];
+    }
+    
+    // If all colors are used, pick one randomly
+    return ACCOUNT_COLORS[Math.floor(Math.random() * ACCOUNT_COLORS.length)];
+  }
+
+  /**
+   * Auto-save or update the current session as an account
+   * Called after successful session validation
+   */
+  async function autoSaveAccount(
+    sessionKeyValue: string,
+    org: Organization
+  ): Promise<EidolonAccount | null> {
+    try {
+      const storage = await getAccounts();
+      const now = new Date().toISOString();
+      
+      // Check if an account with this sessionKey already exists
+      const existingIndex = storage.accounts.findIndex(
+        a => a.sessionKey === sessionKeyValue
+      );
+      
+      if (existingIndex >= 0) {
+        // Update existing account's lastUsedAt and org info
+        storage.accounts[existingIndex].lastUsedAt = now;
+        storage.accounts[existingIndex].organizationId = org.uuid;
+        storage.accounts[existingIndex].organizationName = org.name;
+        storage.accounts[existingIndex].isActive = true;
+        
+        // Deactivate other accounts
+        storage.accounts.forEach((a, i) => {
+          if (i !== existingIndex) a.isActive = false;
+        });
+        
+        storage.activeAccountId = storage.accounts[existingIndex].id;
+        await saveAccounts(storage);
+        
+        debugLog('[Accounts] Updated existing account:', storage.accounts[existingIndex].name);
+        return storage.accounts[existingIndex];
+      }
+      
+      // Create new account
+      const newAccount: EidolonAccount = {
+        id: crypto.randomUUID(),
+        name: org.name || `Account ${storage.accounts.length + 1}`,
+        email: undefined, // Could extract from Claude.ai profile API if available
+        type: 'personal',
+        color: getNextAccountColor(storage.accounts),
+        sessionKey: sessionKeyValue,
+        organizationId: org.uuid,
+        organizationName: org.name,
+        createdAt: now,
+        lastUsedAt: now,
+        isActive: true,
+      };
+      
+      // Deactivate other accounts
+      storage.accounts.forEach(a => { a.isActive = false; });
+      
+      storage.accounts.push(newAccount);
+      storage.activeAccountId = newAccount.id;
+      await saveAccounts(storage);
+      
+      debugLog('[Accounts] Auto-saved new account:', newAccount.name);
+      return newAccount;
+    } catch (error) {
+      console.error('[Accounts] Failed to auto-save account:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Switch to a different account by ID
+   * Sets the sessionKey cookie and reloads Claude tabs
+   */
+  async function switchToAccount(accountId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const storage = await getAccounts();
+      const account = storage.accounts.find(a => a.id === accountId);
+      
+      if (!account) {
+        return { success: false, error: 'Account not found' };
+      }
+      
+      // First, remove the existing sessionKey cookie
+      await browser.cookies.remove({
+        url: 'https://claude.ai',
+        name: 'sessionKey'
+      });
+      
+      // Set the new sessionKey cookie
+      const oneYearFromNow = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
+      
+      await browser.cookies.set({
+        url: 'https://claude.ai',
+        name: 'sessionKey',
+        value: account.sessionKey,
+        domain: '.claude.ai',
+        path: '/',
+        secure: true,
+        httpOnly: true, // Match how Claude sets it
+        sameSite: 'lax' as const,
+        expirationDate: oneYearFromNow
+      });
+      
+      // Update in-memory state
+      sessionKey = account.sessionKey;
+      apiClient = new ClaudeAPIClient(sessionKey);
+      
+      // Validate the new session
+      try {
+        const orgs = await apiClient.getOrganizations();
+        if (orgs.length > 0) {
+          currentOrg = orgs[0];
+          
+          // Update storage
+          storage.accounts.forEach(a => { a.isActive = a.id === accountId; });
+          storage.activeAccountId = accountId;
+          
+          // Update lastUsedAt
+          const accountIndex = storage.accounts.findIndex(a => a.id === accountId);
+          if (accountIndex >= 0) {
+            storage.accounts[accountIndex].lastUsedAt = new Date().toISOString();
+            storage.accounts[accountIndex].organizationId = currentOrg.uuid;
+            storage.accounts[accountIndex].organizationName = currentOrg.name;
+          }
+          
+          await saveAccounts(storage);
+          await browser.storage.local.set({
+            sessionKey,
+            currentOrg,
+            sessionValid: true
+          });
+          
+          // Reload Claude.ai tabs to reflect the account change
+          const claudeTabs = await browser.tabs.query({ url: '*://claude.ai/*' });
+          for (const tab of claudeTabs) {
+            if (tab.id) {
+              browser.tabs.reload(tab.id).catch(() => {});
+            }
+          }
+          
+          debugLog('[Accounts] Switched to account:', account.name);
+          return { success: true };
+        } else {
+          return { success: false, error: 'Session validation failed - no organizations found' };
+        }
+      } catch (validationError: any) {
+        // Session is invalid/expired
+        return { success: false, error: `Session expired or invalid: ${validationError.message}` };
+      }
+    } catch (error: any) {
+      console.error('[Accounts] Switch failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Delete an account by ID
+   */
+  async function deleteAccount(accountId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const storage = await getAccounts();
+      const accountIndex = storage.accounts.findIndex(a => a.id === accountId);
+      
+      if (accountIndex < 0) {
+        return { success: false, error: 'Account not found' };
+      }
+      
+      const wasActive = storage.accounts[accountIndex].isActive;
+      storage.accounts.splice(accountIndex, 1);
+      
+      // If we deleted the active account, clear the active ID
+      if (wasActive || storage.activeAccountId === accountId) {
+        storage.activeAccountId = storage.accounts[0]?.id || null;
+        if (storage.accounts[0]) {
+          storage.accounts[0].isActive = true;
+        }
+      }
+      
+      await saveAccounts(storage);
+      
+      debugLog('[Accounts] Deleted account:', accountId);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Update an account's metadata (name, type, color)
+   */
+  async function updateAccount(
+    accountId: string,
+    updates: Partial<Pick<EidolonAccount, 'name' | 'type' | 'color'>>
+  ): Promise<{ success: boolean; error?: string; account?: EidolonAccount }> {
+    try {
+      const storage = await getAccounts();
+      const accountIndex = storage.accounts.findIndex(a => a.id === accountId);
+      
+      if (accountIndex < 0) {
+        return { success: false, error: 'Account not found' };
+      }
+      
+      // Apply updates
+      if (updates.name !== undefined) {
+        storage.accounts[accountIndex].name = updates.name;
+      }
+      if (updates.type !== undefined) {
+        storage.accounts[accountIndex].type = updates.type;
+      }
+      if (updates.color !== undefined) {
+        storage.accounts[accountIndex].color = updates.color;
+      }
+      
+      await saveAccounts(storage);
+      
+      return { success: true, account: storage.accounts[accountIndex] };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
 
   /**
    * Get the effective tab ID, validating it's in the same group as the current tab.
@@ -460,6 +756,10 @@ export default defineBackground(() => {
           currentOrg,
           sessionValid: true,
         });
+        
+        // Auto-save account on successful validation
+        await autoSaveAccount(sessionKey, currentOrg);
+        
         return true;
       }
     } catch (error) {
@@ -614,6 +914,20 @@ export default defineBackground(() => {
             }
             break;
 
+          case 'get-styles':
+            if (apiClient && currentOrg) {
+              try {
+                const styles = await apiClient.getStyles(currentOrg.uuid);
+                sendResponse({ success: true, data: styles });
+              } catch (error: any) {
+                console.error('[BG] Failed to fetch styles:', error);
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Not authenticated' });
+            }
+            break;
+
           case 'create-conversation':
             if (apiClient && currentOrg) {
               try {
@@ -641,7 +955,8 @@ export default defineBackground(() => {
                   request.message,
                   request.attachments || [],
                   request.parentMessageUuid,
-                  request.model // Pass model from side panel
+                  request.model, // Pass model from side panel
+                  request.personalizedStyles // Pass personalized styles
                 );
                 
                 // Read streaming response
@@ -870,45 +1185,102 @@ IMPORTANT:
                 debugLog('│  ├─ events parsed:', parsedEventCount);
                 debugLog('│  └─ assistant message length:', assistantMessage.length);
                 
-                // Parse tool_use blocks from the response
+                // Parse tool_use blocks from the response with multiple strategies
                 const toolUses: any[] = [];
-                const toolUseRegex = /```tool_use\s*([\s\S]*?)```/g;
+                const seenToolIds = new Set<string>();
                 let match;
                 
-                while ((match = toolUseRegex.exec(assistantMessage)) !== null) {
+                // Helper to add tool if not duplicate
+                const addTool = (tool: any) => {
+                  if (!tool.id) {
+                    tool.id = `tool_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+                  }
+                  if (!seenToolIds.has(tool.id)) {
+                    seenToolIds.add(tool.id);
+                    toolUses.push(tool);
+                  }
+                };
+                
+                // Strategy 1: ```tool_use code blocks
+                const toolUseBlockRegex = /```tool_use\s*([\s\S]*?)```/g;
+                while ((match = toolUseBlockRegex.exec(assistantMessage)) !== null) {
                   try {
                     const toolJson = JSON.parse(match[1].trim());
-                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
-                      // Generate ID if not provided
-                      if (!toolJson.id) {
-                        toolJson.id = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                      }
-                      toolUses.push(toolJson);
+                    if (toolJson.name && toolJson.input) {
+                      toolJson.type = 'tool_use';
+                      addTool(toolJson);
                     }
                   } catch (e) {
                     console.warn('[BG] Failed to parse tool_use block:', e);
                   }
                 }
                 
-                // Also try to find inline JSON tool_use (without code blocks)
-                const inlineToolRegex = /\{"type"\s*:\s*"tool_use"\s*,\s*"id"\s*:\s*"([^"]+)"\s*,\s*"name"\s*:\s*"([^"]+)"\s*,\s*"input"\s*:\s*(\{[^}]+\})\}/g;
-                while ((match = inlineToolRegex.exec(assistantMessage)) !== null) {
+                // Strategy 2: ```json code blocks with tool_use
+                const jsonBlockRegex = /```json\s*([\s\S]*?)```/g;
+                while ((match = jsonBlockRegex.exec(assistantMessage)) !== null) {
                   try {
-                    toolUses.push({
-                      type: 'tool_use',
-                      id: match[1],
-                      name: match[2],
-                      input: JSON.parse(match[3])
-                    });
+                    const toolJson = JSON.parse(match[1].trim());
+                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
+                      addTool(toolJson);
+                    }
                   } catch (e) {
-                    console.warn('[BG] Failed to parse inline tool_use:', e);
+                    // Not a tool use, ignore
                   }
                 }
                 
-                // Extract text content (remove tool_use blocks)
-                const textContent = assistantMessage
-                  .replace(/```tool_use[\s\S]*?```/g, '')
-                  .replace(/\{"type"\s*:\s*"tool_use"[\s\S]*?\}/g, '')
+                // Strategy 3: Generic code blocks
+                const genericBlockRegex = /```\s*([\s\S]*?)```/g;
+                while ((match = genericBlockRegex.exec(assistantMessage)) !== null) {
+                  try {
+                    const content = match[1].trim();
+                    // Skip if it's a language-tagged block that we already handled
+                    if (content.startsWith('tool_use') || content.startsWith('json')) continue;
+                    const toolJson = JSON.parse(content);
+                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
+                      addTool(toolJson);
+                    }
+                  } catch (e) {
+                    // Not JSON, ignore
+                  }
+                }
+                
+                // Strategy 4: Inline JSON - more flexible regex that handles nested objects
+                // Look for {"type":"tool_use" or {"name":"computer" patterns
+                const inlineJsonRegex = /\{[^{}]*"(?:type"\s*:\s*"tool_use|name"\s*:\s*"(?:computer|read_page|tabs_context|tabs_create|get_page_text)")[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
+                while ((match = inlineJsonRegex.exec(assistantMessage)) !== null) {
+                  try {
+                    const toolJson = JSON.parse(match[0]);
+                    if (toolJson.name && toolJson.input) {
+                      toolJson.type = 'tool_use';
+                      addTool(toolJson);
+                    }
+                  } catch (e) {
+                    // Try to extract and fix malformed JSON
+                    try {
+                      // Sometimes Claude doesn't close nested objects properly
+                      let jsonStr = match[0];
+                      const openBraces = (jsonStr.match(/\{/g) || []).length;
+                      const closeBraces = (jsonStr.match(/\}/g) || []).length;
+                      if (openBraces > closeBraces) {
+                        jsonStr += '}'.repeat(openBraces - closeBraces);
+                        const toolJson = JSON.parse(jsonStr);
+                        if (toolJson.name && toolJson.input) {
+                          toolJson.type = 'tool_use';
+                          addTool(toolJson);
+                        }
+                      }
+                    } catch (e2) {
+                      console.warn('[BG] Failed to parse inline tool_use:', e);
+                    }
+                  }
+                }
+                
+                debugLog('│  ├─ Found', toolUses.length, 'tool uses');
+                
+                // Extract text content (remove all tool_use patterns)
+                let textContent = assistantMessage
+                  .replace(/```(?:tool_use|json)?\s*[\s\S]*?```/g, '')
+                  .replace(/\{[^{}]*"type"\s*:\s*"tool_use"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g, '')
                   .trim();
                 
                 debugLog('├─ ✅ Final result:');
@@ -1702,6 +2074,113 @@ IMPORTANT:
               sendResponse({ success: true, data: { tabId: clickTabId } });
             } catch (error: any) {
               sendResponse({ success: false, error: error.message });
+            }
+            break;
+
+          // ================================================================
+          // ACCOUNT MANAGEMENT
+          // ================================================================
+
+          case 'get-accounts':
+            // Get all saved accounts
+            try {
+              const accountsData = await getAccounts();
+              sendResponse({ success: true, data: accountsData });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+
+          case 'switch-account':
+            // Switch to a different account by ID
+            if (request.accountId) {
+              const switchResult = await switchToAccount(request.accountId);
+              if (switchResult.success) {
+                sendResponse({ success: true });
+              } else {
+                sendResponse({ success: false, error: switchResult.error });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Account ID required' });
+            }
+            break;
+
+          case 'delete-account':
+            // Delete an account by ID
+            if (request.accountId) {
+              const deleteResult = await deleteAccount(request.accountId);
+              if (deleteResult.success) {
+                sendResponse({ success: true });
+              } else {
+                sendResponse({ success: false, error: deleteResult.error });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Account ID required' });
+            }
+            break;
+
+          case 'update-account':
+            // Update an account's metadata
+            if (request.accountId && request.updates) {
+              const updateResult = await updateAccount(request.accountId, request.updates);
+              if (updateResult.success) {
+                sendResponse({ success: true, data: updateResult.account });
+              } else {
+                sendResponse({ success: false, error: updateResult.error });
+              }
+            } else {
+              sendResponse({ success: false, error: 'Account ID and updates required' });
+            }
+            break;
+
+          case 'save-current-account':
+            // Manually save the current session as a named account
+            if (sessionKey && currentOrg) {
+              try {
+                const storage = await getAccounts();
+                const now = new Date().toISOString();
+                
+                // Check if account with this sessionKey exists
+                const existingIndex = storage.accounts.findIndex(
+                  a => a.sessionKey === sessionKey
+                );
+                
+                if (existingIndex >= 0) {
+                  // Update existing
+                  if (request.name) storage.accounts[existingIndex].name = request.name;
+                  if (request.type) storage.accounts[existingIndex].type = request.type;
+                  if (request.color) storage.accounts[existingIndex].color = request.color;
+                  storage.accounts[existingIndex].lastUsedAt = now;
+                  
+                  await saveAccounts(storage);
+                  sendResponse({ success: true, data: storage.accounts[existingIndex] });
+                } else {
+                  // Create new
+                  const newAccount: EidolonAccount = {
+                    id: crypto.randomUUID(),
+                    name: request.name || currentOrg.name || 'Account',
+                    type: request.type || 'personal',
+                    color: request.color || getNextAccountColor(storage.accounts),
+                    sessionKey: sessionKey,
+                    organizationId: currentOrg.uuid,
+                    organizationName: currentOrg.name,
+                    createdAt: now,
+                    lastUsedAt: now,
+                    isActive: true,
+                  };
+                  
+                  storage.accounts.forEach(a => { a.isActive = false; });
+                  storage.accounts.push(newAccount);
+                  storage.activeAccountId = newAccount.id;
+                  
+                  await saveAccounts(storage);
+                  sendResponse({ success: true, data: newAccount });
+                }
+              } catch (error: any) {
+                sendResponse({ success: false, error: error.message });
+              }
+            } else {
+              sendResponse({ success: false, error: 'No active session to save' });
             }
             break;
 
