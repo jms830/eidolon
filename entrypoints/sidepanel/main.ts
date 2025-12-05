@@ -4,6 +4,7 @@
  */
 
 import './style.css';
+import { settingsService, type SettingsChangeEvent } from '../../utils/settings/settingsService';
 
 // ========================================================================
 // TYPES
@@ -541,6 +542,12 @@ function getElement<T extends HTMLElement>(id: string): T {
 
 async function init() {
   console.log('[Eidolon SidePanel] Initializing...');
+  
+  // Initialize settings service for sidepanel context
+  await settingsService.init('sidepanel');
+  
+  // Subscribe to settings changes from dashboard
+  settingsService.subscribe(handleSettingsChange);
   
   // Read query params (e.g., model, tabId)
   try {
@@ -1594,16 +1601,11 @@ function applySyntaxHighlighting(content: string, extension: string): string {
 // ========================================================================
 
 /**
- * Load platform export settings from storage
+ * Load platform export settings from storage (using settingsService)
  */
 async function loadExportSettings(): Promise<void> {
   try {
-    const result = await chrome.storage.local.get(['eidolon_export_settings']);
-    const settings = result.eidolon_export_settings || {
-      claude: true,
-      chatgpt: true,
-      gemini: true
-    };
+    const settings = await settingsService.getExportPlatforms();
     
     const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
     const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
@@ -1618,7 +1620,7 @@ async function loadExportSettings(): Promise<void> {
 }
 
 /**
- * Save platform export settings to storage
+ * Save platform export settings to storage (using settingsService)
  */
 async function saveExportSettings(): Promise<void> {
   try {
@@ -1632,7 +1634,7 @@ async function saveExportSettings(): Promise<void> {
       gemini: geminiToggle?.checked ?? true
     };
     
-    await chrome.storage.local.set({ eidolon_export_settings: settings });
+    await settingsService.setExportPlatforms(settings);
     console.log('[Eidolon] Export settings saved:', settings);
   } catch (error) {
     console.error('[Eidolon] Failed to save export settings:', error);
@@ -3314,12 +3316,15 @@ async function validateSession() {
   hideLoading();
 }
 
-function toggleDarkMode() {
+async function toggleDarkMode() {
   state.darkMode = !state.darkMode;
   // Use both class and data-mode attribute for Claude compatibility
   document.body.classList.toggle('dark-mode', state.darkMode);
   document.documentElement.setAttribute('data-mode', state.darkMode ? 'dark' : 'light');
   localStorage.setItem('eidolon-dark-mode', state.darkMode.toString());
+  
+  // Sync to settings service for cross-context sync
+  await settingsService.setUISettings({ darkMode: state.darkMode });
 }
 
 function toggleDebugMode() {
@@ -3330,6 +3335,56 @@ function toggleDebugMode() {
   chrome.storage.local.set({ eidolon_debug_mode: enabled }, () => {
     console.log('[Eidolon] Debug mode:', enabled ? 'ON' : 'OFF');
   });
+}
+
+/**
+ * Handle settings changes from other contexts (dashboard)
+ * This enables bidirectional sync of settings between dashboard and sidepanel
+ */
+function handleSettingsChange(event: SettingsChangeEvent): void {
+  console.log('[Eidolon] Settings changed:', event.type, event.newValue);
+  
+  switch (event.type) {
+    case 'exportPlatforms':
+      // Update export platform toggles in UI
+      const settings = event.newValue as { claude?: boolean; chatgpt?: boolean; gemini?: boolean };
+      const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+      const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+      const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+      
+      if (claudeToggle && settings.claude !== undefined) claudeToggle.checked = settings.claude;
+      if (chatgptToggle && settings.chatgpt !== undefined) chatgptToggle.checked = settings.chatgpt;
+      if (geminiToggle && settings.gemini !== undefined) geminiToggle.checked = settings.gemini;
+      break;
+      
+    case 'ui':
+      // Handle dark mode changes from dashboard
+      const uiSettings = event.newValue as { darkMode?: boolean };
+      if (uiSettings.darkMode !== undefined && uiSettings.darkMode !== state.darkMode) {
+        state.darkMode = uiSettings.darkMode;
+        document.body.classList.toggle('dark-mode', state.darkMode);
+        document.documentElement.setAttribute('data-mode', state.darkMode ? 'dark' : 'light');
+        // Update toggle if visible
+        const darkModeToggle = document.getElementById('dark-mode-toggle') as HTMLInputElement;
+        if (darkModeToggle) darkModeToggle.checked = state.darkMode;
+      }
+      break;
+      
+    case 'debug':
+      // Handle debug mode changes
+      const debugSettings = event.newValue as { enabled?: boolean };
+      const debugToggle = document.getElementById('debug-mode-toggle') as HTMLInputElement;
+      if (debugToggle && debugSettings.enabled !== undefined) {
+        debugToggle.checked = debugSettings.enabled;
+      }
+      break;
+      
+    case 'workspace':
+      // Workspace changes are handled by existing setupSyncStorageListener
+      // But we can log them here for visibility
+      console.log('[Eidolon] Workspace config changed via settingsService');
+      break;
+  }
 }
 
 // ========================================================================
