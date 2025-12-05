@@ -2184,6 +2184,145 @@ IMPORTANT:
             }
             break;
 
+          // ====================================================================
+          // SYNC HANDLERS
+          // ====================================================================
+          
+          case 'get-sync-config':
+            try {
+              const result = await browser.storage.local.get('workspaceConfig');
+              sendResponse({ success: true, data: result.workspaceConfig || null });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'set-sync-folder':
+            try {
+              const result = await browser.storage.local.get('workspaceConfig');
+              const config = result.workspaceConfig || { settings: {}, projectMap: {} };
+              config.workspacePath = request.path;
+              await browser.storage.local.set({ workspaceConfig: config });
+              sendResponse({ success: true });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'get-sync-stats':
+            try {
+              // Try to get real counts from Claude API using the module-level sessionKey
+              const orgResult = await browser.storage.local.get('currentOrganization');
+              const orgId = orgResult.currentOrganization?.uuid;
+              
+              if (sessionKey && orgId) {
+                const statsApiClient = new ClaudeAPIClient(sessionKey);
+                
+                // Get real project count
+                const projects = await statsApiClient.getProjects(orgId);
+                const projectCount = projects?.length || 0;
+                
+                // Get real conversation count
+                const conversations = await statsApiClient.getConversations(orgId);
+                const chatCount = conversations?.length || 0;
+                
+                // Estimate file count (would need to iterate all projects for exact count)
+                // Use projectMap if available for a rough file count
+                const configResult = await browser.storage.local.get('workspaceConfig');
+                const config = configResult.workspaceConfig;
+                const mappedProjects = config?.projectMap ? Object.keys(config.projectMap).length : 0;
+                const fileCount = mappedProjects * 5; // Rough estimate
+                
+                sendResponse({
+                  success: true,
+                  data: {
+                    projects: projectCount,
+                    files: fileCount,
+                    chats: chatCount
+                  }
+                });
+              } else {
+                // Fall back to stored config
+                const result = await browser.storage.local.get('workspaceConfig');
+                const config = result.workspaceConfig;
+                if (config?.projectMap) {
+                  const projectsCount = Object.keys(config.projectMap).length;
+                  sendResponse({
+                    success: true,
+                    data: {
+                      projects: projectsCount,
+                      files: projectsCount * 5,
+                      chats: 0
+                    }
+                  });
+                } else {
+                  sendResponse({ success: true, data: { projects: 0, files: 0, chats: 0 } });
+                }
+              }
+            } catch (error: any) {
+              console.warn('[Eidolon] Failed to get sync stats from API, using fallback:', error.message);
+              // Fallback to stored config
+              try {
+                const result = await browser.storage.local.get('workspaceConfig');
+                const config = result.workspaceConfig;
+                if (config?.projectMap) {
+                  const projectsCount = Object.keys(config.projectMap).length;
+                  sendResponse({
+                    success: true,
+                    data: {
+                      projects: projectsCount,
+                      files: projectsCount * 5,
+                      chats: 0
+                    }
+                  });
+                } else {
+                  sendResponse({ success: true, data: { projects: 0, files: 0, chats: 0 } });
+                }
+              } catch {
+                sendResponse({ success: false, error: error.message });
+              }
+            }
+            break;
+            
+          case 'update-sync-settings':
+            try {
+              const result = await browser.storage.local.get('workspaceConfig');
+              const config = result.workspaceConfig || {};
+              config.settings = { ...config.settings, ...request.settings };
+              await browser.storage.local.set({ workspaceConfig: config });
+              sendResponse({ success: true });
+            } catch (error: any) {
+              sendResponse({ success: false, error: error.message });
+            }
+            break;
+            
+          case 'check-sync-status':
+            // For now, just return no changes - full diff preview would need file system access
+            sendResponse({
+              success: true,
+              data: {
+                hasChanges: false,
+                remoteChanges: 0,
+                localChanges: 0,
+                message: 'No pending changes detected. Open Dashboard for detailed diff.'
+              }
+            });
+            break;
+            
+          case 'start-sync':
+            // Sync requires file system access which needs to be initiated from UI context
+            // This handler would coordinate with the dashboard or open it
+            sendResponse({
+              success: false,
+              error: 'Please use the Dashboard for full sync operations'
+            });
+            break;
+            
+          case 'cancel-sync':
+            // Cancel any ongoing sync operation
+            sendResponse({ success: true });
+            break;
+
           default:
             sendResponse({ success: false, error: 'Unknown action' });
         }

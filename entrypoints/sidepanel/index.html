@@ -121,6 +121,35 @@
         </div>
       </div>
 
+      <!-- Sync Status Bar -->
+      <div id="sync-status-bar" class="sync-status-bar" title="Click to open sync settings">
+        <div class="sync-status-left">
+          <span class="sync-status-indicator" id="sync-indicator">
+            <span class="sync-dot"></span>
+          </span>
+          <span class="sync-status-text" id="sync-status-text">Set up sync</span>
+        </div>
+        <div class="sync-status-actions">
+          <button id="sync-check-status-btn" class="sync-action-btn" title="Check for changes">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M1 7h12M8 3l4 4-4 4"/>
+            </svg>
+          </button>
+          <button id="sync-now-btn" class="sync-action-btn" title="Sync now">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M1.5 7a5.5 5.5 0 0 1 9.5-3.75M12.5 7a5.5 5.5 0 0 1-9.5 3.75"/>
+              <path d="M11 1v3h-3M3 10v3h3"/>
+            </svg>
+          </button>
+          <button id="sync-settings-btn" class="sync-action-btn" title="Sync settings">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="7" cy="7" r="2"/>
+              <path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.5 2.5l1.4 1.4M10.1 10.1l1.4 1.4M2.5 11.5l1.4-1.4M10.1 3.9l1.4-1.4"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <!-- Input Area - Claude.ai Style -->
       <div class="input-area">
         <div class="input-attachments" id="attachments">
@@ -474,6 +503,154 @@
             <span id="auth-status-text">Checking...</span>
           </div>
           <button id="validate-session-btn" class="panel-btn">Validate Session</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Panel (slide-in) -->
+    <div id="sync-panel" class="slide-panel hidden">
+      <div class="panel-header">
+        <h3>🔄 Workspace Sync</h3>
+        <button id="close-sync-panel" class="close-btn">✕</button>
+      </div>
+      <div class="panel-content">
+        <!-- Status Section -->
+        <div class="sync-panel-status" id="sync-panel-status">
+          <div class="sync-status-card">
+            <div class="sync-status-header">
+              <span class="sync-status-dot" id="sync-panel-dot"></span>
+              <span class="sync-status-label" id="sync-panel-label">Not Configured</span>
+            </div>
+            <div class="sync-workspace-path" id="sync-workspace-path">
+              <!-- Shown when no folder selected - clickable to select -->
+              <button class="select-folder-prompt" id="select-folder-prompt">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M2 5A1.5 1.5 0 0 1 3.5 3.5h2l1.5 1.5h5A1.5 1.5 0 0 1 13.5 6.5v5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V5z"/>
+                  <path d="M8 7v4M6 9h4"/>
+                </svg>
+                <span>Select workspace folder</span>
+              </button>
+              <!-- Shown when folder is selected -->
+              <div class="selected-folder-display" id="selected-folder-display" style="display: none;">
+                <span class="path-text" id="sync-path-text"></span>
+                <button class="choose-folder-inline-btn" id="sync-choose-folder-btn" title="Change folder">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h1.5l1 1h3.5a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-4z"/>
+                  </svg>
+                </button>
+                <button class="copy-path-btn" id="copy-path-btn" title="Copy path">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="4" y="4" width="6" height="6" rx="1"/>
+                    <path d="M2 8V2.5A.5.5 0 0 1 2.5 2H8"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="sync-last-time" id="sync-last-time">Never synced</div>
+          </div>
+        </div>
+
+        <!-- Primary Actions -->
+        <div class="sync-actions-grid">
+          <button id="sync-panel-sync-btn" class="sync-primary-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 8a6 6 0 0 1 10.5-4M14 8a6 6 0 0 1-10.5 4"/>
+              <path d="M12.5 2v3h-3M3.5 11v3h3"/>
+            </svg>
+            <span>Sync Now</span>
+          </button>
+          <button id="sync-panel-check-btn" class="sync-secondary-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 8h12M10 4l4 4-4 4"/>
+            </svg>
+            <span>Check Status</span>
+          </button>
+        </div>
+
+        <!-- Quick Stats (shown when configured) -->
+        <div class="sync-stats" id="sync-stats">
+          <div class="sync-stat">
+            <span class="sync-stat-value" id="sync-projects-count">0</span>
+            <span class="sync-stat-label">Projects</span>
+          </div>
+          <div class="sync-stat">
+            <span class="sync-stat-value" id="sync-files-count">0</span>
+            <span class="sync-stat-label">Files</span>
+          </div>
+          <div class="sync-stat">
+            <span class="sync-stat-value" id="sync-chats-count">0</span>
+            <span class="sync-stat-label">Chats</span>
+          </div>
+        </div>
+
+        <!-- Settings Section (collapsible) -->
+        <details class="sync-settings-section" id="sync-settings-details">
+          <summary class="sync-settings-header">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="chevron">
+              <path d="M4 2l4 4-4 4"/>
+            </svg>
+            Settings
+          </summary>
+          <div class="sync-settings-content">
+            <label class="setting-toggle">
+              <input type="checkbox" id="sync-auto-toggle">
+              <span>Auto-sync</span>
+            </label>
+            <label class="setting-toggle">
+              <input type="checkbox" id="sync-chats-toggle">
+              <span>Include conversations</span>
+            </label>
+            <label class="setting-toggle">
+              <input type="checkbox" id="sync-bidirectional-toggle">
+              <span>Bidirectional sync</span>
+            </label>
+            <label class="setting-toggle">
+              <input type="checkbox" id="sync-auto-md-toggle" checked>
+              <span>Auto-add .md extension</span>
+            </label>
+            <label class="setting-toggle">
+              <input type="checkbox" id="sync-agents-toggle" checked>
+              <span>Agent Skills YAML frontmatter</span>
+            </label>
+            <div class="sync-setting-row">
+              <span>Sync interval</span>
+              <select id="sync-interval-select" class="sync-select">
+                <option value="5">5 minutes</option>
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+              </select>
+            </div>
+            <div class="sync-setting-row">
+              <span>Conflict strategy</span>
+              <select id="sync-conflict-select" class="sync-select">
+                <option value="remote">Keep remote (default)</option>
+                <option value="local">Keep local</option>
+                <option value="newer">Keep newer</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <!-- Footer Actions -->
+        <div class="sync-panel-footer">
+          <button id="sync-open-dashboard-btn" class="sync-footer-btn">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="2" width="10" height="10" rx="1"/>
+              <path d="M5 2v10M2 5h10"/>
+            </svg>
+            <span>Advanced Sync Options</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sync Progress Overlay -->
+      <div id="sync-progress-overlay" class="sync-progress-overlay hidden">
+        <div class="sync-progress-content">
+          <div class="sync-progress-spinner"></div>
+          <div class="sync-progress-text" id="sync-progress-text">Syncing...</div>
+          <div class="sync-progress-detail" id="sync-progress-detail"></div>
+          <button id="sync-cancel-btn" class="sync-cancel-btn">Cancel</button>
         </div>
       </div>
     </div>

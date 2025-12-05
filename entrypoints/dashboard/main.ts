@@ -383,12 +383,74 @@ async function initialize() {
 
   setupEventListeners();
   await initSyncTab();
-
+  await handleHashNavigation();
+  
   if (state.isConnected) {
     await loadAllData();
     renderCurrentTab();
     updateAnalytics();
   }
+}
+
+async function handleHashNavigation() {
+  const hash = window.location.hash;
+  if (!hash) {
+    return;
+  }
+  
+  const normalized = hash.toLowerCase();
+  if (normalized.startsWith('#sync')) {
+    switchTab('sync');
+    if (normalized.includes('diff')) {
+      // We can't auto-trigger showDirectoryPicker without a user gesture.
+      // Instead, show a prompt asking user to click the diff button.
+      // Check if workspace handle exists first.
+      if (!state.workspaceHandle) {
+        // Show a notification prompting user to click the button
+        setTimeout(() => {
+          const notification = document.createElement('div');
+          notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4a5568;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10000;
+            font-size: 14px;
+            max-width: 400px;
+            text-align: center;
+          `;
+          notification.innerHTML = `
+            <strong>Diff Requested</strong><br>
+            <span style="opacity: 0.9;">Click "Preview Diff" below to select your workspace folder and view changes.</span>
+          `;
+          document.body.appendChild(notification);
+          
+          // Highlight the preview diff button
+          previewDiffBtn.style.animation = 'pulse 1s ease-in-out 3';
+          previewDiffBtn.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.5)';
+          
+          setTimeout(() => {
+            notification.remove();
+            previewDiffBtn.style.animation = '';
+            previewDiffBtn.style.boxShadow = '';
+          }, 5000);
+        }, 300);
+      } else {
+        // Workspace handle exists, safe to trigger diff
+        setTimeout(() => {
+          previewDiffBtn.click();
+        }, 300);
+      }
+    }
+  }
+  
+  // Clear the hash so refreshing the dashboard doesn't re-trigger the action
+  history.replaceState(null, '', window.location.pathname + window.location.search);
 }
 
 async function checkConnection() {

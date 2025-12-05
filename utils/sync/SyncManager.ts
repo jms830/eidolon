@@ -10,6 +10,7 @@ import type {
   ProjectMetadata,
   SyncProgress,
   ConflictStrategy,
+  AccountSyncInfo,
 } from './types';
 import { computeFileHash } from './hashUtils';
 import {
@@ -24,7 +25,16 @@ import {
   saveWorkspaceConfig,
   addProjectMapping,
   updateLastSync,
+  updateAccountSyncInfo,
+  sanitizeAccountName,
 } from './workspaceConfig';
+
+/** Account info passed to sync operations */
+export interface SyncAccountInfo {
+  accountId: string;
+  accountName: string;
+  accountEmail?: string;
+}
 
 /**
  * Ensures AGENTS.md content has proper Agent Skills Spec frontmatter.
@@ -94,11 +104,16 @@ export class SyncManager {
 
   /**
    * Download sync - pull all projects from Claude.ai to local workspace
+   * @param workspaceHandle - Root workspace directory handle
+   * @param orgId - Organization ID
+   * @param dryRun - If true, don't actually write files
+   * @param accountInfo - Optional account info for account-based subfolders
    */
   async downloadSync(
     workspaceHandle: FileSystemDirectoryHandle,
     orgId: string,
-    dryRun: boolean = false
+    dryRun: boolean = false,
+    accountInfo?: SyncAccountInfo
   ): Promise<SyncResult> {
     const stats: SyncStats = {
       created: 0,
@@ -136,12 +151,24 @@ export class SyncManager {
 
       const config = await getWorkspaceConfig();
 
+      // Determine the effective sync handle (account subfolder or root)
+      let effectiveHandle = workspaceHandle;
+      if (config.settings.useAccountSubfolders && accountInfo) {
+        const accountFolderName = sanitizeAccountName(accountInfo.accountName);
+        effectiveHandle = await getOrCreateDirectory(workspaceHandle, accountFolderName);
+        this.reportProgress({
+          phase: 'syncing',
+          message: `Syncing to account folder: ${accountFolderName}`,
+          percentage: 5,
+        });
+      }
+
       // Sync each project
       for (let i = 0; i < projects.length; i++) {
         const project = projects[i];
         try {
           const result = await this.syncProject(
-            workspaceHandle,
+            effectiveHandle,
             orgId,
             project,
             config,
@@ -176,7 +203,7 @@ export class SyncManager {
           });
 
           const standaloneChats = await this.syncConversations(
-            workspaceHandle,
+            effectiveHandle,
             orgId,
             null, // null projectId = standalone chats
             null, // null projectName = standalone chats
@@ -189,10 +216,19 @@ export class SyncManager {
         }
       }
 
-      // Save updated config
+      // Save updated config and account sync info
       if (!dryRun) {
         await saveWorkspaceConfig(config);
         await updateLastSync();
+        
+        // Update account sync info if account provided
+        if (accountInfo) {
+          await updateAccountSyncInfo(
+            accountInfo.accountId,
+            accountInfo.accountName,
+            accountInfo.accountEmail
+          );
+        }
       }
 
       this.reportProgress({
@@ -227,11 +263,13 @@ export class SyncManager {
 
   /**
    * Sync only conversations/chats - no file sync
+   * @param accountInfo - Optional account info for account-based subfolders
    */
   async chatsOnlySync(
     workspaceHandle: FileSystemDirectoryHandle,
     orgId: string,
-    dryRun: boolean = false
+    dryRun: boolean = false,
+    accountInfo?: SyncAccountInfo
   ): Promise<SyncResult> {
     const stats: SyncStats = {
       created: 0,
@@ -256,6 +294,13 @@ export class SyncManager {
 
       const config = await getWorkspaceConfig();
 
+      // Determine the effective sync handle (account subfolder or root)
+      let effectiveHandle = workspaceHandle;
+      if (config.settings.useAccountSubfolders && accountInfo) {
+        const accountFolderName = sanitizeAccountName(accountInfo.accountName);
+        effectiveHandle = await getOrCreateDirectory(workspaceHandle, accountFolderName);
+      }
+
       // Sync chats for each project
       if (projects && projects.length > 0) {
         for (const project of projects) {
@@ -270,7 +315,7 @@ export class SyncManager {
             });
 
             const chatCount = await this.syncConversations(
-              workspaceHandle,
+              effectiveHandle,
               orgId,
               project.uuid,
               project.name,
@@ -298,7 +343,7 @@ export class SyncManager {
         });
 
         const standaloneChats = await this.syncConversations(
-          workspaceHandle,
+          effectiveHandle,
           orgId,
           null,
           null,
@@ -315,6 +360,15 @@ export class SyncManager {
 
       if (!dryRun) {
         await updateLastSync();
+        
+        // Update account sync info if account provided
+        if (accountInfo) {
+          await updateAccountSyncInfo(
+            accountInfo.accountId,
+            accountInfo.accountName,
+            accountInfo.accountEmail
+          );
+        }
       }
 
       this.reportProgress({
@@ -683,12 +737,14 @@ export class SyncManager {
 
   /**
    * Bidirectional sync - sync changes in both directions
+   * @param accountInfo - Optional account info for account-based subfolders
    */
   async bidirectionalSync(
     workspaceHandle: FileSystemDirectoryHandle,
     orgId: string,
     conflictStrategy: ConflictStrategy,
-    dryRun: boolean = false
+    dryRun: boolean = false,
+    accountInfo?: SyncAccountInfo
   ): Promise<SyncResult> {
     const stats: SyncStats = {
       created: 0,
@@ -708,9 +764,17 @@ export class SyncManager {
         percentage: 0,
       });
 
-      // Get workspace diff to identify all changes
-      const diff = await this.getWorkspaceDiff(workspaceHandle, orgId);
       const config = await getWorkspaceConfig();
+
+      // Determine the effective sync handle (account subfolder or root)
+      let effectiveHandle = workspaceHandle;
+      if (config.settings.useAccountSubfolders && accountInfo) {
+        const accountFolderName = sanitizeAccountName(accountInfo.accountName);
+        effectiveHandle = await getOrCreateDirectory(workspaceHandle, accountFolderName);
+      }
+
+      // Get workspace diff to identify all changes
+      const diff = await this.getWorkspaceDiff(effectiveHandle, orgId);
 
       // Total work: matched projects + remoteOnly projects
       const totalProjects = diff.matched.length + diff.remoteOnly.length;
@@ -734,7 +798,7 @@ export class SyncManager {
         }
 
         try {
-          const projectHandle = await workspaceHandle.getDirectoryHandle(
+          const projectHandle = await effectiveHandle.getDirectoryHandle(
             projectDiff.folder
           );
 
@@ -782,7 +846,7 @@ export class SyncManager {
           const project = projects.find(p => p.uuid === remoteProject.id);
           if (project) {
             const result = await this.syncProject(
-              workspaceHandle,
+              effectiveHandle,
               orgId,
               project,
               config,
@@ -819,7 +883,7 @@ export class SyncManager {
           });
 
           const standaloneChats = await this.syncConversations(
-            workspaceHandle,
+            effectiveHandle,
             orgId,
             null,
             null,
@@ -832,10 +896,19 @@ export class SyncManager {
         }
       }
 
-      // Save updated config
+      // Save updated config and account sync info
       if (!dryRun) {
         await saveWorkspaceConfig(config);
         await updateLastSync();
+        
+        // Update account sync info if account provided
+        if (accountInfo) {
+          await updateAccountSyncInfo(
+            accountInfo.accountId,
+            accountInfo.accountName,
+            accountInfo.accountEmail
+          );
+        }
       }
 
       this.reportProgress({
