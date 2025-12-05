@@ -1230,6 +1230,366 @@ function openCurrentViewExternal() {
 // ========================================================================
 
 // ========================================================================
+// COMMAND PALETTE DEFINITIONS
+// ========================================================================
+
+interface Command {
+  id: string;
+  name: string;
+  description?: string;
+  shortcut?: string;
+  icon: string;
+  action: () => void;
+  group: string;
+}
+
+let commandPaletteCommands: Command[] = [];
+let selectedCommandIndex = 0;
+
+function initCommandPalette() {
+  commandPaletteCommands = [
+    // Actions
+    { id: 'new-chat', name: 'New Chat', description: 'Start a new conversation', shortcut: '⌘N', icon: 'plus', action: startNewChat, group: 'Actions' },
+    { id: 'upload-files', name: 'Upload Files', description: 'Upload files to attach', shortcut: '⌘U', icon: 'upload', action: triggerFileUpload, group: 'Actions' },
+    { id: 'screenshot', name: 'Take Screenshot', description: 'Capture current tab', icon: 'camera', action: takeScreenshot, group: 'Actions' },
+    { id: 'capture-page', name: 'Capture Page Content', description: 'Extract text from page', icon: 'document', action: capturePage, group: 'Actions' },
+    
+    // Navigation
+    { id: 'open-dashboard', name: 'Open Dashboard', description: 'Open full dashboard', icon: 'grid', action: () => browser.tabs.create({ url: chrome.runtime.getURL('/dashboard.html') }), group: 'Navigation' },
+    { id: 'open-settings', name: 'Open Settings', icon: 'settings', action: () => togglePanel('settings-panel'), group: 'Navigation' },
+    { id: 'open-sync', name: 'Sync Settings', description: 'Configure workspace sync', icon: 'sync', action: openSyncPanel, group: 'Navigation' },
+    
+    // Views
+    { id: 'view-eidolon', name: 'Switch to Eidolon', icon: 'home', action: () => switchView('eidolon'), group: 'Views' },
+    { id: 'view-claude', name: 'Switch to Claude Code', icon: 'code', action: () => switchView('claude-code'), group: 'Views' },
+    { id: 'view-chatgpt', name: 'Switch to ChatGPT', icon: 'chat', action: () => switchView('chatgpt'), group: 'Views' },
+    { id: 'view-gemini', name: 'Switch to Gemini', icon: 'sparkle', action: () => switchView('gemini'), group: 'Views' },
+    
+    // Settings
+    { id: 'toggle-dark-mode', name: 'Toggle Dark Mode', icon: 'moon', action: toggleDarkMode, group: 'Settings' },
+    { id: 'toggle-agent-mode', name: 'Toggle Agent Mode', description: 'Enable browser control', icon: 'robot', action: toggleAgentMode, group: 'Settings' },
+  ];
+}
+
+function getCommandIcon(iconName: string): string {
+  const icons: Record<string, string> = {
+    plus: '<line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/>',
+    upload: '<path d="M14 10v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3"/><path d="M8 2v8M4 6l4-4 4 4"/>',
+    camera: '<rect x="2" y="3" width="12" height="10" rx="2"/><circle cx="8" cy="8" r="2"/>',
+    document: '<rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="8.5" x2="11" y2="8.5"/>',
+    grid: '<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
+    settings: '<circle cx="8" cy="8" r="2"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4"/>',
+    sync: '<path d="M2 8a6 6 0 0 1 10.5-4M14 8a6 6 0 0 1-10.5 4"/><path d="M12.5 2v3h-3M3.5 11v3h3"/>',
+    home: '<path d="M3 8L8 3l5 5v6a1 1 0 01-1 1H4a1 1 0 01-1-1V8z"/>',
+    code: '<path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 3l-2 10"/>',
+    chat: '<path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H6l-4 3V4z"/>',
+    sparkle: '<path d="M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5L8 2z"/>',
+    moon: '<path d="M12 3a6 6 0 11-6 6 4 4 0 006-6z"/>',
+    robot: '<rect x="3" y="5" width="10" height="8" rx="2"/><circle cx="6" cy="9" r="1"/><circle cx="10" cy="9" r="1"/><path d="M8 2v3"/>',
+  };
+  return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">${icons[iconName] || icons.plus}</svg>`;
+}
+
+function openCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  const input = document.getElementById('command-palette-input') as HTMLInputElement;
+  
+  if (!palette || !input) return;
+  
+  palette.classList.remove('hidden');
+  input.value = '';
+  input.focus();
+  selectedCommandIndex = 0;
+  renderCommandPaletteResults('');
+}
+
+function closeCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  palette?.classList.add('hidden');
+}
+
+function renderCommandPaletteResults(query: string) {
+  const resultsContainer = document.getElementById('command-palette-results');
+  if (!resultsContainer) return;
+  
+  const lowerQuery = query.toLowerCase();
+  const filteredCommands = query 
+    ? commandPaletteCommands.filter(cmd => 
+        cmd.name.toLowerCase().includes(lowerQuery) || 
+        cmd.description?.toLowerCase().includes(lowerQuery) ||
+        cmd.group.toLowerCase().includes(lowerQuery)
+      )
+    : commandPaletteCommands;
+  
+  if (filteredCommands.length === 0) {
+    resultsContainer.innerHTML = '<div class="command-empty">No commands found</div>';
+    return;
+  }
+  
+  // Group commands
+  const groups = new Map<string, Command[]>();
+  for (const cmd of filteredCommands) {
+    if (!groups.has(cmd.group)) {
+      groups.set(cmd.group, []);
+    }
+    groups.get(cmd.group)!.push(cmd);
+  }
+  
+  let html = '';
+  let globalIndex = 0;
+  
+  for (const [groupName, commands] of groups) {
+    html += `<div class="command-group"><div class="command-group-title">${escapeHtml(groupName)}</div>`;
+    
+    for (const cmd of commands) {
+      const isSelected = globalIndex === selectedCommandIndex;
+      html += `
+        <div class="command-item ${isSelected ? 'selected' : ''}" data-command-id="${cmd.id}" data-index="${globalIndex}">
+          ${getCommandIcon(cmd.icon)}
+          <div class="command-item-text">
+            <div class="command-item-name">${escapeHtml(cmd.name)}</div>
+            ${cmd.description ? `<div class="command-item-description">${escapeHtml(cmd.description)}</div>` : ''}
+          </div>
+          ${cmd.shortcut ? `<span class="menu-shortcut">${cmd.shortcut}</span>` : ''}
+        </div>
+      `;
+      globalIndex++;
+    }
+    
+    html += '</div>';
+  }
+  
+  resultsContainer.innerHTML = html;
+  
+  // Add click handlers
+  resultsContainer.querySelectorAll('.command-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const cmdId = item.getAttribute('data-command-id');
+      executeCommand(cmdId || '');
+    });
+  });
+}
+
+function executeCommand(commandId: string) {
+  const command = commandPaletteCommands.find(c => c.id === commandId);
+  if (command) {
+    closeCommandPalette();
+    command.action();
+  }
+}
+
+function navigateCommandPalette(direction: 'up' | 'down') {
+  const totalCommands = commandPaletteCommands.length;
+  if (totalCommands === 0) return;
+  
+  if (direction === 'down') {
+    selectedCommandIndex = (selectedCommandIndex + 1) % totalCommands;
+  } else {
+    selectedCommandIndex = (selectedCommandIndex - 1 + totalCommands) % totalCommands;
+  }
+  
+  // Update UI
+  const items = document.querySelectorAll('.command-item');
+  items.forEach((item, idx) => {
+    item.classList.toggle('selected', idx === selectedCommandIndex);
+    if (idx === selectedCommandIndex) {
+      item.scrollIntoView({ block: 'nearest' });
+    }
+  });
+}
+
+function selectCurrentCommand() {
+  const items = document.querySelectorAll('.command-item');
+  const selectedItem = items[selectedCommandIndex];
+  if (selectedItem) {
+    const cmdId = selectedItem.getAttribute('data-command-id');
+    executeCommand(cmdId || '');
+  }
+}
+
+// ========================================================================
+// FILE UPLOAD & DRAG/DROP
+// ========================================================================
+
+function triggerFileUpload() {
+  const fileInput = document.getElementById('file-upload-input') as HTMLInputElement;
+  fileInput?.click();
+}
+
+async function handleFileUpload(files: FileList | File[]) {
+  const fileArray = Array.from(files);
+  
+  for (const file of fileArray) {
+    try {
+      // Check file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        showNotification(`File "${file.name}" is too large (max 10MB)`, 'error');
+        continue;
+      }
+      
+      // Read file content
+      const content = await readFileContent(file);
+      
+      // Determine type
+      const isImage = file.type.startsWith('image/');
+      const isText = file.type.startsWith('text/') || 
+                     /\.(js|ts|jsx|tsx|json|md|py|rb|go|rs|java|c|cpp|h|css|html|xml|yaml|yml|sh|bash)$/i.test(file.name);
+      
+      if (isImage) {
+        state.attachments.push({
+          type: 'screenshot',
+          name: file.name,
+          content: content as string // base64 data URL
+        });
+      } else if (isText) {
+        state.attachments.push({
+          type: 'file',
+          name: file.name,
+          content: content as string
+        });
+      } else {
+        // Try to read as text anyway
+        state.attachments.push({
+          type: 'file',
+          name: file.name,
+          content: `[Binary file: ${file.name}, ${formatFileSize(file.size)}]`
+        });
+      }
+      
+      console.log('[Eidolon] Added file:', file.name);
+    } catch (error) {
+      console.error('[Eidolon] Failed to read file:', file.name, error);
+      showNotification(`Failed to read "${file.name}"`, 'error');
+    }
+  }
+  
+  renderAttachments();
+}
+
+function readFileContent(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = () => {
+      if (file.type.startsWith('image/')) {
+        resolve(reader.result as string); // Data URL for images
+      } else {
+        resolve(reader.result as string); // Text content
+      }
+    };
+    
+    reader.onerror = () => reject(reader.error);
+    
+    if (file.type.startsWith('image/')) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  });
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function setupDragAndDrop() {
+  const inputArea = document.querySelector('.input-area');
+  const dropOverlay = document.getElementById('drop-zone-overlay');
+  
+  if (!inputArea || !dropOverlay) return;
+  
+  let dragCounter = 0;
+  
+  inputArea.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    dropOverlay.classList.remove('hidden');
+  });
+  
+  inputArea.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter === 0) {
+      dropOverlay.classList.add('hidden');
+    }
+  });
+  
+  inputArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+  
+  inputArea.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dropOverlay.classList.add('hidden');
+    
+    const files = (e as DragEvent).dataTransfer?.files;
+    if (files && files.length > 0) {
+      await handleFileUpload(files);
+    }
+  });
+}
+
+// ========================================================================
+// FILE PREVIEW
+// ========================================================================
+
+function openFilePreview(fileName: string, content: string) {
+  const modal = document.getElementById('file-preview-modal');
+  const title = document.getElementById('file-preview-title');
+  const contentEl = document.getElementById('file-preview-content');
+  
+  if (!modal || !title || !contentEl) return;
+  
+  title.textContent = fileName;
+  
+  // Apply basic syntax highlighting
+  const highlighted = applySyntaxHighlighting(content, getFileExtension(fileName));
+  contentEl.innerHTML = highlighted;
+  
+  modal.classList.remove('hidden');
+}
+
+function closeFilePreview() {
+  const modal = document.getElementById('file-preview-modal');
+  modal?.classList.add('hidden');
+}
+
+function getFileExtension(fileName: string): string {
+  const parts = fileName.split('.');
+  return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+}
+
+function applySyntaxHighlighting(content: string, extension: string): string {
+  // Simple syntax highlighting for common languages
+  let escaped = escapeHtml(content);
+  
+  const codeExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h'];
+  
+  if (codeExtensions.includes(extension)) {
+    // Keywords
+    escaped = escaped.replace(/\b(const|let|var|function|class|if|else|for|while|return|import|export|from|async|await|try|catch|throw|new|this|def|self|fn|pub|struct|impl|use|mod)\b/g, 
+      '<span class="syntax-keyword">$1</span>');
+    
+    // Strings
+    escaped = escaped.replace(/(&quot;[^&]*&quot;|&#39;[^&]*&#39;|`[^`]*`)/g, 
+      '<span class="syntax-string">$1</span>');
+    
+    // Numbers
+    escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, 
+      '<span class="syntax-number">$1</span>');
+    
+    // Comments (single line)
+    escaped = escaped.replace(/(\/\/.*$|#.*$)/gm, 
+      '<span class="syntax-comment">$1</span>');
+  }
+  
+  return escaped;
+}
+
+// ========================================================================
 // PLATFORM EXPORT SETTINGS
 // ========================================================================
 
@@ -1396,6 +1756,10 @@ function setupEventListeners() {
     const action = target.getAttribute('data-action');
     
     switch (action) {
+      case 'upload-files':
+        closeAllClaudeMenus();
+        triggerFileUpload();
+        break;
       case 'screenshot':
         closeAllClaudeMenus();
         takeScreenshot();
@@ -2338,6 +2702,93 @@ function setupAccountSwitcher(): void {
   openDashboardSettingsBtn?.addEventListener('click', () => {
     browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html#settings') });
   });
+  
+  // Setup command palette
+  initCommandPalette();
+  setupCommandPaletteListeners();
+  
+  // Setup drag and drop
+  setupDragAndDrop();
+  
+  // Setup file upload
+  const fileInput = document.getElementById('file-upload-input') as HTMLInputElement;
+  fileInput?.addEventListener('change', async (e) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (files && files.length > 0) {
+      await handleFileUpload(files);
+      fileInput.value = ''; // Reset for next upload
+    }
+  });
+  
+  // Close file preview
+  document.getElementById('close-file-preview')?.addEventListener('click', closeFilePreview);
+  document.getElementById('file-preview-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeFilePreview();
+  });
+}
+
+/**
+ * Setup command palette keyboard shortcuts and event listeners
+ */
+function setupCommandPaletteListeners() {
+  // Global keyboard shortcut (Cmd+K or Ctrl+K)
+  document.addEventListener('keydown', (e) => {
+    // Cmd+K or Ctrl+K to open command palette
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      const palette = document.getElementById('command-palette');
+      if (palette?.classList.contains('hidden')) {
+        openCommandPalette();
+      } else {
+        closeCommandPalette();
+      }
+      return;
+    }
+    
+    // Cmd+U or Ctrl+U to upload files
+    if ((e.metaKey || e.ctrlKey) && e.key === 'u') {
+      e.preventDefault();
+      triggerFileUpload();
+      return;
+    }
+    
+    // Cmd+N or Ctrl+N for new chat
+    if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+      e.preventDefault();
+      startNewChat();
+      return;
+    }
+  });
+  
+  // Command palette input
+  const paletteInput = document.getElementById('command-palette-input');
+  paletteInput?.addEventListener('input', (e) => {
+    const query = (e.target as HTMLInputElement).value;
+    selectedCommandIndex = 0;
+    renderCommandPaletteResults(query);
+  });
+  
+  paletteInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeCommandPalette();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigateCommandPalette('down');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigateCommandPalette('up');
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      selectCurrentCommand();
+    }
+  });
+  
+  // Click outside to close
+  document.getElementById('command-palette')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      closeCommandPalette();
+    }
+  });
 }
 
 function renderMessages() {
@@ -2396,16 +2847,43 @@ function renderAttachments() {
     return;
   }
   
-  container.innerHTML = state.attachments.map((att, idx) => `
-    <div class="attachment-chip">
-      <span>${att.type === 'screenshot' ? '📸' : '📄'} ${escapeHtml(att.name)}</span>
-      <button class="attachment-remove" data-index="${idx}">×</button>
-    </div>
-  `).join('');
+  container.innerHTML = state.attachments.map((att, idx) => {
+    const icon = att.type === 'screenshot' ? '📸' : att.type === 'file' ? '📄' : '📋';
+    const sizeInfo = att.content.length > 1000 ? ` (${formatFileSize(att.content.length)})` : '';
+    return `
+      <div class="attachment-chip" data-index="${idx}" title="Click to preview">
+        <span class="attachment-icon">${icon}</span>
+        <span class="attachment-name">${escapeHtml(att.name)}</span>
+        <span class="attachment-size">${sizeInfo}</span>
+        <button class="attachment-remove" data-index="${idx}">×</button>
+      </div>
+    `;
+  }).join('');
+  
+  // Add preview handlers (click on chip)
+  container.querySelectorAll('.attachment-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      // Don't open preview if clicking remove button
+      if ((e.target as HTMLElement).classList.contains('attachment-remove')) return;
+      
+      const idx = parseInt((chip as HTMLElement).dataset.index || '0');
+      const att = state.attachments[idx];
+      if (att && att.type !== 'screenshot') {
+        openFilePreview(att.name, att.content);
+      } else if (att && att.type === 'screenshot') {
+        // For screenshots, open in new tab
+        const win = window.open();
+        if (win) {
+          win.document.write(`<img src="${att.content}" style="max-width: 100%;">`);
+        }
+      }
+    });
+  });
   
   // Add remove handlers
   container.querySelectorAll('.attachment-remove').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const idx = parseInt((e.target as HTMLElement).dataset.index || '0');
       state.attachments.splice(idx, 1);
       renderAttachments();

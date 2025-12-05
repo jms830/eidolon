@@ -152,6 +152,17 @@
 
       <!-- Input Area - Claude.ai Style -->
       <div class="input-area">
+        <!-- Drop Zone Overlay -->
+        <div id="drop-zone-overlay" class="drop-zone-overlay hidden">
+          <div class="drop-zone-content">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M24 4v28M14 22l10 10 10-10"/>
+              <path d="M8 40h32"/>
+            </svg>
+            <span>Drop files here</span>
+          </div>
+        </div>
+        
         <div class="input-attachments" id="attachments">
           <!-- Attachments shown here -->
         </div>
@@ -212,6 +223,14 @@
               <input type="text" id="plus-menu-search" placeholder="Search menu" class="claude-menu-search-input">
             </div>
             <div class="claude-menu-items" id="plus-menu-items">
+              <button class="claude-menu-item" data-action="upload-files">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M14 10v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3"/>
+                  <path d="M8 2v8M4 6l4-4 4 4"/>
+                </svg>
+                <span>Upload files</span>
+                <span class="menu-shortcut">⌘U</span>
+              </button>
               <button class="claude-menu-item" data-action="screenshot">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
                   <rect x="2" y="3" width="12" height="10" rx="2"></rect>
@@ -759,6 +778,44 @@
         </div>
       </div>
     </div>
+
+    <!-- Command Palette (Cmd+K) -->
+    <div id="command-palette" class="command-palette-overlay hidden">
+      <div class="command-palette">
+        <div class="command-palette-search">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="7" cy="7" r="5"></circle>
+            <line x1="11" y1="11" x2="14" y2="14"></line>
+          </svg>
+          <input type="text" id="command-palette-input" placeholder="Type a command or search..." autocomplete="off">
+          <kbd class="command-kbd">ESC</kbd>
+        </div>
+        <div class="command-palette-results" id="command-palette-results">
+          <!-- Commands populated dynamically -->
+        </div>
+        <div class="command-palette-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>↵</kbd> Select</span>
+          <span><kbd>ESC</kbd> Close</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div id="file-preview-modal" class="modal-overlay hidden">
+      <div class="modal-content file-preview-modal">
+        <div class="modal-header">
+          <h3 id="file-preview-title">File Preview</h3>
+          <button id="close-file-preview" class="close-btn">✕</button>
+        </div>
+        <div class="modal-body file-preview-body">
+          <pre id="file-preview-content" class="file-preview-content"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden file input for uploads -->
+    <input type="file" id="file-upload-input" multiple style="display: none;">
 
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay hidden">
