@@ -58,11 +58,15 @@
       </button>
       <button class="nav-tab" data-tab="sync">
         <span class="tab-icon">🔄</span>
-        <span class="tab-label">Workspace Sync</span>
+        <span class="tab-label">Sync</span>
       </button>
       <button class="nav-tab" data-tab="analytics">
         <span class="tab-icon">📊</span>
-        <span class="tab-label">Analytics & Settings</span>
+        <span class="tab-label">Analytics</span>
+      </button>
+      <button class="nav-tab" data-tab="settings">
+        <span class="tab-icon">⚙️</span>
+        <span class="tab-label">Settings</span>
       </button>
     </nav>
 
@@ -352,11 +356,20 @@
             <!-- Chart will be rendered here -->
           </div>
         </div>
+      </section>
 
-        <!-- Export Settings Section -->
-        <div class="analytics-section">
-          <h3>Export Settings</h3>
-          <p class="section-description">Control which AI platforms have conversation export enabled</p>
+      <!-- Settings Tab -->
+      <section id="settings-tab" class="tab-content">
+        <div class="tab-header">
+          <div class="tab-title">
+            <h2>Settings</h2>
+          </div>
+        </div>
+
+        <!-- Platform Export Settings -->
+        <div class="settings-section-card">
+          <h3>🌐 Platform Export</h3>
+          <p class="section-description">Enable conversation export buttons on each AI platform</p>
           
           <div class="settings-list">
             <div class="setting-item">
@@ -377,7 +390,7 @@
               <div class="setting-info">
                 <div class="setting-label">
                   <span class="platform-icon">💬</span>
-                  <strong>ChatGPT (chat.openai.com)</strong>
+                  <strong>ChatGPT (chatgpt.com)</strong>
                 </div>
                 <span class="setting-description">Export conversations from ChatGPT</span>
               </div>
@@ -401,11 +414,103 @@
               </label>
             </div>
           </div>
+        </div>
 
-          <div class="settings-footer">
-            <button id="save-export-settings-btn" class="primary-btn">💾 Save Export Settings</button>
-            <span id="export-settings-status" class="status-message"></span>
+        <!-- Appearance Settings -->
+        <div class="settings-section-card">
+          <h3>🎨 Appearance</h3>
+          
+          <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">🌙</span>
+                  <strong>Dark Mode</strong>
+                </div>
+                <span class="setting-description">Use dark theme throughout Eidolon</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settings-dark-mode-toggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
+        </div>
+
+        <!-- Developer Settings -->
+        <div class="settings-section-card">
+          <h3>🛠️ Developer</h3>
+          
+          <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">🤖</span>
+                  <strong>Agent Mode (Alpha)</strong>
+                </div>
+                <span class="setting-description">⚠️ Experimental: Allow Claude to control the browser</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settings-agent-mode-toggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-label">
+                  <span class="platform-icon">🐛</span>
+                  <strong>Debug Mode</strong>
+                </div>
+                <span class="setting-description">Enable verbose console logging for troubleshooting</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="settings-debug-mode-toggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Data Management -->
+        <div class="settings-section-card">
+          <h3>💾 Data Management</h3>
+          
+          <div class="settings-actions-grid">
+            <button id="clear-cache-btn" class="settings-action-btn">
+              <span class="btn-icon">🗑️</span>
+              <span class="btn-text">Clear Cache</span>
+              <span class="btn-desc">Remove cached data to free space</span>
+            </button>
+            <button id="export-settings-btn" class="settings-action-btn">
+              <span class="btn-icon">📤</span>
+              <span class="btn-text">Export Settings</span>
+              <span class="btn-desc">Download all Eidolon settings</span>
+            </button>
+            <button id="import-settings-btn" class="settings-action-btn">
+              <span class="btn-icon">📥</span>
+              <span class="btn-text">Import Settings</span>
+              <span class="btn-desc">Restore from backup file</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="settings-section-card">
+          <h3>ℹ️ About Eidolon</h3>
+          <div class="about-info">
+            <p><strong>Version:</strong> <span id="eidolon-version">2.2.0</span></p>
+            <p><strong>Author:</strong> Jordan</p>
+            <p class="about-links">
+              <a href="https://github.com/jordan/eidolon" target="_blank">GitHub</a> •
+              <a href="https://github.com/jordan/eidolon/issues" target="_blank">Report Issue</a>
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button id="save-all-settings-btn" class="primary-btn">💾 Save All Settings</button>
+          <span id="settings-save-status" class="status-message"></span>
         </div>
       </section>
 

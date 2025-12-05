@@ -874,6 +874,9 @@ function renderCurrentTab() {
     case 'analytics':
       updateAnalytics();
       break;
+    case 'settings':
+      initSettingsTab();
+      break;
   }
 }
 
@@ -4762,18 +4765,201 @@ function initExportSettings() {
   }
 }
 
-// Initialize export settings when analytics tab is activated
-const analyticsTabBtn = document.querySelector('[data-tab="analytics"]');
-if (analyticsTabBtn) {
-  analyticsTabBtn.addEventListener('click', () => {
-    // Small delay to ensure DOM is ready
-    setTimeout(initExportSettings, 100);
-  });
+// ========================================================================
+// SETTINGS TAB
+// ========================================================================
+
+/**
+ * Initialize settings tab - loads settings and attaches auto-save handlers
+ */
+function initSettingsTab() {
+  // Load export settings
+  loadExportSettings();
+  
+  // Load other settings
+  loadSettingsTabState();
+  
+  // Setup auto-save on toggle changes (no save button needed)
+  setupSettingsAutoSave();
 }
 
-// Also initialize if we're already on analytics tab on load
-if (state.currentTab === 'analytics') {
-  setTimeout(initExportSettings, 200);
+/**
+ * Load settings tab state
+ */
+async function loadSettingsTabState() {
+  try {
+    // Dark mode toggle
+    const darkModeToggle = document.getElementById('settings-dark-mode-toggle') as HTMLInputElement;
+    if (darkModeToggle) {
+      darkModeToggle.checked = document.body.classList.contains('dark-mode');
+    }
+    
+    // Agent mode toggle
+    const agentModeToggle = document.getElementById('settings-agent-mode-toggle') as HTMLInputElement;
+    if (agentModeToggle) {
+      const result = await browser.storage.local.get('agentModeEnabled');
+      agentModeToggle.checked = result.agentModeEnabled ?? false;
+    }
+    
+    // Debug mode toggle
+    const debugModeToggle = document.getElementById('settings-debug-mode-toggle') as HTMLInputElement;
+    if (debugModeToggle) {
+      const result = await browser.storage.local.get('debugModeEnabled');
+      debugModeToggle.checked = result.debugModeEnabled ?? false;
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to load settings state:', error);
+  }
+}
+
+/**
+ * Setup auto-save for settings toggles
+ */
+function setupSettingsAutoSave() {
+  // Export platform toggles - auto-save on change
+  ['export-claude-toggle', 'export-chatgpt-toggle', 'export-gemini-toggle'].forEach(id => {
+    const toggle = document.getElementById(id) as HTMLInputElement;
+    if (toggle) {
+      toggle.addEventListener('change', saveExportSettingsAuto);
+    }
+  });
+  
+  // Dark mode toggle
+  const darkModeToggle = document.getElementById('settings-dark-mode-toggle') as HTMLInputElement;
+  if (darkModeToggle) {
+    darkModeToggle.addEventListener('change', () => {
+      toggleDarkMode();
+    });
+  }
+  
+  // Agent mode toggle
+  const agentModeToggle = document.getElementById('settings-agent-mode-toggle') as HTMLInputElement;
+  if (agentModeToggle) {
+    agentModeToggle.addEventListener('change', async () => {
+      await browser.storage.local.set({ agentModeEnabled: agentModeToggle.checked });
+      showSettingsSaveStatus('Agent mode ' + (agentModeToggle.checked ? 'enabled' : 'disabled'));
+    });
+  }
+  
+  // Debug mode toggle
+  const debugModeToggle = document.getElementById('settings-debug-mode-toggle') as HTMLInputElement;
+  if (debugModeToggle) {
+    debugModeToggle.addEventListener('change', async () => {
+      await browser.storage.local.set({ debugModeEnabled: debugModeToggle.checked });
+      showSettingsSaveStatus('Debug mode ' + (debugModeToggle.checked ? 'enabled' : 'disabled'));
+    });
+  }
+  
+  // Data management buttons
+  document.getElementById('clear-cache-btn')?.addEventListener('click', clearCache);
+  document.getElementById('export-settings-btn')?.addEventListener('click', exportAllSettings);
+  document.getElementById('import-settings-btn')?.addEventListener('click', importSettings);
+  document.getElementById('save-all-settings-btn')?.addEventListener('click', saveAllSettings);
+}
+
+/**
+ * Auto-save export settings on toggle change
+ */
+async function saveExportSettingsAuto() {
+  try {
+    const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+    const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+    const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+
+    const settings = {
+      claude: claudeToggle?.checked ?? true,
+      chatgpt: chatgptToggle?.checked ?? true,
+      gemini: geminiToggle?.checked ?? true
+    };
+
+    await browser.storage.local.set({ exportPlatformSettings: settings });
+    showSettingsSaveStatus('Export settings saved');
+  } catch (error) {
+    console.error('[Dashboard] Failed to auto-save export settings:', error);
+  }
+}
+
+/**
+ * Show brief status message in settings footer
+ */
+function showSettingsSaveStatus(message: string) {
+  const statusEl = document.getElementById('settings-save-status');
+  if (statusEl) {
+    statusEl.textContent = '✓ ' + message;
+    statusEl.className = 'status-message success';
+    setTimeout(() => {
+      statusEl.textContent = '';
+      statusEl.className = 'status-message';
+    }, 2000);
+  }
+}
+
+/**
+ * Clear cached data
+ */
+async function clearCache() {
+  try {
+    await browser.storage.local.remove(['cachedProjects', 'cachedConversations', 'cachedFiles']);
+    showSettingsSaveStatus('Cache cleared');
+    // Reload data
+    await loadAllData();
+    renderCurrentTab();
+  } catch (error) {
+    console.error('[Dashboard] Failed to clear cache:', error);
+  }
+}
+
+/**
+ * Export all settings as JSON
+ */
+async function exportAllSettings() {
+  try {
+    const data = await browser.storage.local.get(null);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eidolon-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSettingsSaveStatus('Settings exported');
+  } catch (error) {
+    console.error('[Dashboard] Failed to export settings:', error);
+  }
+}
+
+/**
+ * Import settings from JSON file
+ */
+function importSettings() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await browser.storage.local.set(data);
+      showSettingsSaveStatus('Settings imported');
+      // Reload to apply settings
+      window.location.reload();
+    } catch (error) {
+      console.error('[Dashboard] Failed to import settings:', error);
+      alert('Failed to import settings. Invalid file format.');
+    }
+  };
+  input.click();
+}
+
+/**
+ * Save all current settings (explicit save button)
+ */
+async function saveAllSettings() {
+  await saveExportSettingsAuto();
+  showSettingsSaveStatus('All settings saved');
 }
 
 // ========================================================================

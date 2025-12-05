@@ -1229,6 +1229,60 @@ function openCurrentViewExternal() {
 // EVENT LISTENERS
 // ========================================================================
 
+// ========================================================================
+// PLATFORM EXPORT SETTINGS
+// ========================================================================
+
+/**
+ * Load platform export settings from storage
+ */
+async function loadExportSettings(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get(['eidolon_export_settings']);
+    const settings = result.eidolon_export_settings || {
+      claude: true,
+      chatgpt: true,
+      gemini: true
+    };
+    
+    const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+    const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+    const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+    
+    if (claudeToggle) claudeToggle.checked = settings.claude !== false;
+    if (chatgptToggle) chatgptToggle.checked = settings.chatgpt !== false;
+    if (geminiToggle) geminiToggle.checked = settings.gemini !== false;
+  } catch (error) {
+    console.error('[Eidolon] Failed to load export settings:', error);
+  }
+}
+
+/**
+ * Save platform export settings to storage
+ */
+async function saveExportSettings(): Promise<void> {
+  try {
+    const claudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+    const chatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+    const geminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+    
+    const settings = {
+      claude: claudeToggle?.checked ?? true,
+      chatgpt: chatgptToggle?.checked ?? true,
+      gemini: geminiToggle?.checked ?? true
+    };
+    
+    await chrome.storage.local.set({ eidolon_export_settings: settings });
+    console.log('[Eidolon] Export settings saved:', settings);
+  } catch (error) {
+    console.error('[Eidolon] Failed to save export settings:', error);
+  }
+}
+
+// ========================================================================
+// EVENT LISTENERS
+// ========================================================================
+
 function setupEventListeners() {
   // Dashboard button (now in global header)
   const dashboardBtn = document.getElementById('dashboard-btn');
@@ -2267,6 +2321,22 @@ function setupAccountSwitcher(): void {
   settingsBtn?.addEventListener('click', () => {
     // Small delay to ensure panel is visible
     setTimeout(loadAccounts, 100);
+    setTimeout(loadExportSettings, 100);
+  });
+  
+  // Platform export toggles
+  const exportClaudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
+  const exportChatgptToggle = document.getElementById('export-chatgpt-toggle') as HTMLInputElement;
+  const exportGeminiToggle = document.getElementById('export-gemini-toggle') as HTMLInputElement;
+  
+  exportClaudeToggle?.addEventListener('change', () => saveExportSettings());
+  exportChatgptToggle?.addEventListener('change', () => saveExportSettings());
+  exportGeminiToggle?.addEventListener('change', () => saveExportSettings());
+  
+  // Open Dashboard for More Settings button
+  const openDashboardSettingsBtn = document.getElementById('open-dashboard-settings-btn');
+  openDashboardSettingsBtn?.addEventListener('click', () => {
+    browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html#settings') });
   });
 }
 
