@@ -9,7 +9,7 @@ import {
 import { getTagsService, type Tag } from '../../utils/tags/tagsService';
 import { createTagBadge, showTagSelectionModal, createTagFilter } from '../../utils/tags/tagsUI';
 import { ClaudeAPIClient } from '../../utils/api/client';
-import { SyncManager } from '../../utils/sync/SyncManager';
+import { SyncManager, type SyncAccountInfo } from '../../utils/sync/SyncManager';
 import {
   getWorkspaceConfig,
   saveWorkspaceConfig,
@@ -321,7 +321,8 @@ async function finishWizardSetup() {
       syncChats: setupSyncChatsCheckbox.checked,
       autoAddMdExtension: setupAutoAddMdCheckbox.checked,
       ensureAgentsFrontmatter: setupEnsureAgentsFrontmatterCheckbox.checked,
-      conflictStrategy: setupConflictStrategySelect.value as 'remote' | 'local' | 'newer'
+      conflictStrategy: setupConflictStrategySelect.value as 'remote' | 'local' | 'newer',
+      useAccountSubfolders: config.settings?.useAccountSubfolders ?? true
     };
 
     // Save config
@@ -2981,18 +2982,27 @@ async function syncNow(dryRun: boolean = false) {
     const config = await getWorkspaceConfig();
     const useBidirectional = config.settings.bidirectional;
 
+    // Build account info for account-based subfolders
+    const accountInfo: SyncAccountInfo | undefined = state.currentOrg ? {
+      accountId: state.currentOrg.uuid,
+      accountName: state.currentOrg.name,
+      accountEmail: undefined // Organization doesn't have email
+    } : undefined;
+
     // Execute sync based on settings
     const result = useBidirectional
       ? await syncManager.bidirectionalSync(
           state.workspaceHandle,
           orgId,
           config.settings.conflictStrategy,
-          dryRun
+          dryRun,
+          accountInfo
         )
       : await syncManager.downloadSync(
           state.workspaceHandle,
           orgId,
-          dryRun
+          dryRun,
+          accountInfo
         );
 
     // Hide progress overlay
@@ -3124,11 +3134,19 @@ async function syncChatsOnly(dryRun: boolean = false) {
       updateSyncProgress(progress);
     });
 
+    // Build account info for account-based subfolders
+    const accountInfo: SyncAccountInfo | undefined = state.currentOrg ? {
+      accountId: state.currentOrg.uuid,
+      accountName: state.currentOrg.name,
+      accountEmail: undefined
+    } : undefined;
+
     // Execute chats-only sync
     const result = await syncManager.chatsOnlySync(
       state.workspaceHandle,
       orgId,
-      dryRun
+      dryRun,
+      accountInfo
     );
 
     // Hide progress overlay
