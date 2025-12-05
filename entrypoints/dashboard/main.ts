@@ -1528,16 +1528,28 @@ function renderConversations() {
 
     const actions = document.createElement('div');
     actions.className = 'conversation-actions';
-    actions.style.cssText = 'display: flex; gap: 8px;';
+    actions.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
 
     const openBtn = document.createElement('button');
     openBtn.className = 'action-btn small';
     openBtn.textContent = 'Open';
+    openBtn.title = 'Open in new tab';
     openBtn.addEventListener('click', () => openConversation(conv.uuid));
+
+    const sidepanelBtn = document.createElement('button');
+    sidepanelBtn.className = 'action-btn small';
+    sidepanelBtn.textContent = '📱 Sidepanel';
+    sidepanelBtn.title = 'Open in sidepanel';
+    sidepanelBtn.style.cssText = 'background: #805ad5;';
+    sidepanelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openConversationInSidepanel(conv.uuid);
+    });
 
     const exportMdBtn = document.createElement('button');
     exportMdBtn.className = 'action-btn small';
     exportMdBtn.textContent = '📄 Export MD';
+    exportMdBtn.title = 'Export as Markdown';
     exportMdBtn.style.cssText = 'background: #48bb78;';
     exportMdBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1547,6 +1559,7 @@ function renderConversations() {
     const exportJsonBtn = document.createElement('button');
     exportJsonBtn.className = 'action-btn small';
     exportJsonBtn.textContent = '📋 Export JSON';
+    exportJsonBtn.title = 'Export as JSON';
     exportJsonBtn.style.cssText = 'background: #4299e1;';
     exportJsonBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1554,6 +1567,7 @@ function renderConversations() {
     });
 
     actions.appendChild(openBtn);
+    actions.appendChild(sidepanelBtn);
     actions.appendChild(exportMdBtn);
     actions.appendChild(exportJsonBtn);
 
@@ -1590,18 +1604,21 @@ function renderActivityTimeline() {
     ...state.projects.map((p) => ({
       type: 'project',
       name: p.name,
+      uuid: p.uuid,
       date: p.created_at || p.updated_at,
       action: 'created',
     })),
     ...state.files.map((f) => ({
       type: 'file',
       name: f.file_name,
+      uuid: f.uuid,
       date: f.created_at,
       action: 'uploaded',
     })),
     ...state.conversations.map((c) => ({
       type: 'conversation',
       name: c.name,
+      uuid: c.uuid,
       date: c.updated_at,
       action: 'updated',
     })),
@@ -1614,6 +1631,13 @@ function renderActivityTimeline() {
   activities.slice(0, 10).forEach((activity) => {
     const item = document.createElement('div');
     item.className = 'timeline-item';
+    
+    // Make conversations clickable to open in sidepanel
+    if (activity.type === 'conversation' && activity.uuid) {
+      item.style.cursor = 'pointer';
+      item.title = 'Click to open in sidepanel';
+      item.addEventListener('click', () => openConversationInSidepanel(activity.uuid));
+    }
 
     const icon = document.createElement('div');
     icon.className = 'timeline-icon';
@@ -2510,6 +2534,30 @@ function openProject(uuid: string) {
 
 function openConversation(uuid: string) {
   browser.tabs.create({ url: `https://claude.ai/chat/${uuid}` });
+}
+
+/**
+ * Open a conversation in the sidepanel
+ * This creates a new tab with the conversation and opens the sidepanel
+ */
+async function openConversationInSidepanel(uuid: string) {
+  try {
+    // First create a tab with the conversation
+    const tab = await browser.tabs.create({ 
+      url: `https://claude.ai/chat/${uuid}`,
+      active: true 
+    });
+    
+    // Then open the sidepanel for that tab
+    if (tab.id) {
+      // Use chrome.sidePanel API to open sidepanel
+      await (chrome as any).sidePanel.open({ tabId: tab.id });
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to open conversation in sidepanel:', error);
+    // Fallback to just opening the tab
+    openConversation(uuid);
+  }
 }
 
 function viewProjectFiles(uuid: string) {
