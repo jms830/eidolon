@@ -495,6 +495,30 @@
           </div>
         </div>
 
+        <!-- Workspace Sync Status (mirrored from Sync tab) -->
+        <div class="settings-section-card" id="workspace-status-card">
+          <h3>🔄 Workspace Sync Status</h3>
+          <div id="settings-workspace-status" class="workspace-status-summary">
+            <div class="workspace-status-row">
+              <span class="workspace-status-indicator not-configured" id="settings-sync-indicator">●</span>
+              <span id="settings-sync-status-text">Not configured</span>
+            </div>
+            <div id="settings-workspace-path-row" class="workspace-path-row" style="display: none;">
+              <span class="label">Folder:</span>
+              <span id="settings-workspace-path" class="workspace-path">-</span>
+            </div>
+            <div id="settings-last-sync-row" class="last-sync-row" style="display: none;">
+              <span class="label">Last synced:</span>
+              <span id="settings-last-sync-time">Never</span>
+            </div>
+          </div>
+          <div class="workspace-quick-actions">
+            <button id="settings-open-sync-tab" class="action-btn secondary">
+              Open Full Sync Settings →
+            </button>
+          </div>
+        </div>
+
         <!-- About -->
         <div class="settings-section-card">
           <h3>ℹ️ About Eidolon</h3>

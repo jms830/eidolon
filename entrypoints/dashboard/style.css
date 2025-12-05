@@ -2667,3 +2667,97 @@ body.dark-mode .about-links a {
 body.dark-mode .settings-footer {
   border-color: var(--border-color);
 }
+
+/* Workspace Status Summary (in Settings tab) */
+.workspace-status-summary {
+  padding: 16px 0;
+}
+
+.workspace-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.workspace-status-indicator {
+  font-size: 18px;
+}
+
+.workspace-status-indicator.not-configured {
+  color: #a0aec0;
+}
+
+.workspace-status-indicator.synced {
+  color: #48bb78;
+}
+
+.workspace-status-indicator.pending {
+  color: #ed8936;
+}
+
+.workspace-status-indicator.syncing {
+  color: #4299e1;
+  animation: pulse 1s infinite;
+}
+
+.workspace-status-indicator.error {
+  color: #f56565;
+}
+
+.workspace-path-row,
+.last-sync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #718096;
+  margin-bottom: 8px;
+}
+
+.workspace-path-row .label,
+.last-sync-row .label {
+  font-weight: 500;
+  color: #4a5568;
+}
+
+.workspace-path {
+  background: #f7fafc;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  color: #4a5568;
+}
+
+.workspace-quick-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e8e8e8;
+}
+
+body.dark-mode .workspace-path-row,
+body.dark-mode .last-sync-row {
+  color: var(--text-secondary);
+}
+
+body.dark-mode .workspace-path-row .label,
+body.dark-mode .last-sync-row .label {
+  color: var(--text-primary);
+}
+
+body.dark-mode .workspace-path {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+body.dark-mode .workspace-quick-actions {
+  border-color: var(--border-color);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
