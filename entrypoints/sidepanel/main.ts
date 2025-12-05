@@ -377,6 +377,42 @@ interface PersonalizedStyle {
   attributes: StyleAttribute[];
 }
 
+// Sync status types
+type SyncStatus = 'not-configured' | 'synced' | 'pending' | 'syncing' | 'error';
+type ConflictStrategy = 'remote' | 'local' | 'newer';
+
+interface SyncSettings {
+  autoSync: boolean;
+  syncInterval: number;
+  bidirectional: boolean;
+  syncChats: boolean;
+  autoAddMdExtension: boolean;
+  ensureAgentsFrontmatter: boolean;
+  conflictStrategy: ConflictStrategy;
+}
+
+const DEFAULT_SYNC_SETTINGS: SyncSettings = {
+  autoSync: false,
+  syncInterval: 15,
+  bidirectional: false,
+  syncChats: false,
+  autoAddMdExtension: true,
+  ensureAgentsFrontmatter: true,
+  conflictStrategy: 'remote'
+};
+
+interface SyncState {
+  status: SyncStatus;
+  workspacePath: string | null;
+  lastSync: number | null; // timestamp
+  needsPermission: boolean; // Handle exists but needs user to re-grant permission
+  projectCount: number;
+  fileCount: number;
+  chatCount: number;
+  settings: SyncSettings;
+}
+
+
 interface AppState {
   currentProject: Project | null;
   currentModel: string;
@@ -405,6 +441,8 @@ interface AppState {
   // Personalized styles
   styles: PersonalizedStyle[];
   currentStyle: PersonalizedStyle | null;
+  // Workspace sync
+  sync: SyncState;
 }
 
 // Default models fallback - will be updated from Claude.ai if available
@@ -473,7 +511,18 @@ const state: AppState = {
   currentStyle: null,
   customUrl: localStorage.getItem('eidolon-custom-url'),
   // Multi-platform support
-  platforms: loadSavedPlatforms()
+  platforms: loadSavedPlatforms(),
+  // Workspace sync
+  sync: {
+    status: 'not-configured',
+    workspacePath: null,
+    lastSync: null,
+    needsPermission: false,
+    projectCount: 0,
+    fileCount: 0,
+    chatCount: 0,
+    settings: { ...DEFAULT_SYNC_SETTINGS }
+  }
 };
 
 // ========================================================================
@@ -514,6 +563,7 @@ async function init() {
   // Setup event listeners (including view toggle)
   setupEventListeners();
   setupViewToggle();
+  setupSyncEventListeners();
   
   // Set initial model indicator
   updateModelIndicator();
@@ -526,7 +576,8 @@ async function init() {
     getCurrentTab(),
     checkAuthentication(),
     loadAvailableModels(),
-    loadAccounts()
+    loadAccounts(),
+    initSyncState()
   ]);
   
   console.log('[Eidolon SidePanel] Ready!');
@@ -2151,7 +2202,7 @@ async function deleteCurrentAccount(): Promise<void> {
 /**
  * Show a simple notification
  */
-function showNotification(message: string, type: 'success' | 'error' = 'success'): void {
+function showNotification(message: string, type: 'success' | 'error' | 'info' = 'success'): void {
   // Use existing activity indicator as a simple notification
   const indicator = document.getElementById('activity-indicator');
   const text = document.getElementById('activity-text');
@@ -2159,7 +2210,13 @@ function showNotification(message: string, type: 'success' | 'error' = 'success'
   if (indicator && text) {
     text.textContent = message;
     indicator.classList.remove('hidden');
-    indicator.style.background = type === 'error' ? 'var(--error)' : 'var(--success)';
+    
+    const colors: Record<string, string> = {
+      error: 'var(--error, #ef4444)',
+      success: 'var(--success, #10b981)',
+      info: 'var(--accent-main-100, #3b82f6)'
+    };
+    indicator.style.background = colors[type] || colors.success;
     
     setTimeout(() => {
       indicator.classList.add('hidden');
@@ -4263,5 +4320,706 @@ browser.runtime.onMessage.addListener((msg) => {
     console.warn('[Eidolon] Failed to handle runtime message:', e);
   }
 });
+
+// ========================================================================
+// SYNC FUNCTIONS
+// ========================================================================
+
+/**
+ * Initialize sync state from storage
+ */
+async function initSyncState() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-sync-config' });
+    if (response?.success && response.data) {
+      const config = response.data;
+      state.sync.workspacePath = config.workspacePath || null;
+      state.sync.lastSync = config.lastSync || null;
+      state.sync.settings = {
+        ...DEFAULT_SYNC_SETTINGS,
+        ...(config.settings || {})
+      };
+      
+      // Determine status
+      if (!config.workspacePath) {
+        state.sync.status = 'not-configured';
+      } else {
+        state.sync.status = 'synced';
+      }
+      
+      // Get stats if configured
+      if (config.workspacePath) {
+        await loadSyncStats();
+      }
+    }
+  } catch (error) {
+    console.warn('[Eidolon] Failed to load sync config:', error);
+  }
+  
+  // Try to restore handle from IndexedDB and verify permissions
+  await tryRestoreWorkspaceHandle();
+  
+  updateSyncStatusBar();
+  updateSyncPanel();
+  
+  // Listen for storage changes (e.g., when dashboard updates config)
+  setupSyncStorageListener();
+}
+
+/**
+ * Listen for storage changes to sync state between dashboard and sidepanel
+ */
+function setupSyncStorageListener() {
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.workspaceConfig) {
+      const newConfig = changes.workspaceConfig.newValue;
+      const oldConfig = changes.workspaceConfig.oldValue;
+      
+      // Check if workspacePath changed
+      if (newConfig?.workspacePath !== oldConfig?.workspacePath) {
+        console.log('[Eidolon] Workspace config changed externally:', newConfig?.workspacePath);
+        state.sync.workspacePath = newConfig?.workspacePath || null;
+        state.sync.status = newConfig?.workspacePath ? 'synced' : 'not-configured';
+        updateSyncStatusBar();
+        updateSyncPanel();
+      }
+      
+      // Check if settings changed
+      if (newConfig?.settings) {
+        state.sync.settings = {
+          ...state.sync.settings,
+          ...DEFAULT_SYNC_SETTINGS,
+          ...newConfig.settings
+        };
+        updateSyncPanel();
+      }
+      
+      // Check if lastSync changed
+      if (newConfig?.lastSync !== oldConfig?.lastSync) {
+        state.sync.lastSync = newConfig?.lastSync || null;
+        updateSyncStatusBar();
+        updateSyncPanel();
+      }
+    }
+  });
+}
+
+/**
+ * Try to restore workspace handle from IndexedDB and verify permissions
+ */
+async function tryRestoreWorkspaceHandle(): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    const handle = await getWorkspaceHandleFromIDB();
+    if (!handle) {
+      console.log('[Eidolon] No stored workspace handle found');
+      state.sync.needsPermission = false;
+      return null;
+    }
+    
+    // Verify we still have permissions (will be 'prompt' if permission was revoked)
+    const permission = await (handle as any).queryPermission({ mode: 'readwrite' });
+    
+    if (permission === 'granted') {
+      console.log('[Eidolon] Workspace handle restored with permissions');
+      state.sync.needsPermission = false;
+      return handle;
+    } else if (permission === 'prompt') {
+      // User will need to re-grant permission - we can't request it without user gesture
+      console.log('[Eidolon] Workspace handle found but needs permission re-grant');
+      state.sync.needsPermission = true;
+      state.sync.status = state.sync.workspacePath ? 'pending' : 'not-configured';
+      return handle; // Return handle anyway, permission can be requested on sync
+    } else {
+      console.log('[Eidolon] Workspace handle permission denied');
+      state.sync.needsPermission = false;
+      return null;
+    }
+  } catch (error) {
+    console.warn('[Eidolon] Failed to restore workspace handle:', error);
+    state.sync.needsPermission = false;
+    return null;
+  }
+}
+
+/**
+ * Get workspace handle from IndexedDB
+ */
+async function getWorkspaceHandleFromIDB(): Promise<FileSystemDirectoryHandle | null> {
+  const DB_NAME = 'EidolonHandles';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'handles';
+  const WORKSPACE_HANDLE_KEY = 'workspaceHandle';
+  
+  return new Promise((resolve) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    
+    request.onerror = () => {
+      console.warn('[Eidolon] Failed to open IndexedDB:', request.error);
+      resolve(null);
+    };
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    
+    request.onsuccess = () => {
+      const db = request.result;
+      try {
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const getRequest = store.get(WORKSPACE_HANDLE_KEY);
+        
+        getRequest.onsuccess = () => {
+          db.close();
+          resolve(getRequest.result || null);
+        };
+        
+        getRequest.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch (error) {
+        db.close();
+        resolve(null);
+      }
+    };
+  });
+}
+
+/**
+ * Request permission for stored handle (must be called from user gesture)
+ */
+async function requestWorkspacePermission(): Promise<boolean> {
+  try {
+    const handle = await getWorkspaceHandleFromIDB();
+    if (!handle) {
+      return false;
+    }
+    
+    const permission = await (handle as any).requestPermission({ mode: 'readwrite' });
+    if (permission === 'granted') {
+      state.sync.status = 'synced';
+      updateSyncStatusBar();
+      updateSyncPanel();
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('[Eidolon] Failed to request permission:', error);
+    return false;
+  }
+}
+
+/**
+ * Load sync statistics
+ */
+async function loadSyncStats() {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-sync-stats' });
+    if (response?.success && response.data) {
+      state.sync.projectCount = response.data.projects || 0;
+      state.sync.fileCount = response.data.files || 0;
+      state.sync.chatCount = response.data.chats || 0;
+    }
+  } catch (error) {
+    console.warn('[Eidolon] Failed to load sync stats:', error);
+  }
+}
+
+/**
+ * Update sync status bar UI
+ */
+function updateSyncStatusBar() {
+  const statusBar = document.getElementById('sync-status-bar');
+  const statusText = document.getElementById('sync-status-text');
+  
+  if (!statusBar || !statusText) return;
+  
+  statusBar.setAttribute('data-status', state.sync.status);
+  
+  switch (state.sync.status) {
+    case 'not-configured':
+      statusText.textContent = 'Set up sync →';
+      break;
+    case 'synced':
+      if (state.sync.lastSync) {
+        statusText.textContent = `Synced ${formatRelativeTime(state.sync.lastSync)}`;
+      } else {
+        statusText.textContent = 'Ready to sync';
+      }
+      break;
+    case 'pending':
+      if (state.sync.needsPermission) {
+        statusText.textContent = 'Click to reconnect folder';
+      } else {
+        statusText.textContent = 'Changes pending';
+      }
+      break;
+    case 'syncing':
+      statusText.textContent = 'Syncing...';
+      break;
+    case 'error':
+      statusText.textContent = 'Sync failed';
+      break;
+  }
+}
+
+/**
+ * Update sync panel UI
+ */
+function updateSyncPanel() {
+  const panel = document.getElementById('sync-panel');
+  if (!panel) return;
+  
+  panel.setAttribute('data-status', state.sync.status);
+  
+  // Update status label
+  const statusLabel = document.getElementById('sync-panel-label');
+  if (statusLabel) {
+    switch (state.sync.status) {
+      case 'not-configured':
+        statusLabel.textContent = 'Not Configured';
+        break;
+      case 'synced':
+        statusLabel.textContent = 'Connected';
+        break;
+      case 'pending':
+        statusLabel.textContent = 'Changes Pending';
+        break;
+      case 'syncing':
+        statusLabel.textContent = 'Syncing...';
+        break;
+      case 'error':
+        statusLabel.textContent = 'Error';
+        break;
+    }
+  }
+  
+  // Update workspace path - toggle between prompt and display
+  const selectPrompt = document.getElementById('select-folder-prompt');
+  const selectedDisplay = document.getElementById('selected-folder-display');
+  const pathText = document.getElementById('sync-path-text');
+  
+  if (selectPrompt && selectedDisplay && pathText) {
+    if (state.sync.workspacePath) {
+      // Folder is selected - show the path display
+      selectPrompt.style.display = 'none';
+      selectedDisplay.style.display = 'flex';
+      pathText.textContent = state.sync.workspacePath;
+    } else {
+      // No folder selected - show the prompt button
+      selectPrompt.style.display = 'flex';
+      selectedDisplay.style.display = 'none';
+      pathText.textContent = '';
+    }
+  }
+  
+  // Update last sync time
+  const lastTime = document.getElementById('sync-last-time');
+  if (lastTime) {
+    if (state.sync.lastSync) {
+      lastTime.textContent = `Last synced ${formatRelativeTime(state.sync.lastSync)}`;
+    } else {
+      lastTime.textContent = 'Never synced';
+    }
+  }
+  
+  // Update stats
+  const projectsCount = document.getElementById('sync-projects-count');
+  const filesCount = document.getElementById('sync-files-count');
+  const chatsCount = document.getElementById('sync-chats-count');
+  
+  if (projectsCount) projectsCount.textContent = String(state.sync.projectCount);
+  if (filesCount) filesCount.textContent = String(state.sync.fileCount);
+  if (chatsCount) chatsCount.textContent = String(state.sync.chatCount);
+  
+  // Update settings toggles
+  const autoToggle = document.getElementById('sync-auto-toggle') as HTMLInputElement;
+  const chatsToggle = document.getElementById('sync-chats-toggle') as HTMLInputElement;
+  const bidirectionalToggle = document.getElementById('sync-bidirectional-toggle') as HTMLInputElement;
+  const autoMdToggle = document.getElementById('sync-auto-md-toggle') as HTMLInputElement;
+  const agentsToggle = document.getElementById('sync-agents-toggle') as HTMLInputElement;
+  const intervalSelect = document.getElementById('sync-interval-select') as HTMLSelectElement;
+  const conflictSelect = document.getElementById('sync-conflict-select') as HTMLSelectElement;
+  
+  if (autoToggle) autoToggle.checked = state.sync.settings.autoSync;
+  if (chatsToggle) chatsToggle.checked = state.sync.settings.syncChats;
+  if (bidirectionalToggle) bidirectionalToggle.checked = state.sync.settings.bidirectional;
+  if (autoMdToggle) autoMdToggle.checked = state.sync.settings.autoAddMdExtension;
+  if (agentsToggle) agentsToggle.checked = state.sync.settings.ensureAgentsFrontmatter;
+  if (intervalSelect) intervalSelect.value = String(state.sync.settings.syncInterval);
+  if (conflictSelect) conflictSelect.value = state.sync.settings.conflictStrategy;
+  
+  // Update folder button text
+  const folderBtnText = document.getElementById('sync-folder-btn-text');
+  if (folderBtnText) {
+    folderBtnText.textContent = state.sync.workspacePath ? 'Change Folder' : 'Choose Folder';
+  }
+}
+
+/**
+ * Format relative time (e.g., "5m ago", "2h ago")
+ */
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+/**
+ * Open sync panel
+ */
+function openSyncPanel() {
+  const panel = document.getElementById('sync-panel');
+  if (panel) {
+    panel.classList.remove('hidden');
+    panel.classList.add('active');
+    updateSyncPanel();
+  }
+}
+
+/**
+ * Close sync panel
+ */
+function closeSyncPanel() {
+  const panel = document.getElementById('sync-panel');
+  if (panel) {
+    panel.classList.add('hidden');
+    panel.classList.remove('active');
+  }
+}
+
+/**
+ * Choose workspace folder
+ */
+async function chooseWorkspaceFolder() {
+  try {
+    // Use File System Access API
+    const handle = await (window as any).showDirectoryPicker({
+      mode: 'readwrite',
+      startIn: 'documents'
+    });
+    
+    if (handle) {
+      const path = handle.name;
+      
+      // Save handle to IndexedDB (can't send via message - not serializable)
+      await saveWorkspaceHandleToIDB(handle);
+      
+      // Save path to chrome.storage via background
+      const response = await browser.runtime.sendMessage({
+        action: 'set-sync-folder',
+        path: path
+      });
+      
+      if (response?.success) {
+        state.sync.workspacePath = path;
+        state.sync.status = 'synced';
+        
+        // Load fresh stats from Claude API
+        await loadSyncStats();
+        
+        updateSyncStatusBar();
+        updateSyncPanel();
+        showNotification('Workspace folder set!', 'success');
+        console.log('[Eidolon] Workspace folder set:', path);
+      } else {
+        throw new Error(response?.error || 'Failed to set folder');
+      }
+    }
+  } catch (error: any) {
+    if (error.name !== 'AbortError') {
+      console.error('[Eidolon] Failed to choose folder:', error);
+      showNotification('Failed to select folder', 'error');
+    }
+  }
+}
+
+/**
+ * Save workspace handle to IndexedDB
+ */
+async function saveWorkspaceHandleToIDB(handle: FileSystemDirectoryHandle): Promise<void> {
+  const DB_NAME = 'EidolonHandles';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'handles';
+  const WORKSPACE_HANDLE_KEY = 'workspaceHandle';
+  
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    
+    request.onerror = () => reject(request.error);
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.put(handle, WORKSPACE_HANDLE_KEY);
+      
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        db.close();
+        reject(transaction.error);
+      };
+    };
+  });
+}
+
+/**
+ * Start sync operation
+ */
+async function startSync() {
+  if (state.sync.status === 'syncing') return;
+  
+  // Check if we have a workspace configured
+  if (!state.sync.workspacePath) {
+    showNotification('Please select a workspace folder first', 'error');
+    return;
+  }
+  
+  // Try to get and verify the handle
+  const handle = await getWorkspaceHandleFromIDB();
+  if (!handle) {
+    // Handle not found - need to re-select folder
+    showNotification('Workspace folder access lost. Please re-select the folder.', 'error');
+    state.sync.status = 'not-configured';
+    state.sync.workspacePath = null;
+    // Clear stored path
+    await browser.runtime.sendMessage({ action: 'set-sync-folder', path: '' });
+    updateSyncStatusBar();
+    updateSyncPanel();
+    return;
+  }
+  
+  // Request permission (this is a user gesture context so we can request)
+  const permission = await (handle as any).requestPermission({ mode: 'readwrite' });
+  if (permission !== 'granted') {
+    showNotification('Permission denied for workspace folder', 'error');
+    return;
+  }
+  
+  // Permission granted - clear the flag
+  state.sync.needsPermission = false;
+  state.sync.status = 'syncing';
+  updateSyncStatusBar();
+  updateSyncPanel();
+  
+  // Show progress overlay
+  const overlay = document.getElementById('sync-progress-overlay');
+  const progressText = document.getElementById('sync-progress-text');
+  const progressDetail = document.getElementById('sync-progress-detail');
+  
+  if (overlay) overlay.classList.remove('hidden');
+  if (progressText) progressText.textContent = 'Starting sync...';
+  if (progressDetail) progressDetail.textContent = '';
+  
+  try {
+    // For now, sync must happen in dashboard context since it has the full sync logic
+    // Open dashboard with sync action or show message
+    const response = await browser.runtime.sendMessage({
+      action: 'start-sync',
+      options: {
+        includeChats: state.sync.settings.syncChats,
+        bidirectional: state.sync.settings.bidirectional
+      }
+    });
+    
+    if (response?.success) {
+      state.sync.lastSync = Date.now();
+      state.sync.status = 'synced';
+      await loadSyncStats();
+      showNotification('Sync completed!', 'success');
+    } else if (response?.error?.includes('dashboard')) {
+      // Background can't do sync, need to redirect to dashboard
+      if (overlay) overlay.classList.add('hidden');
+      state.sync.status = state.sync.workspacePath ? 'synced' : 'not-configured';
+      
+      const openDashboard = confirm('Sync requires the Dashboard. Open Dashboard to sync?');
+      if (openDashboard) {
+        browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html#sync') });
+      }
+    } else {
+      state.sync.status = 'error';
+      showNotification(response?.error || 'Sync failed', 'error');
+    }
+  } catch (error: any) {
+    console.error('[Eidolon] Sync failed:', error);
+    state.sync.status = 'error';
+    showNotification('Sync failed: ' + error.message, 'error');
+  } finally {
+    if (overlay) overlay.classList.add('hidden');
+    updateSyncStatusBar();
+    updateSyncPanel();
+  }
+}
+
+/**
+ * Check sync status (opens dashboard diff view)
+ */
+async function checkSyncStatus() {
+  if (!state.sync.workspacePath) {
+    showNotification('Select a workspace folder before checking status', 'error');
+    return;
+  }
+  
+  showNotification('Opening Dashboard to run diff…', 'info');
+  await openDashboardSyncDiff();
+}
+
+async function openDashboardSyncDiff(): Promise<void> {
+  try {
+    const dashboardBase = browser.runtime.getURL('/dashboard.html');
+    const diffUrl = `${dashboardBase}#sync-diff`;
+    const existingTabs = await browser.tabs.query({ url: `${dashboardBase}*` });
+    
+    if (existingTabs && existingTabs.length > 0) {
+      const targetTab = existingTabs[0];
+      if (targetTab.id !== undefined) {
+        await browser.tabs.update(targetTab.id, { active: true, url: diffUrl });
+        if (targetTab.windowId !== undefined) {
+          await browser.windows.update(targetTab.windowId, { focused: true });
+        }
+      }
+    } else {
+      await browser.tabs.create({ url: diffUrl });
+    }
+  } catch (error) {
+    console.error('[Eidolon] Failed to open dashboard diff view:', error);
+    showNotification('Failed to open dashboard for diff', 'error');
+  }
+}
+
+/**
+ * Save sync settings
+ */
+async function saveSyncSettings() {
+  try {
+    await browser.runtime.sendMessage({
+      action: 'update-sync-settings',
+      settings: state.sync.settings
+    });
+  } catch (error) {
+    console.error('[Eidolon] Failed to save sync settings:', error);
+  }
+}
+
+/**
+ * Setup sync event listeners
+ */
+function setupSyncEventListeners() {
+  // Sync status bar click - open panel
+  const statusBar = document.getElementById('sync-status-bar');
+  statusBar?.addEventListener('click', (e) => {
+    // Don't open panel if clicking action buttons
+    if ((e.target as HTMLElement).closest('.sync-action-btn')) return;
+    openSyncPanel();
+  });
+  
+  // Sync action buttons in status bar
+  document.getElementById('sync-check-status-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    checkSyncStatus();
+  });
+  
+  document.getElementById('sync-now-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    startSync();
+  });
+  
+  document.getElementById('sync-settings-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openSyncPanel();
+  });
+  
+  // Close sync panel
+  document.getElementById('close-sync-panel')?.addEventListener('click', closeSyncPanel);
+  
+  // Panel actions
+  document.getElementById('sync-panel-sync-btn')?.addEventListener('click', startSync);
+  document.getElementById('sync-panel-check-btn')?.addEventListener('click', checkSyncStatus);
+  
+  // Choose folder - both buttons call the same function
+  document.getElementById('sync-choose-folder-btn')?.addEventListener('click', chooseWorkspaceFolder);
+  document.getElementById('select-folder-prompt')?.addEventListener('click', chooseWorkspaceFolder);
+  
+  // Open dashboard
+  document.getElementById('sync-open-dashboard-btn')?.addEventListener('click', () => {
+    browser.tabs.create({ url: browser.runtime.getURL('/dashboard.html') });
+  });
+  
+  // Copy path
+  document.getElementById('copy-path-btn')?.addEventListener('click', () => {
+    if (state.sync.workspacePath) {
+      navigator.clipboard.writeText(state.sync.workspacePath);
+      showNotification('Path copied!', 'success');
+    }
+  });
+  
+  // Cancel sync
+  document.getElementById('sync-cancel-btn')?.addEventListener('click', async () => {
+    await browser.runtime.sendMessage({ action: 'cancel-sync' });
+    state.sync.status = state.sync.workspacePath ? 'synced' : 'not-configured';
+    const overlay = document.getElementById('sync-progress-overlay');
+    if (overlay) overlay.classList.add('hidden');
+    updateSyncStatusBar();
+    updateSyncPanel();
+  });
+  
+  // Settings toggles
+  document.getElementById('sync-auto-toggle')?.addEventListener('change', (e) => {
+    state.sync.settings.autoSync = (e.target as HTMLInputElement).checked;
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-chats-toggle')?.addEventListener('change', (e) => {
+    state.sync.settings.syncChats = (e.target as HTMLInputElement).checked;
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-bidirectional-toggle')?.addEventListener('change', (e) => {
+    state.sync.settings.bidirectional = (e.target as HTMLInputElement).checked;
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-auto-md-toggle')?.addEventListener('change', (e) => {
+    state.sync.settings.autoAddMdExtension = (e.target as HTMLInputElement).checked;
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-agents-toggle')?.addEventListener('change', (e) => {
+    state.sync.settings.ensureAgentsFrontmatter = (e.target as HTMLInputElement).checked;
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-interval-select')?.addEventListener('change', (e) => {
+    state.sync.settings.syncInterval = parseInt((e.target as HTMLSelectElement).value, 10);
+    saveSyncSettings();
+  });
+  
+  document.getElementById('sync-conflict-select')?.addEventListener('change', (e) => {
+    state.sync.settings.conflictStrategy = (e.target as HTMLSelectElement).value as ConflictStrategy;
+    saveSyncSettings();
+  });
+}
 
 document.addEventListener('DOMContentLoaded', init);

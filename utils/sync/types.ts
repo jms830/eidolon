@@ -11,6 +11,8 @@ export interface WorkspaceConfig {
   lastSync: string | null; // ISO timestamp
   /** Sync settings */
   settings: SyncSettings;
+  /** Account sync history - tracks synced accounts (keyed by accountId) */
+  accountSyncHistory?: Record<string, AccountSyncInfo>;
 }
 
 export interface SyncSettings {
@@ -28,6 +30,20 @@ export interface SyncSettings {
   ensureAgentsFrontmatter: boolean;
   /** Conflict resolution strategy */
   conflictStrategy: ConflictStrategy;
+  /** Use account-based subfolders (/{account-name}/) */
+  useAccountSubfolders: boolean;
+}
+
+/** Account sync info - tracks which account was last synced */
+export interface AccountSyncInfo {
+  /** Account ID that was last synced */
+  accountId: string;
+  /** Account name for subfolder (sanitized) */
+  accountName: string;
+  /** Account email (for display) */
+  accountEmail?: string;
+  /** Last sync timestamp for this account */
+  lastSyncedAt: string;
 }
 
 export type ConflictStrategy = 'remote' | 'local' | 'newer' | 'prompt';

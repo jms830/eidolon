@@ -3,7 +3,7 @@
  * Handles storing/retrieving workspace settings in chrome.storage
  */
 
-import type { WorkspaceConfig, SyncSettings } from './types';
+import type { WorkspaceConfig, SyncSettings, AccountSyncInfo } from './types';
 import {
   saveWorkspaceHandle as saveHandleToIDB,
   getWorkspaceHandle as getHandleFromIDB,
@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: SyncSettings = {
   autoAddMdExtension: true, // Automatically add .md extension to files without extensions
   ensureAgentsFrontmatter: true,
   conflictStrategy: 'remote',
+  useAccountSubfolders: true, // Use account-based subfolders by default
 };
 
 const DEFAULT_CONFIG: WorkspaceConfig = {
@@ -171,4 +172,54 @@ export async function getWorkspaceHandle(): Promise<FileSystemDirectoryHandle | 
  */
 export async function clearWorkspaceHandle(): Promise<void> {
   return clearHandleFromIDB();
+}
+
+/**
+ * Update account sync info after successful sync
+ */
+export async function updateAccountSyncInfo(
+  accountId: string,
+  accountName: string,
+  accountEmail?: string
+): Promise<void> {
+  const config = await getWorkspaceConfig();
+  if (!config.accountSyncHistory) {
+    config.accountSyncHistory = {};
+  }
+  config.accountSyncHistory[accountId] = {
+    accountId,
+    accountName,
+    accountEmail,
+    lastSyncedAt: new Date().toISOString(),
+  };
+  await saveWorkspaceConfig(config);
+}
+
+/**
+ * Get account sync info for a specific account
+ */
+export async function getAccountSyncInfo(accountId: string): Promise<AccountSyncInfo | null> {
+  const config = await getWorkspaceConfig();
+  return config.accountSyncHistory?.[accountId] || null;
+}
+
+/**
+ * Get all synced accounts info
+ */
+export async function getAllAccountSyncInfo(): Promise<Record<string, AccountSyncInfo>> {
+  const config = await getWorkspaceConfig();
+  return config.accountSyncHistory || {};
+}
+
+/**
+ * Sanitize account name for use as folder name
+ */
+export function sanitizeAccountName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '-')
+    .replace(/_{2,}/g, '_')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .substring(0, 50); // Limit length
 }
