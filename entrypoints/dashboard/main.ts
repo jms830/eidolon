@@ -30,6 +30,7 @@ import {
   isFileSystemAccessSupported
 } from '../../utils/sync/fileSystem';
 import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
+import { settingsService } from '../../utils/settings/settingsService';
 
 // State
 interface AppState {
@@ -3058,6 +3059,8 @@ async function syncNow(dryRun: boolean = false) {
     alert(`Sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
+    // Update workspace status in Settings tab
+    updateSettingsWorkspaceStatus();
   }
 }
 
@@ -3196,6 +3199,8 @@ async function syncChatsOnly(dryRun: boolean = false) {
     alert(`Chats sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
+    // Update workspace status in Settings tab
+    updateSettingsWorkspaceStatus();
   }
 }
 
@@ -4773,6 +4778,9 @@ function initExportSettings() {
  * Initialize settings tab - loads settings and attaches auto-save handlers
  */
 function initSettingsTab() {
+  // Initialize settings service for dashboard context
+  settingsService.init('dashboard');
+  
   // Load export settings
   loadExportSettings();
   
@@ -4781,6 +4789,19 @@ function initSettingsTab() {
   
   // Setup auto-save on toggle changes (no save button needed)
   setupSettingsAutoSave();
+  
+  // Load workspace status in settings tab
+  updateSettingsWorkspaceStatus();
+  
+  // Setup workspace status button handlers
+  setupSettingsWorkspaceStatusHandlers();
+  
+  // Subscribe to workspace config changes to update status
+  settingsService.subscribe((event) => {
+    if (event.type === 'workspace') {
+      updateSettingsWorkspaceStatus();
+    }
+  });
 }
 
 /**
@@ -4960,6 +4981,114 @@ function importSettings() {
 async function saveAllSettings() {
   await saveExportSettingsAuto();
   showSettingsSaveStatus('All settings saved');
+}
+
+// ========================================================================
+// WORKSPACE STATUS IN SETTINGS TAB
+// ========================================================================
+
+/**
+ * Update the workspace status summary in the Settings tab
+ * This shows a quick overview of sync status without needing to navigate to Sync tab
+ */
+async function updateSettingsWorkspaceStatus() {
+  const indicator = document.getElementById('settings-sync-indicator');
+  const statusText = document.getElementById('settings-sync-status-text');
+  const pathRow = document.getElementById('settings-workspace-path-row');
+  const pathEl = document.getElementById('settings-workspace-path');
+  const lastSyncRow = document.getElementById('settings-last-sync-row');
+  const lastSyncEl = document.getElementById('settings-last-sync-time');
+  
+  if (!indicator || !statusText) return;
+  
+  try {
+    const config = await getWorkspaceConfig();
+    
+    if (!config?.path) {
+      // Not configured
+      indicator.className = 'workspace-status-indicator not-configured';
+      statusText.textContent = 'Not configured';
+      if (pathRow) pathRow.style.display = 'none';
+      if (lastSyncRow) lastSyncRow.style.display = 'none';
+      return;
+    }
+    
+    // Show workspace path
+    if (pathRow && pathEl) {
+      pathRow.style.display = 'flex';
+      pathEl.textContent = config.path;
+      pathEl.title = config.path;
+    }
+    
+    // Show last sync time
+    if (lastSyncRow && lastSyncEl) {
+      if (config.lastSync) {
+        lastSyncRow.style.display = 'flex';
+        const lastSyncDate = new Date(config.lastSync);
+        const now = new Date();
+        const diffMs = now.getTime() - lastSyncDate.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        
+        if (diffMins < 1) {
+          lastSyncEl.textContent = 'Just now';
+        } else if (diffMins < 60) {
+          lastSyncEl.textContent = `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+        } else if (diffHours < 24) {
+          lastSyncEl.textContent = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        } else {
+          lastSyncEl.textContent = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+        }
+      } else {
+        lastSyncRow.style.display = 'flex';
+        lastSyncEl.textContent = 'Never';
+      }
+    }
+    
+    // Determine sync status
+    if (state.isSyncing) {
+      indicator.className = 'workspace-status-indicator syncing';
+      statusText.textContent = 'Syncing...';
+    } else if (config.lastSync) {
+      // Check if there might be pending changes (simplified check)
+      const lastSyncDate = new Date(config.lastSync);
+      const now = new Date();
+      const hoursSinceSync = (now.getTime() - lastSyncDate.getTime()) / 3600000;
+      
+      if (hoursSinceSync > 24) {
+        indicator.className = 'workspace-status-indicator pending';
+        statusText.textContent = 'May have pending changes';
+      } else {
+        indicator.className = 'workspace-status-indicator synced';
+        statusText.textContent = 'Synced';
+      }
+    } else {
+      indicator.className = 'workspace-status-indicator pending';
+      statusText.textContent = 'Workspace configured, not synced yet';
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to update workspace status:', error);
+    indicator.className = 'workspace-status-indicator error';
+    statusText.textContent = 'Error checking status';
+  }
+}
+
+/**
+ * Setup workspace status button handlers in Settings tab
+ */
+function setupSettingsWorkspaceStatusHandlers() {
+  // "Open Full Sync Settings" button - navigates to Sync tab
+  const openSyncTabBtn = document.getElementById('settings-open-sync-tab');
+  if (openSyncTabBtn) {
+    openSyncTabBtn.addEventListener('click', () => {
+      // Find and click the Sync nav tab
+      const syncNavTab = document.querySelector('.nav-tab[data-tab="sync"]') as HTMLElement;
+      if (syncNavTab) {
+        syncNavTab.click();
+      }
+    });
+  }
 }
 
 // ========================================================================
