@@ -143,6 +143,77 @@ export default defineContentScript({
           opacity: 0;
         }
       }
+      
+      /* BrowserMCP-style numbered element overlays */
+      #eidolon-agent-indicator .element-overlay-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      
+      #eidolon-agent-indicator .element-highlight {
+        position: absolute;
+        border: 2px solid rgba(249, 115, 22, 0.8);
+        background: rgba(249, 115, 22, 0.1);
+        pointer-events: none;
+        box-sizing: border-box;
+        transition: all 0.15s ease-out;
+      }
+      
+      #eidolon-agent-indicator .element-highlight:hover {
+        background: rgba(249, 115, 22, 0.2);
+      }
+      
+      #eidolon-agent-indicator .element-index {
+        position: absolute;
+        top: -8px;
+        left: -8px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        background: #f97316;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 18px;
+        text-align: center;
+        border-radius: 9px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        z-index: 1;
+      }
+      
+      #eidolon-agent-indicator .element-index.large {
+        min-width: 24px;
+        height: 20px;
+        line-height: 20px;
+        font-size: 10px;
+        border-radius: 10px;
+      }
+      
+      #eidolon-agent-indicator .element-tooltip {
+        position: absolute;
+        bottom: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.85);
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+        font-size: 11px;
+        white-space: nowrap;
+        border-radius: 4px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease-out;
+      }
+      
+      #eidolon-agent-indicator .element-highlight:hover .element-tooltip {
+        opacity: 1;
+      }
     `;
     
     /**
@@ -259,14 +330,186 @@ export default defineContentScript({
       }, duration);
     }
     
+    // ========================================================================
+    // BrowserMCP-style Numbered Element Overlay System
+    // ========================================================================
+    
+    interface ElementOverlayInfo {
+      index: number;
+      ref: string;
+      bounds: { x: number; y: number; width: number; height: number };
+      tagName: string;
+      role?: string;
+      name?: string;
+    }
+    
+    let overlayContainer: HTMLElement | null = null;
+    let currentOverlays: Map<string, HTMLElement> = new Map();
+    
+    /**
+     * Create the overlay container if it doesn't exist
+     */
+    function ensureOverlayContainer(): HTMLElement {
+      if (!indicatorContainer) {
+        indicatorContainer = createIndicator();
+      }
+      
+      if (!overlayContainer) {
+        overlayContainer = document.createElement('div');
+        overlayContainer.className = 'element-overlay-container';
+        indicatorContainer.appendChild(overlayContainer);
+      }
+      
+      return overlayContainer;
+    }
+    
+    /**
+     * Show numbered overlays on interactive elements
+     * Inspired by BrowserMCP's element highlighting system
+     */
+    function showElementOverlays(elements: ElementOverlayInfo[]): void {
+      const container = ensureOverlayContainer();
+      
+      // Clear existing overlays
+      clearElementOverlays();
+      
+      // Create new overlays
+      elements.forEach((el) => {
+        const highlight = document.createElement('div');
+        highlight.className = 'element-highlight';
+        highlight.style.left = `${el.bounds.x}px`;
+        highlight.style.top = `${el.bounds.y}px`;
+        highlight.style.width = `${el.bounds.width}px`;
+        highlight.style.height = `${el.bounds.height}px`;
+        
+        // Index badge
+        const indexBadge = document.createElement('div');
+        indexBadge.className = el.index >= 100 ? 'element-index large' : 'element-index';
+        indexBadge.textContent = String(el.index);
+        highlight.appendChild(indexBadge);
+        
+        // Tooltip with element info
+        const tooltip = document.createElement('div');
+        tooltip.className = 'element-tooltip';
+        const tooltipText = [
+          `[${el.index}]`,
+          el.tagName.toLowerCase(),
+          el.role ? `role="${el.role}"` : '',
+          el.name ? `"${el.name.slice(0, 30)}${el.name.length > 30 ? '...' : ''}"` : ''
+        ].filter(Boolean).join(' ');
+        tooltip.textContent = tooltipText;
+        highlight.appendChild(tooltip);
+        
+        container.appendChild(highlight);
+        currentOverlays.set(el.ref, highlight);
+      });
+      
+      // Show indicator if not already visible
+      if (indicatorContainer && !indicatorContainer.classList.contains('active')) {
+        indicatorContainer.classList.add('active');
+      }
+    }
+    
+    /**
+     * Clear all element overlays
+     */
+    function clearElementOverlays(): void {
+      currentOverlays.forEach(overlay => overlay.remove());
+      currentOverlays.clear();
+    }
+    
+    /**
+     * Highlight a specific element by ref (for showing which element will be acted upon)
+     */
+    function highlightElement(ref: string, color: string = '#22c55e'): void {
+      const overlay = currentOverlays.get(ref);
+      if (overlay) {
+        overlay.style.borderColor = color;
+        overlay.style.background = color.replace(')', ', 0.2)').replace('rgb', 'rgba');
+        
+        // Reset after a short delay
+        setTimeout(() => {
+          overlay.style.borderColor = '';
+          overlay.style.background = '';
+        }, 1000);
+      }
+    }
+    
+    /**
+     * Flash an element to indicate an action is about to happen
+     */
+    function flashElement(ref: string): void {
+      const overlay = currentOverlays.get(ref);
+      if (overlay) {
+        overlay.style.animation = 'eidolon-pulse 0.3s ease-in-out 2';
+        setTimeout(() => {
+          overlay.style.animation = '';
+        }, 600);
+      }
+    }
+    
+    /**
+     * Get overlays for interactive elements on the page
+     * Uses the accessibility tree content script functions
+     */
+    function getInteractiveElementOverlays(): ElementOverlayInfo[] {
+      const getElements = (window as any).__getInteractiveElementsWithIndex;
+      if (getElements) {
+        return getElements();
+      }
+      
+      // Fallback: manually find interactive elements
+      const interactiveSelector = 'a, button, input, select, textarea, [onclick], [role="button"], [role="link"], [tabindex]:not([tabindex="-1"])';
+      const elements = document.querySelectorAll(interactiveSelector);
+      const result: ElementOverlayInfo[] = [];
+      
+      elements.forEach((el, index) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          result.push({
+            index: index + 1,
+            ref: `fallback-${index}`,
+            bounds: {
+              x: rect.x + window.scrollX,
+              y: rect.y + window.scrollY,
+              width: rect.width,
+              height: rect.height
+            },
+            tagName: el.tagName,
+            role: el.getAttribute('role') || undefined,
+            name: el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 50) || undefined
+          });
+        }
+      });
+      
+      return result;
+    }
+    
+    /**
+     * Refresh overlays based on current page state
+     */
+    function refreshOverlays(): void {
+      const elements = getInteractiveElementOverlays();
+      showElementOverlays(elements);
+    }
+    
     // Expose API on window for background script to call via scripting.executeScript
     (window as any).__eidolonIndicator = {
+      // Core indicator functions
       show: showIndicator,
       hide: hideIndicator,
       updateStatus,
       showClick: showClickIndicator,
       showLabel: showActionLabel,
-      isActive: () => isActive
+      isActive: () => isActive,
+      
+      // BrowserMCP-style element overlay functions
+      showElementOverlays,
+      clearElementOverlays,
+      highlightElement,
+      flashElement,
+      refreshOverlays,
+      getInteractiveElementOverlays
     };
     
     // Listen for messages
@@ -286,6 +529,26 @@ export default defineContentScript({
           break;
         case 'SHOW_ACTION_LABEL':
           showActionLabel(message.x, message.y, message.text, message.duration);
+          break;
+        // BrowserMCP-style overlay messages
+        case 'SHOW_ELEMENT_OVERLAYS':
+          if (message.elements) {
+            showElementOverlays(message.elements);
+          } else {
+            refreshOverlays();
+          }
+          break;
+        case 'CLEAR_ELEMENT_OVERLAYS':
+          clearElementOverlays();
+          break;
+        case 'HIGHLIGHT_ELEMENT':
+          highlightElement(message.ref, message.color);
+          break;
+        case 'FLASH_ELEMENT':
+          flashElement(message.ref);
+          break;
+        case 'REFRESH_OVERLAYS':
+          refreshOverlays();
           break;
       }
     });

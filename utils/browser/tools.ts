@@ -7,7 +7,197 @@
 
 import * as cdp from './cdp';
 import * as tabGroups from './tabGroups';
-import type { BrowserAction, ActionResult, AccessibilityNode } from './types';
+import type { 
+  BrowserAction, 
+  ActionResult, 
+  AccessibilityNode,
+  RefValidationResult,
+  DOMSnapshot,
+  ScrollInfo
+} from './types';
+
+// ============================================================================
+// BrowserMCP-Inspired Utility Functions
+// ============================================================================
+
+/**
+ * Calculate intelligent timeout for typing operations based on text length.
+ * From BrowserMCP: ~50ms per character + base time
+ */
+export function calculateTypingTimeout(text: string): number {
+  const BASE_TIMEOUT = 100; // Base time in ms
+  const MS_PER_CHAR = 50;   // Time per character
+  const MAX_TIMEOUT = 30000; // Max 30 seconds
+  
+  const calculated = BASE_TIMEOUT + (text.length * MS_PER_CHAR);
+  return Math.min(calculated, MAX_TIMEOUT);
+}
+
+/**
+ * Validate an element ref before performing an action.
+ * Prevents stale ref errors by checking if element still exists and is actionable.
+ */
+export async function validateRef(
+  tabId: number,
+  ref: string
+): Promise<RefValidationResult> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (elementRef: string) => {
+        const validateFn = (window as any).__validateRef;
+        if (validateFn) {
+          return validateFn(elementRef);
+        }
+        
+        // Fallback validation if content script function not available
+        const getBounds = (window as any).__getBoundsByRef;
+        const bounds = getBounds?.(elementRef);
+        if (!bounds) {
+          return { valid: false, error: `Element not found: ${elementRef}` };
+        }
+        
+        return {
+          valid: true,
+          element: {
+            ref: elementRef,
+            tagName: 'unknown',
+            isVisible: bounds.width > 0 && bounds.height > 0,
+            isInteractive: true,
+            bounds
+          }
+        };
+      },
+      args: [ref]
+    });
+    
+    return results[0]?.result || { valid: false, error: 'Script execution failed' };
+  } catch (error: any) {
+    return { valid: false, error: error.message || 'Validation failed' };
+  }
+}
+
+/**
+ * Get DOM snapshot for change detection
+ */
+export async function getDOMSnapshot(tabId: number): Promise<DOMSnapshot | null> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const snapshotFn = (window as any).__generateDOMSnapshot;
+        if (snapshotFn) {
+          const hash = snapshotFn();
+          // Count elements for additional context
+          const allElements = document.querySelectorAll('*');
+          const interactiveSelector = 'a, button, input, select, textarea, [onclick], [role="button"], [role="link"], [tabindex]';
+          const interactiveElements = document.querySelectorAll(interactiveSelector);
+          
+          return {
+            hash,
+            elementCount: allElements.length,
+            interactiveCount: interactiveElements.length,
+            timestamp: Date.now()
+          };
+        }
+        return null;
+      }
+    });
+    
+    return results[0]?.result || null;
+  } catch (error) {
+    console.error('[Tools] Failed to get DOM snapshot:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if DOM has changed between two snapshots
+ */
+export function hasDOMChanged(before: DOMSnapshot | null, after: DOMSnapshot | null): boolean {
+  if (!before || !after) return true; // Assume changed if we can't compare
+  return before.hash !== after.hash;
+}
+
+/**
+ * Get scroll information for the page or a scrollable container
+ */
+export async function getScrollInfo(tabId: number): Promise<ScrollInfo | null> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const scrollInfoFn = (window as any).__getScrollInfo;
+        if (scrollInfoFn) {
+          return scrollInfoFn();
+        }
+        
+        // Fallback implementation
+        const scrollTop = window.scrollY || document.documentElement.scrollTop;
+        const scrollHeight = document.documentElement.scrollHeight;
+        const clientHeight = window.innerHeight;
+        
+        return {
+          scrollTop,
+          scrollHeight,
+          clientHeight,
+          pixelsAbove: scrollTop,
+          pixelsBelow: scrollHeight - scrollTop - clientHeight,
+          percentScrolled: scrollHeight > clientHeight 
+            ? Math.round((scrollTop / (scrollHeight - clientHeight)) * 100) 
+            : 100
+        };
+      }
+    });
+    
+    return results[0]?.result || null;
+  } catch (error) {
+    console.error('[Tools] Failed to get scroll info:', error);
+    return null;
+  }
+}
+
+/**
+ * Wrapper for actions that require ref validation.
+ * Validates the ref before executing the action and provides better error messages.
+ */
+export async function withRefValidation(
+  tabId: number,
+  ref: string,
+  actionName: string,
+  action: (validatedRef: string) => Promise<ActionResult>
+): Promise<ActionResult> {
+  const validation = await validateRef(tabId, ref);
+  
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: `Cannot ${actionName}: ${validation.error}`,
+      timestamp: Date.now(),
+      message: `Failed to ${actionName} on element "${ref}" - element not found or not accessible`
+    };
+  }
+  
+  if (validation.element && !validation.element.isVisible) {
+    return {
+      success: false,
+      error: `Element "${ref}" is not visible`,
+      timestamp: Date.now(),
+      message: `Cannot ${actionName} on hidden element`,
+      elementInfo: validation.element
+    };
+  }
+  
+  // Execute the actual action
+  const result = await action(ref);
+  
+  // Enhance result with element info
+  if (validation.element) {
+    result.elementInfo = validation.element;
+  }
+  
+  return result;
+}
 
 /**
  * Execute a browser action
@@ -101,28 +291,66 @@ async function navigate(tabId: number, url: string): Promise<ActionResult> {
 }
 
 /**
- * Click action
+ * Click action with ref validation and DOM change detection
  */
 async function clickAction(tabId: number, action: BrowserAction): Promise<ActionResult> {
   let x: number, y: number;
   
+  // Take DOM snapshot before action
+  const snapshotBefore = await getDOMSnapshot(tabId);
+  
   if (action.target) {
-    // Click by element ref - get coordinates from content script
-    const coords = await getElementCoordinates(tabId, action.target);
-    if (!coords) {
-      return { success: false, error: `Element not found: ${action.target}`, timestamp: Date.now() };
-    }
-    x = coords.x;
-    y = coords.y;
+    // Use ref validation wrapper for better error handling
+    return await withRefValidation(tabId, action.target, 'click', async (ref) => {
+      const coords = await getElementCoordinates(tabId, ref);
+      if (!coords) {
+        return { 
+          success: false, 
+          error: `Element coordinates not found: ${ref}`, 
+          timestamp: Date.now(),
+          message: `Could not determine click position for element "${ref}"`
+        };
+      }
+      
+      await cdp.click(tabId, coords.x, coords.y);
+      
+      // Check for DOM changes after action
+      const snapshotAfter = await getDOMSnapshot(tabId);
+      const domChanged = hasDOMChanged(snapshotBefore, snapshotAfter);
+      
+      return { 
+        success: true, 
+        data: { x: coords.x, y: coords.y }, 
+        timestamp: Date.now(),
+        domChanged,
+        message: `Clicked element "${ref}" at (${coords.x}, ${coords.y})${domChanged ? ' - page updated' : ''}`
+      };
+    });
   } else if (action.x !== undefined && action.y !== undefined) {
     x = action.x;
     y = action.y;
+    
+    await cdp.click(tabId, x, y);
+    
+    // Check for DOM changes after action
+    const snapshotAfter = await getDOMSnapshot(tabId);
+    const domChanged = hasDOMChanged(snapshotBefore, snapshotAfter);
+    
+    return { 
+      success: true, 
+      data: { x, y }, 
+      timestamp: Date.now(),
+      domChanged,
+      message: `Clicked at coordinates (${x}, ${y})${domChanged ? ' - page updated' : ''}`
+    };
   } else {
-    return { success: false, error: 'Click requires target ref or coordinates', timestamp: Date.now() };
+    return { 
+      success: false, 
+      error: 'Click requires target ref or coordinates', 
+      timestamp: Date.now(),
+      message: 'Click action requires either a target element ref or x,y coordinates'
+    };
   }
-  
-  await cdp.click(tabId, x, y);
-  return { success: true, data: { x, y }, timestamp: Date.now() };
 }
 
 /**
@@ -174,7 +402,7 @@ async function doubleClickAction(tabId: number, action: BrowserAction): Promise<
 }
 
 /**
- * Scroll action
+ * Scroll action with scroll position info and DOM change detection
  */
 async function scrollAction(tabId: number, action: BrowserAction): Promise<ActionResult> {
   const x = action.x || 100;
@@ -182,25 +410,105 @@ async function scrollAction(tabId: number, action: BrowserAction): Promise<Actio
   const deltaX = action.deltaX || 0;
   const deltaY = action.deltaY || 0;
   
+  // Get scroll info before
+  const scrollBefore = await getScrollInfo(tabId);
+  const snapshotBefore = await getDOMSnapshot(tabId);
+  
   await cdp.scroll(tabId, x, y, deltaX, deltaY);
-  return { success: true, data: { deltaX, deltaY }, timestamp: Date.now() };
+  
+  // Small delay for scroll to settle and lazy-loaded content
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Get scroll info after
+  const scrollAfter = await getScrollInfo(tabId);
+  const snapshotAfter = await getDOMSnapshot(tabId);
+  const domChanged = hasDOMChanged(snapshotBefore, snapshotAfter);
+  
+  // Build descriptive message
+  let direction = '';
+  if (deltaY < 0) direction = 'up';
+  else if (deltaY > 0) direction = 'down';
+  else if (deltaX < 0) direction = 'left';
+  else if (deltaX > 0) direction = 'right';
+  
+  const scrollPercentage = scrollAfter?.percentScrolled ?? 0;
+  
+  return { 
+    success: true, 
+    data: { 
+      deltaX, 
+      deltaY,
+      scrollBefore: scrollBefore ? {
+        position: scrollBefore.scrollTop,
+        percentScrolled: scrollBefore.percentScrolled
+      } : null,
+      scrollAfter: scrollAfter ? {
+        position: scrollAfter.scrollTop,
+        percentScrolled: scrollAfter.percentScrolled,
+        pixelsBelow: scrollAfter.pixelsBelow
+      } : null
+    }, 
+    timestamp: Date.now(),
+    domChanged,
+    message: `Scrolled ${direction} by ${Math.abs(deltaY || deltaX)}px - now at ${scrollPercentage}%${scrollAfter?.pixelsBelow === 0 ? ' (bottom)' : ''}${domChanged ? ' - new content loaded' : ''}`
+  };
 }
 
 /**
- * Type text action
+ * Type text action with intelligent timeout and DOM change detection
  */
 async function typeAction(tabId: number, action: BrowserAction): Promise<ActionResult> {
   if (!action.value) {
-    return { success: false, error: 'Type action requires text value', timestamp: Date.now() };
+    return { 
+      success: false, 
+      error: 'Type action requires text value', 
+      timestamp: Date.now(),
+      message: 'No text provided to type'
+    };
   }
   
-  // If target specified, focus it first
+  // Take DOM snapshot before action
+  const snapshotBefore = await getDOMSnapshot(tabId);
+  
+  // If target specified, validate and focus it first
   if (action.target) {
+    const validation = await validateRef(tabId, action.target);
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: `Cannot type: ${validation.error}`,
+        timestamp: Date.now(),
+        message: `Cannot type into element "${action.target}" - element not found or not accessible`
+      };
+    }
     await focusElement(tabId, action.target);
   }
   
+  // Calculate timeout based on text length
+  const timeout = calculateTypingTimeout(action.value);
+  
+  // Insert text with calculated timeout consideration
   await cdp.insertText(tabId, action.value);
-  return { success: true, data: { text: action.value }, timestamp: Date.now() };
+  
+  // Small delay proportional to text length for DOM to update
+  const waitTime = Math.min(action.value.length * 5, 500);
+  await new Promise(resolve => setTimeout(resolve, waitTime));
+  
+  // Check for DOM changes after action
+  const snapshotAfter = await getDOMSnapshot(tabId);
+  const domChanged = hasDOMChanged(snapshotBefore, snapshotAfter);
+  
+  return { 
+    success: true, 
+    data: { 
+      text: action.value,
+      charCount: action.value.length,
+      calculatedTimeout: timeout
+    }, 
+    timestamp: Date.now(),
+    domChanged,
+    message: `Typed ${action.value.length} characters${action.target ? ` into "${action.target}"` : ''}${domChanged ? ' - page updated' : ''}`
+  };
 }
 
 /**
