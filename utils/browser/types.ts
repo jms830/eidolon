@@ -135,6 +135,45 @@ export interface ActionResult {
   data?: any;
   screenshot?: string; // Base64 encoded
   timestamp: number;
+  // BrowserMCP-inspired enhancements
+  domChanged?: boolean; // Whether the action caused DOM changes
+  message?: string; // Human-readable action description
+  elementInfo?: {
+    ref: string;
+    tagName?: string;
+    role?: string;
+    name?: string;
+    isVisible?: boolean;
+    bounds?: BoundingRect;
+  };
+}
+
+export interface RefValidationResult {
+  valid: boolean;
+  element?: {
+    ref: string;
+    tagName: string;
+    isVisible: boolean;
+    isInteractive: boolean;
+    bounds: BoundingRect;
+  };
+  error?: string;
+}
+
+export interface DOMSnapshot {
+  hash: string;
+  elementCount: number;
+  interactiveCount: number;
+  timestamp: number;
+}
+
+export interface ScrollInfo {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  pixelsAbove: number;
+  pixelsBelow: number;
+  percentScrolled: number;
 }
 
 // ============================================================================
