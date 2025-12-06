@@ -2,26 +2,27 @@
 
 ## Commands
 ```bash
-npm run dev          # Development with hot reload
-npm run build        # Production build to .output/
-npm run lint         # ESLint check
-npm test             # Run all tests (Vitest)
-npm test -- --run path/to/file.test.ts  # Single test file
+npm run dev              # Dev with hot reload (Chrome)
+npm run dev:firefox      # Dev for Firefox
+npm run build            # Production build → .output/
+npm run lint             # ESLint (entrypoints + utils)
+npm test                 # Run all tests (Vitest)
+npm test -- --run utils/sync/hashUtils.test.ts  # Single test file
 ```
 
 ## Code Style
-- **Framework**: WXT (web extension framework) + TypeScript + Preact
+- **Framework**: WXT + TypeScript (strict) + Preact (JSX via `jsxImportSource: "preact"`)
 - **Entrypoints**: Use `defineBackground()`, `defineContentScript()` from WXT
-- **Imports**: External first, then internal (`utils/`, `@/`), types last
-- **Types**: Strict mode enabled; define interfaces in `utils/*/types.ts`
-- **Naming**: camelCase functions/vars, PascalCase classes/types, UPPER_SNAKE constants
-- **Error handling**: Use custom error classes (e.g., `ClaudeAPIError`), always handle async errors
-- **Storage**: Use `chrome.storage.local` with `eidolon_` prefix for keys
-- **Logging**: Use debug helpers (`debugLog()`) gated by DEBUG_MODE flag
-- **Comments**: JSDoc for public APIs; section headers with `// ====` blocks
+- **Imports**: External → internal (`utils/`, `@/`, `~/`) → types last
+- **Types**: Define interfaces in `utils/*/types.ts`; use generics for API responses
+- **Naming**: camelCase vars/funcs, PascalCase classes/types, UPPER_SNAKE constants
+- **Errors**: Custom error classes (e.g., `ClaudeAPIError` with `statusCode`, `errorType`)
+- **Storage**: `chrome.storage.local` with `eidolon_` prefix (e.g., `eidolon_debug_mode`)
+- **Logging**: `debugLog()` gated by `DEBUG_MODE`; use `debugGroup()`/`debugGroupEnd()`
+- **Comments**: JSDoc for exports; `// ====` section headers in long files
 
 ## Architecture
-- `entrypoints/` - Extension entry points (background, popup, sidepanel, content scripts)
-- `utils/` - Shared utilities (api, sync, search, tags)
-- Background script is singleton; use message passing from UI components
-- API calls must go through `ClaudeAPIClient` class, never raw `fetch()`
+- `entrypoints/` - background.ts (singleton), popup, sidepanel, content scripts
+- `utils/` - api/, sync/, search/, tags/, browser/, export/
+- Background handles all API calls via `ClaudeAPIClient`; UI uses message passing
+- Never use raw `fetch()` for Claude API—always go through the client class
