@@ -56,6 +56,8 @@ interface AppState {
   fileFilter: { projectId: string; projectName: string } | null;
   lastDiffResult: any | null;
   lastDiffTimestamp: number | null;
+  favorites: Set<string>;
+  showFavoritesOnly: boolean;
 }
 
 const state: AppState = {
@@ -81,6 +83,8 @@ const state: AppState = {
   fileFilter: null,
   lastDiffResult: null,
   lastDiffTimestamp: null,
+  favorites: new Set(),
+  showFavoritesOnly: false,
 };
 
 const searchService = getSearchService();
@@ -262,6 +266,514 @@ function showConfirmModal(options: ConfirmOptions): Promise<boolean> {
     
     // Focus the cancel button by default (safer option)
     (cancelBtn as HTMLElement)?.focus();
+  });
+}
+
+// ============================================================================
+// CONTEXT MENU SYSTEM
+// ============================================================================
+
+interface ContextMenuItem {
+  label: string;
+  icon: string;
+  action: () => void | Promise<void>;
+  danger?: boolean;
+  dividerAfter?: boolean;
+}
+
+let activeContextMenu: HTMLElement | null = null;
+
+function showContextMenu(e: MouseEvent, items: ContextMenuItem[]): void {
+  e.preventDefault();
+  
+  // Close any existing context menu
+  hideContextMenu();
+  
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.setAttribute('role', 'menu');
+  
+  items.forEach((item, index) => {
+    const menuItem = document.createElement('div');
+    menuItem.className = `context-menu-item${item.danger ? ' danger' : ''}`;
+    menuItem.setAttribute('role', 'menuitem');
+    menuItem.innerHTML = `<span class="icon">${item.icon}</span>${item.label}`;
+    
+    menuItem.addEventListener('click', async () => {
+      hideContextMenu();
+      await item.action();
+    });
+    
+    menu.appendChild(menuItem);
+    
+    if (item.dividerAfter && index < items.length - 1) {
+      const divider = document.createElement('div');
+      divider.className = 'context-menu-divider';
+      menu.appendChild(divider);
+    }
+  });
+  
+  document.body.appendChild(menu);
+  activeContextMenu = menu;
+  
+  // Position the menu
+  const menuRect = menu.getBoundingClientRect();
+  let x = e.clientX;
+  let y = e.clientY;
+  
+  // Adjust if menu would go off screen
+  if (x + menuRect.width > window.innerWidth) {
+    x = window.innerWidth - menuRect.width - 8;
+  }
+  if (y + menuRect.height > window.innerHeight) {
+    y = window.innerHeight - menuRect.height - 8;
+  }
+  
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  
+  // Close on click outside
+  const closeHandler = (evt: MouseEvent) => {
+    if (!menu.contains(evt.target as Node)) {
+      hideContextMenu();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  
+  // Delay adding the listener to prevent immediate close
+  setTimeout(() => {
+    document.addEventListener('click', closeHandler);
+  }, 0);
+  
+  // Close on escape
+  const escHandler = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      hideContextMenu();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+function hideContextMenu(): void {
+  if (activeContextMenu) {
+    activeContextMenu.remove();
+    activeContextMenu = null;
+  }
+}
+
+function getProjectContextMenuItems(projectId: string, project: any): ContextMenuItem[] {
+  return [
+    {
+      label: 'Open in Claude',
+      icon: '🔗',
+      action: () => openProject(projectId),
+    },
+    {
+      label: 'View Files',
+      icon: '📄',
+      action: () => viewProjectFiles(projectId),
+    },
+    {
+      label: 'Edit Instructions',
+      icon: '📝',
+      action: () => showInstructionsEditor({
+        projectId,
+        projectName: project.name,
+        currentInstructions: project.instructions || ''
+      }),
+      dividerAfter: true,
+    },
+    {
+      label: state.favorites.has(projectId) ? 'Remove from Favorites' : 'Add to Favorites',
+      icon: '⭐',
+      action: () => toggleFavorite(projectId),
+    },
+    {
+      label: 'Manage Tags',
+      icon: '🏷️',
+      action: () => handleProjectTagsClick(projectId),
+      dividerAfter: true,
+    },
+    {
+      label: 'Export Project',
+      icon: '📤',
+      action: async () => {
+        state.selectedProjects.clear();
+        state.selectedProjects.add(projectId);
+        await handleBulkAction('export');
+      },
+    },
+    {
+      label: 'Delete Project',
+      icon: '🗑️',
+      action: async () => {
+        const confirmed = await showConfirmModal({
+          title: 'Delete Project',
+          message: `Are you sure you want to delete "${project.name}"? This action cannot be undone.`,
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          type: 'danger'
+        });
+        if (confirmed) {
+          try {
+            const response = await browser.runtime.sendMessage({
+              action: 'delete-project',
+              projectId: projectId
+            });
+            if (response.success) {
+              toast.success(`Project "${project.name}" deleted`);
+              state.projects = state.projects.filter((p: any) => p.uuid !== projectId);
+              renderProjects();
+            } else {
+              throw new Error(response.error || 'Failed to delete project');
+            }
+          } catch (error) {
+            toast.error(`Failed to delete: ${(error as Error).message}`);
+          }
+        }
+      },
+      danger: true,
+    },
+  ];
+}
+
+function getFileContextMenuItems(file: any, projectId: string): ContextMenuItem[] {
+  return [
+    {
+      label: 'Edit File',
+      icon: '📝',
+      action: async () => {
+        // Fetch file content if not already loaded
+        const response = await browser.runtime.sendMessage({
+          action: 'get-file-content',
+          projectId,
+          fileId: file.uuid
+        });
+        if (response.success) {
+          showFileEditor({
+            projectId,
+            file: {
+              uuid: file.uuid,
+              file_name: file.file_name,
+              content: response.data.content || ''
+            }
+          });
+        } else {
+          toast.error('Failed to load file content');
+        }
+      },
+    },
+    {
+      label: 'Download',
+      icon: '⬇️',
+      action: () => {
+        // Create download link
+        const blob = new Blob([file.content || ''], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.file_name;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`Downloaded ${file.file_name}`);
+      },
+      dividerAfter: true,
+    },
+    {
+      label: 'Copy Filename',
+      icon: '📋',
+      action: async () => {
+        await navigator.clipboard.writeText(file.file_name);
+        toast.success('Filename copied to clipboard');
+      },
+    },
+    {
+      label: 'Delete File',
+      icon: '🗑️',
+      action: async () => {
+        const confirmed = await showConfirmModal({
+          title: 'Delete File',
+          message: `Are you sure you want to delete "${file.file_name}"?`,
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          type: 'danger'
+        });
+        if (confirmed) {
+          try {
+            const apiClient = new ClaudeAPIClient(await getSessionKey());
+            await apiClient.deleteFile(state.currentOrg!.uuid, projectId, file.uuid);
+            toast.success(`Deleted ${file.file_name}`);
+            // Refresh the view
+            renderCurrentTab();
+          } catch (error) {
+            toast.error(`Failed to delete: ${(error as Error).message}`);
+          }
+        }
+      },
+      danger: true,
+    },
+  ];
+}
+
+// ============================================================================
+// FILE EDITOR MODAL
+// ============================================================================
+
+interface FileEditorOptions {
+  projectId: string;
+  file: {
+    uuid: string;
+    file_name: string;
+    content: string;
+  };
+  onSave?: (content: string) => Promise<void>;
+}
+
+async function showFileEditor(options: FileEditorOptions): Promise<void> {
+  const { projectId, file, onSave } = options;
+  
+  // Determine file type for syntax hint
+  const extension = file.file_name.split('.').pop()?.toLowerCase() || '';
+  const fileTypes: Record<string, string> = {
+    'js': 'JavaScript',
+    'ts': 'TypeScript',
+    'jsx': 'JSX',
+    'tsx': 'TSX',
+    'py': 'Python',
+    'md': 'Markdown',
+    'json': 'JSON',
+    'css': 'CSS',
+    'html': 'HTML',
+    'yaml': 'YAML',
+    'yml': 'YAML',
+    'txt': 'Text',
+  };
+  const fileType = fileTypes[extension] || extension.toUpperCase() || 'Text';
+  
+  let isModified = false;
+  let originalContent = file.content;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay modal-centered';
+  overlay.innerHTML = `
+    <div class="file-editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+      <div class="file-editor-header">
+        <div class="file-editor-title">
+          <h3 id="editor-title">📄 ${file.file_name}</h3>
+          <span class="file-type">${fileType}</span>
+        </div>
+        <div class="file-editor-actions">
+          <button class="action-btn" id="editor-close-btn">✕ Close</button>
+        </div>
+      </div>
+      <div class="file-editor-body">
+        <textarea class="file-editor-textarea" id="editor-textarea" spellcheck="false">${escapeHtml(file.content)}</textarea>
+      </div>
+      <div class="file-editor-footer">
+        <span class="file-editor-status" id="editor-status">Ready</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="action-btn secondary" id="editor-cancel-btn">Cancel</button>
+          <button class="primary-btn" id="editor-save-btn" disabled>💾 Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  const textarea = overlay.querySelector('#editor-textarea') as HTMLTextAreaElement;
+  const saveBtn = overlay.querySelector('#editor-save-btn') as HTMLButtonElement;
+  const cancelBtn = overlay.querySelector('#editor-cancel-btn') as HTMLButtonElement;
+  const closeBtn = overlay.querySelector('#editor-close-btn') as HTMLButtonElement;
+  const statusEl = overlay.querySelector('#editor-status') as HTMLElement;
+  
+  // Focus textarea
+  textarea.focus();
+  
+  // Track modifications
+  textarea.addEventListener('input', () => {
+    isModified = textarea.value !== originalContent;
+    saveBtn.disabled = !isModified;
+    statusEl.textContent = isModified ? '● Modified' : 'Ready';
+    statusEl.className = `file-editor-status ${isModified ? 'modified' : ''}`;
+  });
+  
+  // Keyboard shortcuts
+  textarea.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl + S to save
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      if (isModified) saveBtn.click();
+    }
+    // Tab to insert spaces
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
+      textarea.selectionStart = textarea.selectionEnd = start + 2;
+      textarea.dispatchEvent(new Event('input'));
+    }
+  });
+  
+  const closeEditor = async (save: boolean = false) => {
+    if (save && isModified) {
+      try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        statusEl.textContent = 'Saving...';
+        
+        if (onSave) {
+          await onSave(textarea.value);
+        } else {
+          // Default save behavior: update file via API
+          const apiClient = new ClaudeAPIClient(await getSessionKey());
+          await apiClient.deleteFile(state.currentOrg!.uuid, projectId, file.uuid);
+          await apiClient.uploadFile(state.currentOrg!.uuid, projectId, file.file_name, textarea.value);
+        }
+        
+        originalContent = textarea.value;
+        isModified = false;
+        statusEl.textContent = '✓ Saved';
+        statusEl.className = 'file-editor-status saved';
+        toast.success(`File "${file.file_name}" saved`);
+        
+        // Close after brief delay to show success
+        setTimeout(() => overlay.remove(), 500);
+      } catch (error) {
+        console.error('Failed to save file:', error);
+        toast.error(`Failed to save: ${(error as Error).message}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Save';
+        statusEl.textContent = '✗ Save failed';
+      }
+    } else if (isModified) {
+      const confirmClose = await showConfirmModal({
+        title: 'Unsaved Changes',
+        message: 'You have unsaved changes. Are you sure you want to close?',
+        confirmText: 'Discard',
+        cancelText: 'Keep Editing',
+        type: 'warning'
+      });
+      if (confirmClose) overlay.remove();
+    } else {
+      overlay.remove();
+    }
+  };
+  
+  saveBtn.addEventListener('click', () => closeEditor(true));
+  cancelBtn.addEventListener('click', () => closeEditor(false));
+  closeBtn.addEventListener('click', () => closeEditor(false));
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeEditor(false);
+  });
+  
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeEditor(false);
+  });
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============================================================================
+// PROJECT INSTRUCTIONS EDITOR
+// ============================================================================
+
+interface InstructionsEditorOptions {
+  projectId: string;
+  projectName: string;
+  currentInstructions: string;
+}
+
+async function showInstructionsEditor(options: InstructionsEditorOptions): Promise<void> {
+  const { projectId, projectName, currentInstructions } = options;
+  
+  let isModified = false;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay modal-centered';
+  overlay.innerHTML = `
+    <div class="instructions-editor-modal" role="dialog" aria-modal="true" aria-labelledby="instructions-title">
+      <div class="instructions-editor-header">
+        <h3 id="instructions-title">📝 Edit Instructions: ${projectName}</h3>
+        <button class="action-btn" id="instructions-close-btn">✕</button>
+      </div>
+      <div class="instructions-editor-body">
+        <textarea class="instructions-textarea" id="instructions-textarea" placeholder="Enter custom instructions for this project...">${escapeHtml(currentInstructions)}</textarea>
+        <p class="instructions-hint">
+          💡 These instructions will be used as context when working with files in this project.
+        </p>
+      </div>
+      <div class="instructions-editor-footer">
+        <button class="action-btn secondary" id="instructions-cancel-btn">Cancel</button>
+        <button class="primary-btn" id="instructions-save-btn" disabled>Save Instructions</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  const textarea = overlay.querySelector('#instructions-textarea') as HTMLTextAreaElement;
+  const saveBtn = overlay.querySelector('#instructions-save-btn') as HTMLButtonElement;
+  const cancelBtn = overlay.querySelector('#instructions-cancel-btn') as HTMLButtonElement;
+  const closeBtn = overlay.querySelector('#instructions-close-btn') as HTMLButtonElement;
+  
+  textarea.focus();
+  
+  textarea.addEventListener('input', () => {
+    isModified = textarea.value !== currentInstructions;
+    saveBtn.disabled = !isModified;
+  });
+  
+  const closeEditor = async (save: boolean = false) => {
+    if (save && isModified) {
+      try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        // Call API to update project instructions
+        const response = await browser.runtime.sendMessage({
+          action: 'update-project-instructions',
+          projectId: projectId,
+          instructions: textarea.value
+        });
+        
+        if (response.success) {
+          toast.success('Project instructions updated');
+          overlay.remove();
+          // Refresh projects list
+          await loadProjects();
+          renderProjects();
+        } else {
+          throw new Error(response.error || 'Failed to update instructions');
+        }
+      } catch (error) {
+        console.error('Failed to update instructions:', error);
+        toast.error(`Failed to save: ${(error as Error).message}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Instructions';
+      }
+    } else {
+      overlay.remove();
+    }
+  };
+  
+  saveBtn.addEventListener('click', () => closeEditor(true));
+  cancelBtn.addEventListener('click', () => closeEditor(false));
+  closeBtn.addEventListener('click', () => closeEditor(false));
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeEditor(false);
+  });
+  
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeEditor(false);
   });
 }
 
@@ -555,6 +1067,7 @@ async function initialize() {
 
   setupEventListeners();
   await initSyncTab();
+  await loadFavorites();
   await handleHashNavigation();
   
   if (state.isConnected) {
@@ -863,6 +1376,34 @@ function setupEventListeners() {
       handleProjectTagsClick(projectId);
       return;
     }
+
+    // Handle instructions button clicks
+    if (target.classList.contains('instructions-btn') || target.textContent === '📝') {
+      const project = state.projects.find(p => p.uuid === projectId);
+      if (project) {
+        showInstructionsEditor({
+          projectId: projectId,
+          projectName: project.name,
+          currentInstructions: project.instructions || ''
+        });
+      }
+      return;
+    }
+  });
+
+  // Context menu for project cards (right-click)
+  projectsGrid.addEventListener('contextmenu', (e) => {
+    const target = e.target as HTMLElement;
+    const card = target.closest('.project-card');
+    if (!card) return;
+
+    const projectId = card.getAttribute('data-project-id');
+    if (!projectId) return;
+
+    const project = state.projects.find((p: any) => p.uuid === projectId);
+    if (project) {
+      showContextMenu(e, getProjectContextMenuItems(projectId, project));
+    }
   });
 
   // Bulk actions
@@ -1101,17 +1642,30 @@ function renderProjects() {
   // Filter by tags if any are selected
   let filteredProjects = state.projects;
   if (state.filterTags.length > 0) {
-    filteredProjects = state.projects.filter(project => {
+    filteredProjects = filteredProjects.filter(project => {
       const projectTags = state.projectTags.get(project.uuid) || [];
       const projectTagIds = projectTags.map(t => t.id);
       return state.filterTags.some(tagId => projectTagIds.includes(tagId));
     });
   }
 
+  // Filter by favorites if enabled
+  if (state.showFavoritesOnly) {
+    filteredProjects = filteredProjects.filter(project => state.favorites.has(project.uuid));
+  }
+
   if (filteredProjects.length === 0) {
     const emptyState = document.createElement('div');
     emptyState.className = 'empty-state';
-    emptyState.textContent = state.filterTags.length > 0 ? 'No projects match the selected tags' : 'No projects found';
+    let emptyMessage = 'No projects found';
+    if (state.showFavoritesOnly && state.filterTags.length > 0) {
+      emptyMessage = 'No favorite projects match the selected tags';
+    } else if (state.showFavoritesOnly) {
+      emptyMessage = 'No favorite projects yet. Click the ⭐ on a project to add it to favorites.';
+    } else if (state.filterTags.length > 0) {
+      emptyMessage = 'No projects match the selected tags';
+    }
+    emptyState.textContent = emptyMessage;
     projectsGrid.appendChild(emptyState);
     return;
   }
@@ -1140,7 +1694,11 @@ function renderProjects() {
 
     const favorite = document.createElement('button');
     favorite.className = 'favorite-btn';
+    if (state.favorites.has(project.uuid)) {
+      favorite.classList.add('active');
+    }
     favorite.textContent = '⭐';
+    favorite.title = state.favorites.has(project.uuid) ? 'Remove from favorites' : 'Add to favorites';
     // Event handled by delegation in setupEventListeners
 
     // Expand/collapse button
@@ -1190,9 +1748,16 @@ function renderProjects() {
     tagsBtn.textContent = '🏷️ Tags';
     // Event handled by delegation in setupEventListeners
 
+    const instructionsBtn = document.createElement('button');
+    instructionsBtn.className = 'action-btn small instructions-btn';
+    instructionsBtn.textContent = '📝';
+    instructionsBtn.title = 'Edit project instructions';
+    // Event handled by delegation in setupEventListeners
+
     actions.appendChild(openBtn);
     actions.appendChild(filesBtn);
     actions.appendChild(tagsBtn);
+    actions.appendChild(instructionsBtn);
 
     card.appendChild(header);
     card.appendChild(description);
@@ -1325,6 +1890,21 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
     const actionsSection = document.createElement('div');
     actionsSection.className = 'project-file-item__actions';
 
+    const editBtn = document.createElement('button');
+    editBtn.className = 'action-btn small';
+    editBtn.textContent = '📝';
+    editBtn.title = 'Edit file';
+    editBtn.addEventListener('click', () => {
+      showFileEditor({
+        projectId,
+        file: {
+          uuid: file.uuid,
+          file_name: file.file_name,
+          content: file.content || ''
+        }
+      });
+    });
+
     const renameBtn = document.createElement('button');
     renameBtn.className = 'action-btn small';
     renameBtn.textContent = '✏️';
@@ -1337,8 +1917,16 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
     deleteBtn.title = 'Delete';
     deleteBtn.addEventListener('click', () => deleteProjectFile(projectId, file, fileItem));
 
+    actionsSection.appendChild(editBtn);
     actionsSection.appendChild(renameBtn);
     actionsSection.appendChild(deleteBtn);
+
+    // Context menu for file item (right-click)
+    fileItem.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e as MouseEvent, getFileContextMenuItems(file, projectId));
+    });
 
     fileItem.appendChild(leftSection);
     fileItem.appendChild(actionsSection);
@@ -2077,9 +2665,53 @@ function toggleSelectAllProjects() {
   renderProjects();
 }
 
-function toggleFavorite(uuid: string) {
-  // TODO: Implement favorites storage
-  console.log('Toggle favorite:', uuid);
+async function loadFavorites(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get('eidolon_favorites');
+    const favoritesArray = result.eidolon_favorites || [];
+    state.favorites = new Set(favoritesArray);
+  } catch (error) {
+    console.error('Failed to load favorites:', error);
+  }
+}
+
+async function saveFavorites(): Promise<void> {
+  try {
+    await chrome.storage.local.set({ 
+      eidolon_favorites: Array.from(state.favorites) 
+    });
+  } catch (error) {
+    console.error('Failed to save favorites:', error);
+  }
+}
+
+async function toggleFavorite(uuid: string): Promise<void> {
+  if (state.favorites.has(uuid)) {
+    state.favorites.delete(uuid);
+    toast.info('Removed from favorites');
+  } else {
+    state.favorites.add(uuid);
+    toast.success('Added to favorites');
+  }
+  await saveFavorites();
+  renderProjects();
+  updateFavoritesFilterCount();
+}
+
+function toggleFavoritesFilter(): void {
+  state.showFavoritesOnly = !state.showFavoritesOnly;
+  const filterBtn = document.getElementById('favorites-filter-btn');
+  if (filterBtn) {
+    filterBtn.classList.toggle('active', state.showFavoritesOnly);
+  }
+  renderProjects();
+}
+
+function updateFavoritesFilterCount(): void {
+  const countEl = document.querySelector('.favorites-count');
+  if (countEl) {
+    countEl.textContent = state.favorites.size.toString();
+  }
 }
 
 async function handleProjectTagsClick(projectId: string) {
@@ -2601,8 +3233,25 @@ function sortProjectsBy(key: 'name' | 'date' | 'files') {
 }
 
 function filterProjects(filter: string) {
-  // TODO: Implement filtering logic
-  console.log('Filter projects:', filter);
+  // Handle different filter types
+  switch (filter) {
+    case 'all':
+      state.showFavoritesOnly = false;
+      break;
+    case 'favorites':
+      state.showFavoritesOnly = true;
+      break;
+    case 'active':
+      // TODO: Implement active filter (non-archived)
+      state.showFavoritesOnly = false;
+      break;
+    case 'archived':
+      // TODO: Implement archived filter
+      state.showFavoritesOnly = false;
+      break;
+    default:
+      state.showFavoritesOnly = false;
+  }
   renderProjects();
 }
 
