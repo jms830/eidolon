@@ -1093,6 +1093,9 @@ function renderCurrentTab() {
 }
 
 function renderProjects() {
+  // Preserve scroll position
+  const scrollTop = projectsGrid.scrollTop;
+  
   projectsGrid.textContent = '';
 
   // Filter by tags if any are selected
@@ -1205,6 +1208,9 @@ function renderProjects() {
 
     projectsGrid.appendChild(card);
   });
+  
+  // Restore scroll position
+  projectsGrid.scrollTop = scrollTop;
 }
 
 /**
@@ -1501,6 +1507,9 @@ async function getSessionKey(): Promise<string> {
 function renderFiles() {
   const filesList = document.getElementById('files-list')!;
   const filesCount = document.getElementById('files-count')!;
+  
+  // Preserve scroll position
+  const scrollTop = filesList.scrollTop;
   const filesTabTitle = document.querySelector('#files-tab .tab-title h2')!;
   const tabActions = document.querySelector('#files-tab .tab-actions')!;
 
@@ -1594,6 +1603,9 @@ function renderFiles() {
 
     filesList.appendChild(item);
   });
+  
+  // Restore scroll position
+  filesList.scrollTop = scrollTop;
 }
 
 /**
@@ -1686,6 +1698,9 @@ function renderConversations() {
   const conversationsList = document.getElementById('conversations-list')!;
   const conversationsCount = document.getElementById('conversations-count')!;
   conversationsCount.textContent = state.conversations.length.toString();
+  
+  // Preserve scroll position
+  const scrollTop = conversationsList.scrollTop;
 
   conversationsList.textContent = '';
 
@@ -1770,6 +1785,9 @@ function renderConversations() {
 
     conversationsList.appendChild(item);
   });
+  
+  // Restore scroll position
+  conversationsList.scrollTop = scrollTop;
 }
 
 function updateAnalytics() {
