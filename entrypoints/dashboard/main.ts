@@ -30,6 +30,7 @@ import {
   isFileSystemAccessSupported
 } from '../../utils/sync/fileSystem';
 import type { SyncProgress, SyncSettings } from '../../utils/sync/types';
+import { settingsService } from '../../utils/settings/settingsService';
 
 // State
 interface AppState {
@@ -55,6 +56,8 @@ interface AppState {
   fileFilter: { projectId: string; projectName: string } | null;
   lastDiffResult: any | null;
   lastDiffTimestamp: number | null;
+  favorites: Set<string>;
+  showFavoritesOnly: boolean;
 }
 
 const state: AppState = {
@@ -80,6 +83,8 @@ const state: AppState = {
   fileFilter: null,
   lastDiffResult: null,
   lastDiffTimestamp: null,
+  favorites: new Set(),
+  showFavoritesOnly: false,
 };
 
 const searchService = getSearchService();
@@ -92,6 +97,684 @@ function getRequiredElement<T extends HTMLElement>(id: string): T {
     throw new Error(`Required DOM element not found: ${id}. The page may have failed to load correctly.`);
   }
   return element as T;
+}
+
+// ============================================================================
+// TOAST NOTIFICATION SYSTEM
+// ============================================================================
+
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+interface ToastOptions {
+  duration?: number;
+  closable?: boolean;
+}
+
+let toastContainer: HTMLElement | null = null;
+
+function getToastContainer(): HTMLElement {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    toastContainer.setAttribute('role', 'alert');
+    toastContainer.setAttribute('aria-live', 'polite');
+    document.body.appendChild(toastContainer);
+  }
+  return toastContainer;
+}
+
+function showToast(message: string, type: ToastType = 'info', options: ToastOptions = {}): void {
+  const { duration = 4000, closable = true } = options;
+  const container = getToastContainer();
+  
+  const icons: Record<ToastType, string> = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+    info: 'ℹ'
+  };
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type}`;
+  toast.innerHTML = `
+    <span class="toast__icon" aria-hidden="true">${icons[type]}</span>
+    <span class="toast__message">${message}</span>
+    ${closable ? '<button class="toast__close" aria-label="Close notification">×</button>' : ''}
+  `;
+  
+  if (closable) {
+    const closeBtn = toast.querySelector('.toast__close');
+    closeBtn?.addEventListener('click', () => removeToast(toast));
+  }
+  
+  container.appendChild(toast);
+  
+  if (duration > 0) {
+    setTimeout(() => removeToast(toast), duration);
+  }
+}
+
+function removeToast(toast: HTMLElement): void {
+  toast.classList.add('toast--fade-out');
+  setTimeout(() => toast.remove(), 300);
+}
+
+// Convenience functions
+const toast = {
+  success: (message: string, options?: ToastOptions) => showToast(message, 'success', options),
+  error: (message: string, options?: ToastOptions) => showToast(message, 'error', options),
+  warning: (message: string, options?: ToastOptions) => showToast(message, 'warning', options),
+  info: (message: string, options?: ToastOptions) => showToast(message, 'info', options),
+};
+
+// ============================================================================
+// LOADING STATE MANAGEMENT
+// ============================================================================
+
+let loadingOverlay: HTMLElement | null = null;
+
+function showLoadingOverlay(message: string = 'Loading...'): void {
+  if (loadingOverlay) return;
+  
+  loadingOverlay = document.createElement('div');
+  loadingOverlay.className = 'loading-overlay';
+  loadingOverlay.innerHTML = `
+    <div class="loading-spinner"></div>
+    <div class="loading-text">${message}</div>
+  `;
+  document.body.appendChild(loadingOverlay);
+}
+
+function hideLoadingOverlay(): void {
+  if (loadingOverlay) {
+    loadingOverlay.remove();
+    loadingOverlay = null;
+  }
+}
+
+function updateLoadingMessage(message: string): void {
+  if (loadingOverlay) {
+    const textEl = loadingOverlay.querySelector('.loading-text');
+    if (textEl) textEl.textContent = message;
+  }
+}
+
+// ============================================================================
+// CONFIRMATION MODAL
+// ============================================================================
+
+interface ConfirmOptions {
+  title?: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  type?: 'danger' | 'warning' | 'primary';
+}
+
+function showConfirmModal(options: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    const { 
+      title = 'Confirm Action', 
+      message, 
+      confirmText = 'Confirm',
+      cancelText = 'Cancel',
+      type = 'primary'
+    } = options;
+    
+    const icons: Record<string, string> = {
+      danger: '🗑️',
+      warning: '⚠️',
+      primary: '❓'
+    };
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay modal-centered';
+    overlay.innerHTML = `
+      <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-modal__title" id="confirm-title">
+          <span aria-hidden="true">${icons[type]}</span>
+          ${title}
+        </div>
+        <div class="confirm-modal__message">${message}</div>
+        <div class="confirm-modal__actions">
+          <button class="confirm-modal__btn confirm-modal__btn--cancel">${cancelText}</button>
+          <button class="confirm-modal__btn confirm-modal__btn--${type}">${confirmText}</button>
+        </div>
+      </div>
+    `;
+    
+    const cancelBtn = overlay.querySelector('.confirm-modal__btn--cancel');
+    const confirmBtn = overlay.querySelector(`.confirm-modal__btn--${type}`);
+    
+    const cleanup = (result: boolean) => {
+      overlay.remove();
+      resolve(result);
+    };
+    
+    cancelBtn?.addEventListener('click', () => cleanup(false));
+    confirmBtn?.addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup(false);
+    });
+    
+    // Keyboard handling
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cleanup(false);
+    });
+    
+    document.body.appendChild(overlay);
+    
+    // Focus the cancel button by default (safer option)
+    (cancelBtn as HTMLElement)?.focus();
+  });
+}
+
+// ============================================================================
+// CONTEXT MENU SYSTEM
+// ============================================================================
+
+interface ContextMenuItem {
+  label: string;
+  icon: string;
+  action: () => void | Promise<void>;
+  danger?: boolean;
+  dividerAfter?: boolean;
+}
+
+let activeContextMenu: HTMLElement | null = null;
+
+function showContextMenu(e: MouseEvent, items: ContextMenuItem[]): void {
+  e.preventDefault();
+  
+  // Close any existing context menu
+  hideContextMenu();
+  
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.setAttribute('role', 'menu');
+  
+  items.forEach((item, index) => {
+    const menuItem = document.createElement('div');
+    menuItem.className = `context-menu-item${item.danger ? ' danger' : ''}`;
+    menuItem.setAttribute('role', 'menuitem');
+    menuItem.innerHTML = `<span class="icon">${item.icon}</span>${item.label}`;
+    
+    menuItem.addEventListener('click', async () => {
+      hideContextMenu();
+      await item.action();
+    });
+    
+    menu.appendChild(menuItem);
+    
+    if (item.dividerAfter && index < items.length - 1) {
+      const divider = document.createElement('div');
+      divider.className = 'context-menu-divider';
+      menu.appendChild(divider);
+    }
+  });
+  
+  document.body.appendChild(menu);
+  activeContextMenu = menu;
+  
+  // Position the menu
+  const menuRect = menu.getBoundingClientRect();
+  let x = e.clientX;
+  let y = e.clientY;
+  
+  // Adjust if menu would go off screen
+  if (x + menuRect.width > window.innerWidth) {
+    x = window.innerWidth - menuRect.width - 8;
+  }
+  if (y + menuRect.height > window.innerHeight) {
+    y = window.innerHeight - menuRect.height - 8;
+  }
+  
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  
+  // Close on click outside
+  const closeHandler = (evt: MouseEvent) => {
+    if (!menu.contains(evt.target as Node)) {
+      hideContextMenu();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  
+  // Delay adding the listener to prevent immediate close
+  setTimeout(() => {
+    document.addEventListener('click', closeHandler);
+  }, 0);
+  
+  // Close on escape
+  const escHandler = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      hideContextMenu();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+function hideContextMenu(): void {
+  if (activeContextMenu) {
+    activeContextMenu.remove();
+    activeContextMenu = null;
+  }
+}
+
+function getProjectContextMenuItems(projectId: string, project: any): ContextMenuItem[] {
+  return [
+    {
+      label: 'Open in Claude',
+      icon: '🔗',
+      action: () => openProject(projectId),
+    },
+    {
+      label: 'View Files',
+      icon: '📄',
+      action: () => viewProjectFiles(projectId),
+    },
+    {
+      label: 'Edit Instructions',
+      icon: '📝',
+      action: () => showInstructionsEditor({
+        projectId,
+        projectName: project.name,
+        currentInstructions: project.instructions || ''
+      }),
+      dividerAfter: true,
+    },
+    {
+      label: state.favorites.has(projectId) ? 'Remove from Favorites' : 'Add to Favorites',
+      icon: '⭐',
+      action: () => toggleFavorite(projectId),
+    },
+    {
+      label: 'Manage Tags',
+      icon: '🏷️',
+      action: () => handleProjectTagsClick(projectId),
+      dividerAfter: true,
+    },
+    {
+      label: 'Export Project',
+      icon: '📤',
+      action: async () => {
+        state.selectedProjects.clear();
+        state.selectedProjects.add(projectId);
+        await handleBulkAction('export');
+      },
+    },
+    {
+      label: 'Delete Project',
+      icon: '🗑️',
+      action: async () => {
+        const confirmed = await showConfirmModal({
+          title: 'Delete Project',
+          message: `Are you sure you want to delete "${project.name}"? This action cannot be undone.`,
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          type: 'danger'
+        });
+        if (confirmed) {
+          try {
+            const response = await browser.runtime.sendMessage({
+              action: 'delete-project',
+              projectId: projectId
+            });
+            if (response.success) {
+              toast.success(`Project "${project.name}" deleted`);
+              state.projects = state.projects.filter((p: any) => p.uuid !== projectId);
+              renderProjects();
+            } else {
+              throw new Error(response.error || 'Failed to delete project');
+            }
+          } catch (error) {
+            toast.error(`Failed to delete: ${(error as Error).message}`);
+          }
+        }
+      },
+      danger: true,
+    },
+  ];
+}
+
+function getFileContextMenuItems(file: any, projectId: string): ContextMenuItem[] {
+  return [
+    {
+      label: 'Edit File',
+      icon: '📝',
+      action: async () => {
+        // Fetch file content if not already loaded
+        const response = await browser.runtime.sendMessage({
+          action: 'get-file-content',
+          projectId,
+          fileId: file.uuid
+        });
+        if (response.success) {
+          showFileEditor({
+            projectId,
+            file: {
+              uuid: file.uuid,
+              file_name: file.file_name,
+              content: response.data.content || ''
+            }
+          });
+        } else {
+          toast.error('Failed to load file content');
+        }
+      },
+    },
+    {
+      label: 'Download',
+      icon: '⬇️',
+      action: () => {
+        // Create download link
+        const blob = new Blob([file.content || ''], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.file_name;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`Downloaded ${file.file_name}`);
+      },
+      dividerAfter: true,
+    },
+    {
+      label: 'Copy Filename',
+      icon: '📋',
+      action: async () => {
+        await navigator.clipboard.writeText(file.file_name);
+        toast.success('Filename copied to clipboard');
+      },
+    },
+    {
+      label: 'Delete File',
+      icon: '🗑️',
+      action: async () => {
+        const confirmed = await showConfirmModal({
+          title: 'Delete File',
+          message: `Are you sure you want to delete "${file.file_name}"?`,
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          type: 'danger'
+        });
+        if (confirmed) {
+          try {
+            const apiClient = new ClaudeAPIClient(await getSessionKey());
+            await apiClient.deleteFile(state.currentOrg!.uuid, projectId, file.uuid);
+            toast.success(`Deleted ${file.file_name}`);
+            // Refresh the view
+            renderCurrentTab();
+          } catch (error) {
+            toast.error(`Failed to delete: ${(error as Error).message}`);
+          }
+        }
+      },
+      danger: true,
+    },
+  ];
+}
+
+// ============================================================================
+// FILE EDITOR MODAL
+// ============================================================================
+
+interface FileEditorOptions {
+  projectId: string;
+  file: {
+    uuid: string;
+    file_name: string;
+    content: string;
+  };
+  onSave?: (content: string) => Promise<void>;
+}
+
+async function showFileEditor(options: FileEditorOptions): Promise<void> {
+  const { projectId, file, onSave } = options;
+  
+  // Determine file type for syntax hint
+  const extension = file.file_name.split('.').pop()?.toLowerCase() || '';
+  const fileTypes: Record<string, string> = {
+    'js': 'JavaScript',
+    'ts': 'TypeScript',
+    'jsx': 'JSX',
+    'tsx': 'TSX',
+    'py': 'Python',
+    'md': 'Markdown',
+    'json': 'JSON',
+    'css': 'CSS',
+    'html': 'HTML',
+    'yaml': 'YAML',
+    'yml': 'YAML',
+    'txt': 'Text',
+  };
+  const fileType = fileTypes[extension] || extension.toUpperCase() || 'Text';
+  
+  let isModified = false;
+  let originalContent = file.content;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay modal-centered';
+  overlay.innerHTML = `
+    <div class="file-editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+      <div class="file-editor-header">
+        <div class="file-editor-title">
+          <h3 id="editor-title">📄 ${file.file_name}</h3>
+          <span class="file-type">${fileType}</span>
+        </div>
+        <div class="file-editor-actions">
+          <button class="action-btn" id="editor-close-btn">✕ Close</button>
+        </div>
+      </div>
+      <div class="file-editor-body">
+        <textarea class="file-editor-textarea" id="editor-textarea" spellcheck="false">${escapeHtml(file.content)}</textarea>
+      </div>
+      <div class="file-editor-footer">
+        <span class="file-editor-status" id="editor-status">Ready</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="action-btn secondary" id="editor-cancel-btn">Cancel</button>
+          <button class="primary-btn" id="editor-save-btn" disabled>💾 Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  const textarea = overlay.querySelector('#editor-textarea') as HTMLTextAreaElement;
+  const saveBtn = overlay.querySelector('#editor-save-btn') as HTMLButtonElement;
+  const cancelBtn = overlay.querySelector('#editor-cancel-btn') as HTMLButtonElement;
+  const closeBtn = overlay.querySelector('#editor-close-btn') as HTMLButtonElement;
+  const statusEl = overlay.querySelector('#editor-status') as HTMLElement;
+  
+  // Focus textarea
+  textarea.focus();
+  
+  // Track modifications
+  textarea.addEventListener('input', () => {
+    isModified = textarea.value !== originalContent;
+    saveBtn.disabled = !isModified;
+    statusEl.textContent = isModified ? '● Modified' : 'Ready';
+    statusEl.className = `file-editor-status ${isModified ? 'modified' : ''}`;
+  });
+  
+  // Keyboard shortcuts
+  textarea.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl + S to save
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      if (isModified) saveBtn.click();
+    }
+    // Tab to insert spaces
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
+      textarea.selectionStart = textarea.selectionEnd = start + 2;
+      textarea.dispatchEvent(new Event('input'));
+    }
+  });
+  
+  const closeEditor = async (save: boolean = false) => {
+    if (save && isModified) {
+      try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        statusEl.textContent = 'Saving...';
+        
+        if (onSave) {
+          await onSave(textarea.value);
+        } else {
+          // Default save behavior: update file via API
+          const apiClient = new ClaudeAPIClient(await getSessionKey());
+          await apiClient.deleteFile(state.currentOrg!.uuid, projectId, file.uuid);
+          await apiClient.uploadFile(state.currentOrg!.uuid, projectId, file.file_name, textarea.value);
+        }
+        
+        originalContent = textarea.value;
+        isModified = false;
+        statusEl.textContent = '✓ Saved';
+        statusEl.className = 'file-editor-status saved';
+        toast.success(`File "${file.file_name}" saved`);
+        
+        // Close after brief delay to show success
+        setTimeout(() => overlay.remove(), 500);
+      } catch (error) {
+        console.error('Failed to save file:', error);
+        toast.error(`Failed to save: ${(error as Error).message}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Save';
+        statusEl.textContent = '✗ Save failed';
+      }
+    } else if (isModified) {
+      const confirmClose = await showConfirmModal({
+        title: 'Unsaved Changes',
+        message: 'You have unsaved changes. Are you sure you want to close?',
+        confirmText: 'Discard',
+        cancelText: 'Keep Editing',
+        type: 'warning'
+      });
+      if (confirmClose) overlay.remove();
+    } else {
+      overlay.remove();
+    }
+  };
+  
+  saveBtn.addEventListener('click', () => closeEditor(true));
+  cancelBtn.addEventListener('click', () => closeEditor(false));
+  closeBtn.addEventListener('click', () => closeEditor(false));
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeEditor(false);
+  });
+  
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeEditor(false);
+  });
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============================================================================
+// PROJECT INSTRUCTIONS EDITOR
+// ============================================================================
+
+interface InstructionsEditorOptions {
+  projectId: string;
+  projectName: string;
+  currentInstructions: string;
+}
+
+async function showInstructionsEditor(options: InstructionsEditorOptions): Promise<void> {
+  const { projectId, projectName, currentInstructions } = options;
+  
+  let isModified = false;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay modal-centered';
+  overlay.innerHTML = `
+    <div class="instructions-editor-modal" role="dialog" aria-modal="true" aria-labelledby="instructions-title">
+      <div class="instructions-editor-header">
+        <h3 id="instructions-title">📝 Edit Instructions: ${projectName}</h3>
+        <button class="action-btn" id="instructions-close-btn">✕</button>
+      </div>
+      <div class="instructions-editor-body">
+        <textarea class="instructions-textarea" id="instructions-textarea" placeholder="Enter custom instructions for this project...">${escapeHtml(currentInstructions)}</textarea>
+        <p class="instructions-hint">
+          💡 These instructions will be used as context when working with files in this project.
+        </p>
+      </div>
+      <div class="instructions-editor-footer">
+        <button class="action-btn secondary" id="instructions-cancel-btn">Cancel</button>
+        <button class="primary-btn" id="instructions-save-btn" disabled>Save Instructions</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  const textarea = overlay.querySelector('#instructions-textarea') as HTMLTextAreaElement;
+  const saveBtn = overlay.querySelector('#instructions-save-btn') as HTMLButtonElement;
+  const cancelBtn = overlay.querySelector('#instructions-cancel-btn') as HTMLButtonElement;
+  const closeBtn = overlay.querySelector('#instructions-close-btn') as HTMLButtonElement;
+  
+  textarea.focus();
+  
+  textarea.addEventListener('input', () => {
+    isModified = textarea.value !== currentInstructions;
+    saveBtn.disabled = !isModified;
+  });
+  
+  const closeEditor = async (save: boolean = false) => {
+    if (save && isModified) {
+      try {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        // Call API to update project instructions
+        const response = await browser.runtime.sendMessage({
+          action: 'update-project-instructions',
+          projectId: projectId,
+          instructions: textarea.value
+        });
+        
+        if (response.success) {
+          toast.success('Project instructions updated');
+          overlay.remove();
+          // Refresh projects list
+          await loadProjects();
+          renderProjects();
+        } else {
+          throw new Error(response.error || 'Failed to update instructions');
+        }
+      } catch (error) {
+        console.error('Failed to update instructions:', error);
+        toast.error(`Failed to save: ${(error as Error).message}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Instructions';
+      }
+    } else {
+      overlay.remove();
+    }
+  };
+  
+  saveBtn.addEventListener('click', () => closeEditor(true));
+  cancelBtn.addEventListener('click', () => closeEditor(false));
+  closeBtn.addEventListener('click', () => closeEditor(false));
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeEditor(false);
+  });
+  
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeEditor(false);
+  });
 }
 
 // DOM Elements
@@ -235,11 +918,11 @@ function setupWizardEventListeners() {
     if (wizardCurrentStep < wizardTotalSteps) {
       // Validate before moving forward
       if (wizardCurrentStep === 1 && !wizardAuthValid) {
-        alert('Please validate your session before continuing');
+        toast.warning('Please validate your session before continuing');
         return;
       }
       if (wizardCurrentStep === 2 && !wizardWorkspaceHandle) {
-        alert('Please select a workspace folder before continuing');
+        toast.warning('Please select a workspace folder before continuing');
         return;
       }
       goToWizardStep(wizardCurrentStep + 1);
@@ -340,7 +1023,7 @@ async function finishWizardSetup() {
     console.log('Setup wizard completed successfully');
   } catch (error) {
     console.error('Failed to complete setup:', error);
-    alert('Failed to save setup. Please try again.');
+    toast.error('Failed to save setup. Please try again.');
   }
 }
 
@@ -384,6 +1067,7 @@ async function initialize() {
 
   setupEventListeners();
   await initSyncTab();
+  await loadFavorites();
   await handleHashNavigation();
   
   if (state.isConnected) {
@@ -604,6 +1288,47 @@ function setupEventListeners() {
     const query = (e.target as HTMLInputElement).value.toLowerCase();
     performSearch(query);
   });
+  
+  // Keyboard shortcut for search (/ or Cmd+K)
+  document.addEventListener('keydown', (e) => {
+    // Don't trigger if user is typing in an input
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+    
+    // "/" key or Cmd/Ctrl + K to focus search
+    if (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key === 'k')) {
+      e.preventDefault();
+      globalSearch.focus();
+      globalSearch.select();
+    }
+    
+    // Number keys 1-6 to switch tabs
+    if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+      const tabKeys: { [key: string]: string } = {
+        '1': 'projects',
+        '2': 'files', 
+        '3': 'conversations',
+        '4': 'analytics',
+        '5': 'sync',
+        '6': 'settings'
+      };
+      
+      if (tabKeys[e.key]) {
+        e.preventDefault();
+        switchTab(tabKeys[e.key]);
+      }
+    }
+  });
+  
+  // Escape to clear search and blur
+  globalSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      globalSearch.value = '';
+      globalSearch.blur();
+      performSearch('');
+    }
+  });
 
   // Select all buttons
   selectAllProjectsBtn.addEventListener('click', toggleSelectAllProjects);
@@ -650,6 +1375,34 @@ function setupEventListeners() {
     if (target.textContent === '🏷️ Tags' || target.classList.contains('tags-btn')) {
       handleProjectTagsClick(projectId);
       return;
+    }
+
+    // Handle instructions button clicks
+    if (target.classList.contains('instructions-btn') || target.textContent === '📝') {
+      const project = state.projects.find(p => p.uuid === projectId);
+      if (project) {
+        showInstructionsEditor({
+          projectId: projectId,
+          projectName: project.name,
+          currentInstructions: project.instructions || ''
+        });
+      }
+      return;
+    }
+  });
+
+  // Context menu for project cards (right-click)
+  projectsGrid.addEventListener('contextmenu', (e) => {
+    const target = e.target as HTMLElement;
+    const card = target.closest('.project-card');
+    if (!card) return;
+
+    const projectId = card.getAttribute('data-project-id');
+    if (!projectId) return;
+
+    const project = state.projects.find((p: any) => p.uuid === projectId);
+    if (project) {
+      showContextMenu(e, getProjectContextMenuItems(projectId, project));
     }
   });
 
@@ -814,7 +1567,7 @@ function setupEventListeners() {
       }, 2000);
     } catch (error) {
       console.error('Failed to copy:', error);
-      alert('Failed to copy path to clipboard');
+      toast.error('Failed to copy path to clipboard');
     }
   });
 
@@ -881,22 +1634,38 @@ function renderCurrentTab() {
 }
 
 function renderProjects() {
+  // Preserve scroll position
+  const scrollTop = projectsGrid.scrollTop;
+  
   projectsGrid.textContent = '';
 
   // Filter by tags if any are selected
   let filteredProjects = state.projects;
   if (state.filterTags.length > 0) {
-    filteredProjects = state.projects.filter(project => {
+    filteredProjects = filteredProjects.filter(project => {
       const projectTags = state.projectTags.get(project.uuid) || [];
       const projectTagIds = projectTags.map(t => t.id);
       return state.filterTags.some(tagId => projectTagIds.includes(tagId));
     });
   }
 
+  // Filter by favorites if enabled
+  if (state.showFavoritesOnly) {
+    filteredProjects = filteredProjects.filter(project => state.favorites.has(project.uuid));
+  }
+
   if (filteredProjects.length === 0) {
     const emptyState = document.createElement('div');
     emptyState.className = 'empty-state';
-    emptyState.textContent = state.filterTags.length > 0 ? 'No projects match the selected tags' : 'No projects found';
+    let emptyMessage = 'No projects found';
+    if (state.showFavoritesOnly && state.filterTags.length > 0) {
+      emptyMessage = 'No favorite projects match the selected tags';
+    } else if (state.showFavoritesOnly) {
+      emptyMessage = 'No favorite projects yet. Click the ⭐ on a project to add it to favorites.';
+    } else if (state.filterTags.length > 0) {
+      emptyMessage = 'No projects match the selected tags';
+    }
+    emptyState.textContent = emptyMessage;
     projectsGrid.appendChild(emptyState);
     return;
   }
@@ -925,7 +1694,11 @@ function renderProjects() {
 
     const favorite = document.createElement('button');
     favorite.className = 'favorite-btn';
+    if (state.favorites.has(project.uuid)) {
+      favorite.classList.add('active');
+    }
     favorite.textContent = '⭐';
+    favorite.title = state.favorites.has(project.uuid) ? 'Remove from favorites' : 'Add to favorites';
     // Event handled by delegation in setupEventListeners
 
     // Expand/collapse button
@@ -951,7 +1724,7 @@ function renderProjects() {
 
     // Tags display
     const tagsContainer = document.createElement('div');
-    tagsContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0;';
+    tagsContainer.className = 'tags-container';
     const projectTags = state.projectTags.get(project.uuid) || [];
     projectTags.forEach(tag => {
       tagsContainer.appendChild(createTagBadge(tag, { small: true }));
@@ -975,9 +1748,16 @@ function renderProjects() {
     tagsBtn.textContent = '🏷️ Tags';
     // Event handled by delegation in setupEventListeners
 
+    const instructionsBtn = document.createElement('button');
+    instructionsBtn.className = 'action-btn small instructions-btn';
+    instructionsBtn.textContent = '📝';
+    instructionsBtn.title = 'Edit project instructions';
+    // Event handled by delegation in setupEventListeners
+
     actions.appendChild(openBtn);
     actions.appendChild(filesBtn);
     actions.appendChild(tagsBtn);
+    actions.appendChild(instructionsBtn);
 
     card.appendChild(header);
     card.appendChild(description);
@@ -993,6 +1773,9 @@ function renderProjects() {
 
     projectsGrid.appendChild(card);
   });
+  
+  // Restore scroll position
+  projectsGrid.scrollTop = scrollTop;
 }
 
 /**
@@ -1047,21 +1830,14 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
 
   // Toolbar with bulk actions
   const toolbar = document.createElement('div');
-  toolbar.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    background: #f7fafc;
-    border-bottom: 1px solid #e2e8f0;
-  `;
+  toolbar.className = 'project-files-toolbar';
 
   const selectInfo = document.createElement('div');
-  selectInfo.style.cssText = 'font-size: 13px; color: #666;';
+  selectInfo.className = 'project-files-toolbar__select';
 
   const selectAllCheckbox = document.createElement('input');
   selectAllCheckbox.type = 'checkbox';
-  selectAllCheckbox.style.marginRight = '8px';
+  selectAllCheckbox.className = 'mr-8';
   selectAllCheckbox.addEventListener('change', (e) => {
     const checked = (e.target as HTMLInputElement).checked;
     container.querySelectorAll('.file-item-checkbox').forEach((cb: any) => {
@@ -1074,8 +1850,7 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
   selectInfo.appendChild(document.createTextNode(`${files.length} file${files.length !== 1 ? 's' : ''}`));
 
   const bulkActions = document.createElement('div');
-  bulkActions.className = 'bulk-actions-project-files';
-  bulkActions.style.display = 'none';
+  bulkActions.className = 'project-files-toolbar__bulk';
 
   const bulkDeleteBtn = document.createElement('button');
   bulkDeleteBtn.className = 'action-btn small danger';
@@ -1090,46 +1865,45 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
 
   // Files list
   const filesList = document.createElement('div');
-  filesList.style.cssText = 'max-height: 400px; overflow-y: auto;';
+  filesList.className = 'project-files-list';
 
   files.forEach(file => {
     const fileItem = document.createElement('div');
     fileItem.className = 'project-file-item';
     fileItem.dataset.fileId = file.uuid;
-    fileItem.style.cssText = `
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 12px;
-      border-bottom: 1px solid #e2e8f0;
-      background: white;
-      transition: background 0.2s;
-    `;
-    fileItem.addEventListener('mouseenter', () => {
-      fileItem.style.background = '#f7fafc';
-    });
-    fileItem.addEventListener('mouseleave', () => {
-      fileItem.style.background = 'white';
-    });
 
     const leftSection = document.createElement('div');
-    leftSection.style.cssText = 'display: flex; align-items: center; flex: 1;';
+    leftSection.className = 'project-file-item__left';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = 'file-item-checkbox';
-    checkbox.style.marginRight = '8px';
     checkbox.addEventListener('change', () => updateBulkActionsVisibility(container, projectId));
 
     const fileName = document.createElement('span');
     fileName.textContent = file.file_name;
-    fileName.style.cssText = 'flex: 1; font-size: 14px;';
+    fileName.className = 'project-file-item__name';
 
     leftSection.appendChild(checkbox);
     leftSection.appendChild(fileName);
 
     const actionsSection = document.createElement('div');
-    actionsSection.style.cssText = 'display: flex; gap: 4px;';
+    actionsSection.className = 'project-file-item__actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'action-btn small';
+    editBtn.textContent = '📝';
+    editBtn.title = 'Edit file';
+    editBtn.addEventListener('click', () => {
+      showFileEditor({
+        projectId,
+        file: {
+          uuid: file.uuid,
+          file_name: file.file_name,
+          content: file.content || ''
+        }
+      });
+    });
 
     const renameBtn = document.createElement('button');
     renameBtn.className = 'action-btn small';
@@ -1143,8 +1917,16 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
     deleteBtn.title = 'Delete';
     deleteBtn.addEventListener('click', () => deleteProjectFile(projectId, file, fileItem));
 
+    actionsSection.appendChild(editBtn);
     actionsSection.appendChild(renameBtn);
     actionsSection.appendChild(deleteBtn);
+
+    // Context menu for file item (right-click)
+    fileItem.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e as MouseEvent, getFileContextMenuItems(file, projectId));
+    });
 
     fileItem.appendChild(leftSection);
     fileItem.appendChild(actionsSection);
@@ -1159,13 +1941,12 @@ function renderProjectFiles(container: HTMLElement, projectId: string, files: an
  */
 function updateBulkActionsVisibility(container: HTMLElement, projectId: string) {
   const checkboxes = container.querySelectorAll('.file-item-checkbox:checked');
-  const bulkActions = container.querySelector('.bulk-actions-project-files') as HTMLElement;
+  const bulkActions = container.querySelector('.project-files-toolbar__bulk') as HTMLElement;
 
   if (checkboxes.length > 0) {
-    bulkActions.style.display = 'flex';
-    bulkActions.style.gap = '8px';
+    bulkActions.classList.add('visible');
   } else {
-    bulkActions.style.display = 'none';
+    bulkActions.classList.remove('visible');
   }
 }
 
@@ -1190,7 +1971,7 @@ async function renameProjectFile(projectId: string, file: any) {
     await apiClient.deleteFile(state.currentOrg.uuid, projectId, file.uuid);
     await apiClient.uploadFile(state.currentOrg.uuid, projectId, newName, file.content);
 
-    alert(`File renamed to "${newName}"`);
+    toast.success(`File renamed to "${newName}"`);
 
     // Refresh the project card
     const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
@@ -1202,7 +1983,7 @@ async function renameProjectFile(projectId: string, file: any) {
     }
   } catch (error) {
     console.error('Error renaming file:', error);
-    alert(`Failed to rename file: ${(error as Error).message}`);
+    toast.error(`Failed to rename file: ${(error as Error).message}`);
   }
 }
 
@@ -1210,9 +1991,16 @@ async function renameProjectFile(projectId: string, file: any) {
  * Delete a project file
  */
 async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLElement) {
-  if (!confirm(`Delete "${file.file_name}"? This cannot be undone.`)) {
-    return;
-  }
+  // Use confirmation modal instead of browser confirm
+  const confirmed = await showConfirmModal({
+    title: 'Delete File',
+    message: `Are you sure you want to delete "${file.file_name}"? This action cannot be undone.`,
+    confirmText: 'Delete',
+    cancelText: 'Cancel',
+    type: 'danger'
+  });
+  
+  if (!confirmed) return;
 
   try {
     if (!state.currentOrg) {
@@ -1234,10 +2022,10 @@ async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLEle
     fileItem.style.opacity = '0';
     setTimeout(() => fileItem.remove(), 300);
 
-    alert(`File "${file.file_name}" deleted`);
+    toast.success(`File "${file.file_name}" deleted`);
   } catch (error) {
     console.error('Error deleting file:', error);
-    alert(`Failed to delete file: ${(error as Error).message}`);
+    toast.error(`Failed to delete file: ${(error as Error).message}`);
   }
 }
 
@@ -1274,7 +2062,7 @@ async function bulkDeleteProjectFiles(container: HTMLElement, projectId: string)
       }
     }
 
-    alert(`Deleted ${selectedCount} file(s)`);
+    toast.success(`Deleted ${selectedCount} file(s)`);
 
     // Refresh the project card
     const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
@@ -1285,7 +2073,7 @@ async function bulkDeleteProjectFiles(container: HTMLElement, projectId: string)
     }
   } catch (error) {
     console.error('Error bulk deleting files:', error);
-    alert(`Failed to delete files: ${(error as Error).message}`);
+    toast.error(`Failed to delete files: ${(error as Error).message}`);
   }
 }
 
@@ -1307,6 +2095,9 @@ async function getSessionKey(): Promise<string> {
 function renderFiles() {
   const filesList = document.getElementById('files-list')!;
   const filesCount = document.getElementById('files-count')!;
+  
+  // Preserve scroll position
+  const scrollTop = filesList.scrollTop;
   const filesTabTitle = document.querySelector('#files-tab .tab-title h2')!;
   const tabActions = document.querySelector('#files-tab .tab-actions')!;
 
@@ -1400,6 +2191,9 @@ function renderFiles() {
 
     filesList.appendChild(item);
   });
+  
+  // Restore scroll position
+  filesList.scrollTop = scrollTop;
 }
 
 /**
@@ -1408,7 +2202,7 @@ function renderFiles() {
 async function exportConversation(conversationId: string, conversationName: string, format: 'markdown' | 'json') {
   try {
     if (!state.currentOrg) {
-      alert('No organization selected');
+      toast.warning('No organization selected');
       return;
     }
 
@@ -1484,7 +2278,7 @@ async function exportConversation(conversationId: string, conversationName: stri
     logSyncActivity('success', `Exported conversation "${conversationName}" as ${format.toUpperCase()}`);
   } catch (error) {
     console.error('Export failed:', error);
-    alert(`Failed to export conversation: ${(error as Error).message}`);
+    toast.error(`Failed to export conversation: ${(error as Error).message}`);
   }
 }
 
@@ -1492,6 +2286,9 @@ function renderConversations() {
   const conversationsList = document.getElementById('conversations-list')!;
   const conversationsCount = document.getElementById('conversations-count')!;
   conversationsCount.textContent = state.conversations.length.toString();
+  
+  // Preserve scroll position
+  const scrollTop = conversationsList.scrollTop;
 
   conversationsList.textContent = '';
 
@@ -1527,16 +2324,28 @@ function renderConversations() {
 
     const actions = document.createElement('div');
     actions.className = 'conversation-actions';
-    actions.style.cssText = 'display: flex; gap: 8px;';
+    actions.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
 
     const openBtn = document.createElement('button');
     openBtn.className = 'action-btn small';
     openBtn.textContent = 'Open';
+    openBtn.title = 'Open in new tab';
     openBtn.addEventListener('click', () => openConversation(conv.uuid));
+
+    const sidepanelBtn = document.createElement('button');
+    sidepanelBtn.className = 'action-btn small';
+    sidepanelBtn.textContent = '📱 Sidepanel';
+    sidepanelBtn.title = 'Open in sidepanel';
+    sidepanelBtn.style.cssText = 'background: #805ad5;';
+    sidepanelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openConversationInSidepanel(conv.uuid);
+    });
 
     const exportMdBtn = document.createElement('button');
     exportMdBtn.className = 'action-btn small';
     exportMdBtn.textContent = '📄 Export MD';
+    exportMdBtn.title = 'Export as Markdown';
     exportMdBtn.style.cssText = 'background: #48bb78;';
     exportMdBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1546,6 +2355,7 @@ function renderConversations() {
     const exportJsonBtn = document.createElement('button');
     exportJsonBtn.className = 'action-btn small';
     exportJsonBtn.textContent = '📋 Export JSON';
+    exportJsonBtn.title = 'Export as JSON';
     exportJsonBtn.style.cssText = 'background: #4299e1;';
     exportJsonBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1553,6 +2363,7 @@ function renderConversations() {
     });
 
     actions.appendChild(openBtn);
+    actions.appendChild(sidepanelBtn);
     actions.appendChild(exportMdBtn);
     actions.appendChild(exportJsonBtn);
 
@@ -1562,6 +2373,9 @@ function renderConversations() {
 
     conversationsList.appendChild(item);
   });
+  
+  // Restore scroll position
+  conversationsList.scrollTop = scrollTop;
 }
 
 function updateAnalytics() {
@@ -1589,18 +2403,21 @@ function renderActivityTimeline() {
     ...state.projects.map((p) => ({
       type: 'project',
       name: p.name,
+      uuid: p.uuid,
       date: p.created_at || p.updated_at,
       action: 'created',
     })),
     ...state.files.map((f) => ({
       type: 'file',
       name: f.file_name,
+      uuid: f.uuid,
       date: f.created_at,
       action: 'uploaded',
     })),
     ...state.conversations.map((c) => ({
       type: 'conversation',
       name: c.name,
+      uuid: c.uuid,
       date: c.updated_at,
       action: 'updated',
     })),
@@ -1613,6 +2430,13 @@ function renderActivityTimeline() {
   activities.slice(0, 10).forEach((activity) => {
     const item = document.createElement('div');
     item.className = 'timeline-item';
+    
+    // Make conversations clickable to open in sidepanel
+    if (activity.type === 'conversation' && activity.uuid) {
+      item.style.cursor = 'pointer';
+      item.title = 'Click to open in sidepanel';
+      item.addEventListener('click', () => openConversationInSidepanel(activity.uuid));
+    }
 
     const icon = document.createElement('div');
     icon.className = 'timeline-icon';
@@ -1841,9 +2665,53 @@ function toggleSelectAllProjects() {
   renderProjects();
 }
 
-function toggleFavorite(uuid: string) {
-  // TODO: Implement favorites storage
-  console.log('Toggle favorite:', uuid);
+async function loadFavorites(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get('eidolon_favorites');
+    const favoritesArray = result.eidolon_favorites || [];
+    state.favorites = new Set(favoritesArray);
+  } catch (error) {
+    console.error('Failed to load favorites:', error);
+  }
+}
+
+async function saveFavorites(): Promise<void> {
+  try {
+    await chrome.storage.local.set({ 
+      eidolon_favorites: Array.from(state.favorites) 
+    });
+  } catch (error) {
+    console.error('Failed to save favorites:', error);
+  }
+}
+
+async function toggleFavorite(uuid: string): Promise<void> {
+  if (state.favorites.has(uuid)) {
+    state.favorites.delete(uuid);
+    toast.info('Removed from favorites');
+  } else {
+    state.favorites.add(uuid);
+    toast.success('Added to favorites');
+  }
+  await saveFavorites();
+  renderProjects();
+  updateFavoritesFilterCount();
+}
+
+function toggleFavoritesFilter(): void {
+  state.showFavoritesOnly = !state.showFavoritesOnly;
+  const filterBtn = document.getElementById('favorites-filter-btn');
+  if (filterBtn) {
+    filterBtn.classList.toggle('active', state.showFavoritesOnly);
+  }
+  renderProjects();
+}
+
+function updateFavoritesFilterCount(): void {
+  const countEl = document.querySelector('.favorites-count');
+  if (countEl) {
+    countEl.textContent = state.favorites.size.toString();
+  }
 }
 
 async function handleProjectTagsClick(projectId: string) {
@@ -1858,14 +2726,14 @@ async function handleBulkAction(action: string) {
   const selectedCount = state.selectedProjects.size;
 
   if (selectedCount === 0) {
-    alert('No projects selected');
+    toast.warning('No projects selected');
     return;
   }
 
   switch (action) {
     case 'archive':
       // Archive functionality not yet implemented in API
-      alert(`Archive feature coming soon! Selected: ${selectedCount} project(s)`);
+      toast.info(`Archive feature coming soon! Selected: ${selectedCount} project(s)`);
       break;
 
     case 'export':
@@ -1907,7 +2775,7 @@ async function exportSelectedProjects() {
   a.click();
   URL.revokeObjectURL(url);
 
-  alert(`Exported ${selectedProjects.length} project(s) successfully!`);
+  toast.success(`Exported ${selectedProjects.length} project(s) successfully!`);
 }
 
 async function bulkAddTags() {
@@ -1935,7 +2803,7 @@ async function bulkAddTags() {
   await indexAllData();
   renderProjects();
 
-  alert(`Added tags to ${state.selectedProjects.size} project(s)!`);
+  toast.success(`Added tags to ${state.selectedProjects.size} project(s)!`);
 }
 
 async function bulkDeleteProjects() {
@@ -1949,7 +2817,7 @@ async function bulkDeleteProjects() {
 
   const orgId = state.currentOrg?.uuid;
   if (!orgId) {
-    alert('No organization selected');
+    toast.warning('No organization selected');
     return;
   }
 
@@ -1977,9 +2845,9 @@ async function bulkDeleteProjects() {
   renderProjects();
 
   if (failCount > 0) {
-    alert(`Deleted ${successCount} project(s). Failed to delete ${failCount} project(s).`);
+    toast.warning(`Deleted ${successCount}, failed ${failCount} project(s)`);
   } else {
-    alert(`Successfully deleted ${successCount} project(s)!`);
+    toast.success(`Deleted ${successCount} project(s)`);
   }
 }
 
@@ -2006,7 +2874,7 @@ async function handleFileBulkAction(action: string) {
   const selectedCount = state.selectedFiles.size;
 
   if (selectedCount === 0) {
-    alert('No files selected');
+    toast.warning('No files selected');
     return;
   }
 
@@ -2051,7 +2919,7 @@ async function exportSelectedFiles() {
   a.click();
   URL.revokeObjectURL(url);
 
-  alert(`Exported ${selectedFiles.length} file(s) successfully!`);
+  toast.success(`Exported ${selectedFiles.length} file(s) successfully!`);
 }
 
 async function bulkAddFileTags() {
@@ -2075,7 +2943,7 @@ async function bulkAddFileTags() {
   await indexAllData();
   renderFiles();
 
-  alert(`Added tags to ${state.selectedFiles.size} file(s)!`);
+  toast.success(`Added tags to ${state.selectedFiles.size} file(s)!`);
 }
 
 async function bulkDeleteFiles() {
@@ -2089,7 +2957,7 @@ async function bulkDeleteFiles() {
 
   const orgId = state.currentOrg?.uuid;
   if (!orgId) {
-    alert('No organization selected');
+    toast.warning('No organization selected');
     return;
   }
 
@@ -2123,9 +2991,9 @@ async function bulkDeleteFiles() {
   renderFiles();
 
   if (failCount > 0) {
-    alert(`Deleted ${successCount} file(s). Failed to delete ${failCount} file(s).`);
+    toast.warning(`Deleted ${successCount}, failed ${failCount} file(s)`);
   } else {
-    alert(`Successfully deleted ${successCount} file(s)!`);
+    toast.success(`Deleted ${successCount} file(s)`);
   }
 }
 
@@ -2278,7 +3146,7 @@ async function exportAllDataAsJSON() {
   a.click();
   URL.revokeObjectURL(url);
 
-  alert(`Successfully exported ${exportData.projects.length} projects, ${exportData.files.length} files, and ${exportData.conversations.length} conversations!`);
+  toast.success(`Exported ${exportData.projects.length} projects, ${exportData.files.length} files, ${exportData.conversations.length} conversations`);
 }
 
 async function exportAllDataAsCSV() {
@@ -2340,7 +3208,7 @@ async function exportAllDataAsCSV() {
     downloadCSV(conversationsCSV, `eidolon-conversations-${Date.now()}.csv`);
   }, 200);
 
-  alert(`Exported ${state.projects.length} projects, ${state.files.length} files, and ${state.conversations.length} conversations as CSV files!`);
+  toast.success(`Exported ${state.projects.length} projects, ${state.files.length} files, ${state.conversations.length} conversations as CSV`);
 }
 
 function downloadCSV(csvContent: string, filename: string) {
@@ -2365,8 +3233,25 @@ function sortProjectsBy(key: 'name' | 'date' | 'files') {
 }
 
 function filterProjects(filter: string) {
-  // TODO: Implement filtering logic
-  console.log('Filter projects:', filter);
+  // Handle different filter types
+  switch (filter) {
+    case 'all':
+      state.showFavoritesOnly = false;
+      break;
+    case 'favorites':
+      state.showFavoritesOnly = true;
+      break;
+    case 'active':
+      // TODO: Implement active filter (non-archived)
+      state.showFavoritesOnly = false;
+      break;
+    case 'archived':
+      // TODO: Implement archived filter
+      state.showFavoritesOnly = false;
+      break;
+    default:
+      state.showFavoritesOnly = false;
+  }
   renderProjects();
 }
 
@@ -2511,6 +3396,30 @@ function openConversation(uuid: string) {
   browser.tabs.create({ url: `https://claude.ai/chat/${uuid}` });
 }
 
+/**
+ * Open a conversation in the sidepanel
+ * This creates a new tab with the conversation and opens the sidepanel
+ */
+async function openConversationInSidepanel(uuid: string) {
+  try {
+    // First create a tab with the conversation
+    const tab = await browser.tabs.create({ 
+      url: `https://claude.ai/chat/${uuid}`,
+      active: true 
+    });
+    
+    // Then open the sidepanel for that tab
+    if (tab.id) {
+      // Use chrome.sidePanel API to open sidepanel
+      await (chrome as any).sidePanel.open({ tabId: tab.id });
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to open conversation in sidepanel:', error);
+    // Fallback to just opening the tab
+    openConversation(uuid);
+  }
+}
+
 function viewProjectFiles(uuid: string) {
   // Find project name
   const project = state.projects.find(p => p.uuid === uuid);
@@ -2538,7 +3447,7 @@ function showNewProjectModal() {
   if (projectName) {
     const validationError = validateProjectName(projectName);
     if (validationError) {
-      alert(`Invalid project name: ${validationError}`);
+      toast.error(`Invalid project name: ${validationError}`);
       return;
     }
     createProject(projectName);
@@ -2587,11 +3496,11 @@ async function createProject(name: string) {
       renderProjects();
       statusText.textContent = `Project "${trimmedName}" created successfully`;
     } else {
-      alert(`Failed to create project: ${response.error || 'Unknown error'}`);
+      toast.error(`Failed to create project: ${response.error || 'Unknown error'}`);
     }
   } catch (error) {
     console.error('Failed to create project:', error);
-    alert('Failed to create project. Please try again.');
+    toast.error('Failed to create project. Please try again.');
   }
 }
 
@@ -2678,7 +3587,7 @@ function showSettingsModal() {
   clearCacheBtn.addEventListener('click', async () => {
     if (confirm('Clear all cached data? This will reload all data from Claude.ai.')) {
       await searchService.clearIndex();
-      alert('Cache cleared! Reloading data...');
+      toast.success('Cache cleared! Reloading data...');
       await loadAllData();
       renderCurrentTab();
       updateAnalytics();
@@ -2703,7 +3612,7 @@ function showSettingsModal() {
     await loadAllData();
     renderCurrentTab();
     updateAnalytics();
-    alert('Data refreshed successfully!');
+    toast.success('Data refreshed successfully!');
   });
 
   const closeBtn = document.createElement('button');
@@ -2875,7 +3784,7 @@ async function setupWorkspace() {
     // Verify write permission (fresh handle should work)
     const hasPermission = await verifyPermission(dirHandle, 'readwrite');
     if (!hasPermission) {
-      alert('Failed to get write permission for the selected directory');
+      toast.error('Failed to get write permission for the selected directory');
       return;
     }
 
@@ -2897,11 +3806,11 @@ async function setupWorkspace() {
     // Log activity
     logSyncActivity('success', `Workspace configured: ${dirHandle.name}`);
 
-    alert('Workspace configured successfully!\n\nNote: You\'ll need to confirm your folder selection each time you sync (browser security requirement). Your browser will remember your choice, so it\'s just a single click.');
+    toast.success('Workspace configured! You may need to confirm folder access on each sync.');
   } catch (error) {
     console.error('Failed to setup workspace:', error);
     logSyncActivity('error', `Failed to configure workspace: ${(error as Error).message}`);
-    alert(`Failed to setup workspace: ${(error as Error).message}`);
+    toast.error(`Failed to setup workspace: ${(error as Error).message}`);
   }
 }
 
@@ -2910,12 +3819,12 @@ async function setupWorkspace() {
  */
 async function syncNow(dryRun: boolean = false) {
   if (state.isSyncing) {
-    alert('Sync already in progress');
+    toast.warning('Sync already in progress');
     return;
   }
 
   if (!state.currentOrg) {
-    alert('No organization selected');
+    toast.warning('No organization selected');
     return;
   }
 
@@ -2930,7 +3839,7 @@ async function syncNow(dryRun: boolean = false) {
       // Verify fresh handle has permission (should work since it's fresh)
       const hasPermission = await verifyPermission(dirHandle, 'readwrite');
       if (!hasPermission) {
-        alert('Failed to get write permission for the selected directory');
+        toast.error('Failed to get write permission for the selected directory');
         return;
       }
 
@@ -2943,7 +3852,7 @@ async function syncNow(dryRun: boolean = false) {
       logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
     } catch (error) {
       console.error('Failed to select workspace:', error);
-      alert(`Failed to select workspace: ${(error as Error).message}`);
+      toast.error(`Failed to select workspace: ${(error as Error).message}`);
       return;
     }
   }
@@ -3013,27 +3922,13 @@ async function syncNow(dryRun: boolean = false) {
 
     // Show results
     if (dryRun) {
-      alert(
-        `Dry Run Complete!\n\n` +
-        `Would create: ${result.stats.created}\n` +
-        `Would update: ${result.stats.updated}\n` +
-        `Would skip: ${result.stats.skipped}\n` +
-        `Chats synced: ${result.stats.chats || 0}\n` +
-        `Errors: ${result.stats.errors}`
-      );
+      toast.info(`Dry run: ${result.stats.created} create, ${result.stats.updated} update, ${result.stats.chats || 0} chats`);
     } else {
-      const successMessage = result.success
-        ? 'Sync completed successfully!'
-        : 'Sync completed with errors';
-
-      alert(
-        `${successMessage}\n\n` +
-        `Created: ${result.stats.created}\n` +
-        `Updated: ${result.stats.updated}\n` +
-        `Skipped: ${result.stats.skipped}\n` +
-        `Chats synced: ${result.stats.chats || 0}\n` +
-        `Errors: ${result.stats.errors}`
-      );
+      if (result.success) {
+        toast.success(`Sync complete: ${result.stats.created} created, ${result.stats.updated} updated, ${result.stats.chats || 0} chats`);
+      } else {
+        toast.warning(`Sync done with ${result.stats.errors} error(s): ${result.stats.created} created, ${result.stats.updated} updated`);
+      }
     }
 
     // Log activity
@@ -3055,9 +3950,11 @@ async function syncNow(dryRun: boolean = false) {
     console.error('Sync failed:', error);
     hideSyncProgress();
     logSyncActivity('error', `Sync failed: ${(error as Error).message}`);
-    alert(`Sync failed: ${(error as Error).message}`);
+    toast.error(`Sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
+    // Update workspace status in Settings tab
+    updateSettingsWorkspaceStatus();
   }
 }
 
@@ -3066,12 +3963,12 @@ async function syncNow(dryRun: boolean = false) {
  */
 async function syncChatsOnly(dryRun: boolean = false) {
   if (state.isSyncing) {
-    alert('Sync already in progress');
+    toast.warning('Sync already in progress');
     return;
   }
 
   if (!state.currentOrg) {
-    alert('No organization selected');
+    toast.error('No organization selected');
     return;
   }
 
@@ -3086,7 +3983,7 @@ async function syncChatsOnly(dryRun: boolean = false) {
       // Verify fresh handle has permission (should work since it's fresh)
       const hasPermission = await verifyPermission(dirHandle, 'readwrite');
       if (!hasPermission) {
-        alert('Failed to get write permission for the selected directory');
+        toast.error('Failed to get write permission for the selected directory');
         return;
       }
 
@@ -3099,7 +3996,7 @@ async function syncChatsOnly(dryRun: boolean = false) {
       logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
     } catch (error) {
       console.error('Failed to select workspace:', error);
-      alert(`Failed to select workspace: ${(error as Error).message}`);
+      toast.error(`Failed to select workspace: ${(error as Error).message}`);
       return;
     }
   }
@@ -3157,21 +4054,13 @@ async function syncChatsOnly(dryRun: boolean = false) {
 
     // Show results
     if (dryRun) {
-      alert(
-        `Dry Run Complete!\n\n` +
-        `Chats synced: ${result.stats.chats || 0}\n` +
-        `Errors: ${result.stats.errors}`
-      );
+      toast.info(`Dry run: ${result.stats.chats || 0} chats would sync`);
     } else {
-      const successMessage = result.success
-        ? 'Chats sync completed successfully!'
-        : 'Chats sync completed with errors';
-
-      alert(
-        `${successMessage}\n\n` +
-        `Chats synced: ${result.stats.chats || 0}\n` +
-        `Errors: ${result.stats.errors}`
-      );
+      if (result.success) {
+        toast.success(`Synced ${result.stats.chats || 0} conversation(s)`);
+      } else {
+        toast.warning(`Chats sync done with ${result.stats.errors} error(s)`);
+      }
     }
 
     // Log activity
@@ -3193,9 +4082,11 @@ async function syncChatsOnly(dryRun: boolean = false) {
     console.error('Chats sync failed:', error);
     hideSyncProgress();
     logSyncActivity('error', `Chats sync failed: ${(error as Error).message}`);
-    alert(`Chats sync failed: ${(error as Error).message}`);
+    toast.error(`Chats sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
+    // Update workspace status in Settings tab
+    updateSettingsWorkspaceStatus();
   }
 }
 
@@ -3204,7 +4095,7 @@ async function syncChatsOnly(dryRun: boolean = false) {
  */
 async function viewWorkspaceDiff() {
   if (!state.currentOrg) {
-    alert('No organization selected');
+    toast.warning('No organization selected');
     return;
   }
 
@@ -3219,7 +4110,7 @@ async function viewWorkspaceDiff() {
       // Verify fresh handle has permission
       const hasPermission = await verifyPermission(dirHandle, 'readwrite');
       if (!hasPermission) {
-        alert('Failed to get permission for the selected directory');
+        toast.error('Failed to get permission for the selected directory');
         return;
       }
 
@@ -3232,7 +4123,7 @@ async function viewWorkspaceDiff() {
       logSyncActivity('success', `Workspace selected: ${dirHandle.name}`);
     } catch (error) {
       console.error('Failed to select workspace:', error);
-      alert(`Failed to select workspace: ${(error as Error).message}`);
+      toast.error(`Failed to select workspace: ${(error as Error).message}`);
       return;
     }
   }
@@ -3359,7 +4250,7 @@ async function viewWorkspaceDiff() {
     logSyncActivity('info', 'Workspace diff computed');
   } catch (error) {
     console.error('Failed to compute diff:', error);
-    alert(`Failed to compute diff: ${(error as Error).message}`);
+    toast.error(`Failed to compute diff: ${(error as Error).message}`);
     document.getElementById('modal-overlay')?.classList.add('hidden');
   }
 }
@@ -3865,25 +4756,20 @@ function createFileItemWithSyncButton(
                   fileItem.style.pointerEvents = 'none';
                 }, 1000);
               } else {
-                alert(
-                  'Session validation failed. Please:\n' +
-                  '1. Make sure you are logged into Claude.ai in this browser\n' +
-                  '2. Click the Eidolon extension icon to reconnect\n' +
-                  '3. Try syncing again'
-                );
+                toast.error('Session expired. Please log in to Claude.ai and reconnect.');
                 button.textContent = '✗ Not Auth';
                 button.disabled = false;
               }
             } catch (authError) {
               console.error('Authentication error:', authError);
-              alert('Failed to authenticate. Please click the extension icon to reconnect.');
+              toast.error('Failed to authenticate. Please reconnect.');
               button.textContent = '✗ Auth Failed';
               button.disabled = false;
             }
           }
         } else {
           // Regular error
-          alert(`Failed to sync ${fileName}: ${(error as Error).message}`);
+          toast.error(`Failed to sync ${fileName}: ${(error as Error).message}`);
         }
       }
     });
@@ -4202,7 +5088,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
                   syncButton.disabled = true;
                 }, 500);
               } catch (error) {
-                alert(`Failed to sync rename: ${(error as Error).message}`);
+                toast.error(`Failed to sync rename: ${(error as Error).message}`);
                 syncButton.disabled = false;
                 syncButton.textContent = '🔄 Sync Rename';
               }
@@ -4427,7 +5313,7 @@ async function showOrgSwitcher() {
     const response = await browser.runtime.sendMessage({ action: 'get-organizations' });
 
     if (!response.success) {
-      alert('Failed to load organizations: ' + (response.error || 'Unknown error'));
+      toast.error('Failed to load organizations: ' + (response.error || 'Unknown error'));
       return;
     }
 
@@ -4482,7 +5368,7 @@ async function showOrgSwitcher() {
     orgSwitcherModal.classList.remove('hidden');
   } catch (error) {
     console.error('Failed to show org switcher:', error);
-    alert('Failed to load organizations. Please try again.');
+    toast.error('Failed to load organizations. Please try again.');
   }
 }
 
@@ -4512,11 +5398,11 @@ async function switchOrganization(orgId: string, orgName: string) {
 
       statusText.textContent = 'Connected to Claude.ai';
     } else {
-      alert('Failed to switch organization: ' + (response.error || 'Unknown error'));
+      toast.error('Failed to switch organization: ' + (response.error || 'Unknown error'));
     }
   } catch (error) {
     console.error('Failed to switch organization:', error);
-    alert('Failed to switch organization. Please try again.');
+    toast.error('Failed to switch organization. Please try again.');
   }
 }
 
@@ -4611,10 +5497,10 @@ async function validateAuthSession() {
 
     if (response.success) {
       await checkAuthStatus();
-      alert('✅ Session validated successfully!');
+      toast.success('Session validated successfully!');
     } else {
       await checkAuthStatus();
-      alert('❌ Session validation failed. Please visit claude.ai to log in.');
+      toast.error('Session validation failed. Please visit claude.ai to log in.');
     }
   } catch (error) {
     console.error('Failed to validate session:', error);
@@ -4642,7 +5528,7 @@ async function toggleSessionKeyDisplay() {
       const displayElement = document.getElementById('session-key-display');
 
       if (!displayElement || !sessionKey) {
-        alert('Session key not available');
+        toast.error('Session key not available');
         return;
       }
 
@@ -4660,11 +5546,11 @@ async function toggleSessionKeyDisplay() {
         showSessionKeyBtn.textContent = 'Show Session Key';
       }
     } else {
-      alert('Session key not available');
+      toast.error('Session key not available');
     }
   } catch (error) {
     console.error('Failed to toggle session key:', error);
-    alert('Error accessing session key');
+    toast.error('Error accessing session key');
   }
 }
 
@@ -4773,6 +5659,9 @@ function initExportSettings() {
  * Initialize settings tab - loads settings and attaches auto-save handlers
  */
 function initSettingsTab() {
+  // Initialize settings service for dashboard context
+  settingsService.init('dashboard');
+  
   // Load export settings
   loadExportSettings();
   
@@ -4781,6 +5670,19 @@ function initSettingsTab() {
   
   // Setup auto-save on toggle changes (no save button needed)
   setupSettingsAutoSave();
+  
+  // Load workspace status in settings tab
+  updateSettingsWorkspaceStatus();
+  
+  // Setup workspace status button handlers
+  setupSettingsWorkspaceStatusHandlers();
+  
+  // Subscribe to workspace config changes to update status
+  settingsService.subscribe((event) => {
+    if (event.type === 'workspace') {
+      updateSettingsWorkspaceStatus();
+    }
+  });
 }
 
 /**
@@ -4948,7 +5850,7 @@ function importSettings() {
       window.location.reload();
     } catch (error) {
       console.error('[Dashboard] Failed to import settings:', error);
-      alert('Failed to import settings. Invalid file format.');
+      toast.error('Failed to import settings. Invalid file format.');
     }
   };
   input.click();
@@ -4960,6 +5862,114 @@ function importSettings() {
 async function saveAllSettings() {
   await saveExportSettingsAuto();
   showSettingsSaveStatus('All settings saved');
+}
+
+// ========================================================================
+// WORKSPACE STATUS IN SETTINGS TAB
+// ========================================================================
+
+/**
+ * Update the workspace status summary in the Settings tab
+ * This shows a quick overview of sync status without needing to navigate to Sync tab
+ */
+async function updateSettingsWorkspaceStatus() {
+  const indicator = document.getElementById('settings-sync-indicator');
+  const statusText = document.getElementById('settings-sync-status-text');
+  const pathRow = document.getElementById('settings-workspace-path-row');
+  const pathEl = document.getElementById('settings-workspace-path');
+  const lastSyncRow = document.getElementById('settings-last-sync-row');
+  const lastSyncEl = document.getElementById('settings-last-sync-time');
+  
+  if (!indicator || !statusText) return;
+  
+  try {
+    const config = await getWorkspaceConfig();
+    
+    if (!config?.path) {
+      // Not configured
+      indicator.className = 'workspace-status-indicator not-configured';
+      statusText.textContent = 'Not configured';
+      if (pathRow) pathRow.style.display = 'none';
+      if (lastSyncRow) lastSyncRow.style.display = 'none';
+      return;
+    }
+    
+    // Show workspace path
+    if (pathRow && pathEl) {
+      pathRow.style.display = 'flex';
+      pathEl.textContent = config.path;
+      pathEl.title = config.path;
+    }
+    
+    // Show last sync time
+    if (lastSyncRow && lastSyncEl) {
+      if (config.lastSync) {
+        lastSyncRow.style.display = 'flex';
+        const lastSyncDate = new Date(config.lastSync);
+        const now = new Date();
+        const diffMs = now.getTime() - lastSyncDate.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        
+        if (diffMins < 1) {
+          lastSyncEl.textContent = 'Just now';
+        } else if (diffMins < 60) {
+          lastSyncEl.textContent = `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+        } else if (diffHours < 24) {
+          lastSyncEl.textContent = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        } else {
+          lastSyncEl.textContent = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+        }
+      } else {
+        lastSyncRow.style.display = 'flex';
+        lastSyncEl.textContent = 'Never';
+      }
+    }
+    
+    // Determine sync status
+    if (state.isSyncing) {
+      indicator.className = 'workspace-status-indicator syncing';
+      statusText.textContent = 'Syncing...';
+    } else if (config.lastSync) {
+      // Check if there might be pending changes (simplified check)
+      const lastSyncDate = new Date(config.lastSync);
+      const now = new Date();
+      const hoursSinceSync = (now.getTime() - lastSyncDate.getTime()) / 3600000;
+      
+      if (hoursSinceSync > 24) {
+        indicator.className = 'workspace-status-indicator pending';
+        statusText.textContent = 'May have pending changes';
+      } else {
+        indicator.className = 'workspace-status-indicator synced';
+        statusText.textContent = 'Synced';
+      }
+    } else {
+      indicator.className = 'workspace-status-indicator pending';
+      statusText.textContent = 'Workspace configured, not synced yet';
+    }
+  } catch (error) {
+    console.error('[Dashboard] Failed to update workspace status:', error);
+    indicator.className = 'workspace-status-indicator error';
+    statusText.textContent = 'Error checking status';
+  }
+}
+
+/**
+ * Setup workspace status button handlers in Settings tab
+ */
+function setupSettingsWorkspaceStatusHandlers() {
+  // "Open Full Sync Settings" button - navigates to Sync tab
+  const openSyncTabBtn = document.getElementById('settings-open-sync-tab');
+  if (openSyncTabBtn) {
+    openSyncTabBtn.addEventListener('click', () => {
+      // Find and click the Sync nav tab
+      const syncNavTab = document.querySelector('.nav-tab[data-tab="sync"]') as HTMLElement;
+      if (syncNavTab) {
+        syncNavTab.click();
+      }
+    });
+  }
 }
 
 // ========================================================================
