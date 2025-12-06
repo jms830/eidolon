@@ -3500,6 +3500,7 @@ async function takeCdpScreenshot() {
 
 /**
  * Execute a tool call from Claude and return the result
+ * Now includes timeout handling for reliability
  */
 async function executeToolCall(toolName: string, toolInput: Record<string, any>): Promise<{
   content: string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
@@ -3514,79 +3515,111 @@ async function executeToolCall(toolName: string, toolInput: Record<string, any>)
   console.log(`[Eidolon Agent] Executing tool: ${toolName}`, toolInput);
   showActivity(`Executing: ${toolName}...`);
   
-  try {
-    switch (toolName) {
-      case 'computer': {
-        return await executeComputerTool(targetId!, toolInput);
-      }
-      
-      case 'read_page': {
-        const response = await browser.runtime.sendMessage({
-          action: 'browser-get-accessibility-tree',
-          tabId: targetId,
-          maxDepth: toolInput.max_depth || 10
-        });
-        
-        if (response.success && response.data) {
-          const treeJson = JSON.stringify(response.data.tree || response.data, null, 2);
-          return { content: `Page accessibility tree for ${response.data.url}:\n\n${treeJson}` };
-        }
-        return { content: `Error getting accessibility tree: ${response.error}`, is_error: true };
-      }
-      
-      case 'tabs_context': {
-        const response = await browser.runtime.sendMessage({ action: 'tabs-context' });
-        
-        if (response.success && response.data) {
-          const { currentTabId, availableTabs, tabGroupId } = response.data;
-          const result = {
-            current_tab_id: currentTabId,
-            tab_group_id: tabGroupId,
-            tabs: availableTabs.map((t: any) => ({
-              id: t.tabId,
-              title: t.title,
-              url: t.url
-            }))
-          };
-          return { content: JSON.stringify(result, null, 2) };
-        }
-        return { content: `Error getting tabs context: ${response.error}`, is_error: true };
-      }
-      
-      case 'tabs_create': {
-        const response = await browser.runtime.sendMessage({
-          action: 'tabs-create',
-          url: toolInput.url
-        });
-        
-        if (response.success && response.data) {
-          // Update target to the new tab
-          state.targetTabId = response.data.tabId;
-          await loadTabs();
-          return { content: `Created new tab (ID: ${response.data.tabId})${toolInput.url ? ` and navigated to ${toolInput.url}` : ''}` };
-        }
-        return { content: `Error creating tab: ${response.error}`, is_error: true };
-      }
-      
-      case 'get_page_text': {
-        const results = await browser.scripting.executeScript({
-          target: { tabId: targetId! },
-          func: () => document.body.innerText
-        });
-        
-        if (results && results[0]?.result) {
-          const maxLength = toolInput.max_length || 50000;
-          const text = results[0].result.slice(0, maxLength);
-          return { content: text };
-        }
-        return { content: 'Error: Could not get page text', is_error: true };
-      }
-      
-      default:
-        return { content: `Unknown tool: ${toolName}`, is_error: true };
+  // Get timeout for this tool
+  const getTimeoutForTool = (name: string, action?: string): number => {
+    if (name === 'computer' && action) {
+      return (TOOL_TIMEOUTS as any)[action] || TOOL_TIMEOUTS.default;
     }
+    return (TOOL_TIMEOUTS as any)[name] || TOOL_TIMEOUTS.default;
+  };
+  
+  const timeout = getTimeoutForTool(toolName, toolInput.action);
+  
+  try {
+    // Wrap the tool execution in a timeout
+    const executeWithTimeout = async (): Promise<{
+      content: string | Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
+      is_error?: boolean;
+    }> => {
+      switch (toolName) {
+        case 'computer': {
+          return await executeComputerTool(targetId!, toolInput);
+        }
+        
+        case 'read_page': {
+          const response = await browser.runtime.sendMessage({
+            action: 'browser-get-accessibility-tree',
+            tabId: targetId,
+            maxDepth: toolInput.max_depth || 10
+          });
+          
+          if (response.success && response.data) {
+            const treeJson = JSON.stringify(response.data.tree || response.data, null, 2);
+            return { content: `Page accessibility tree for ${response.data.url}:\n\n${treeJson}` };
+          }
+          return { content: `Error getting accessibility tree: ${response.error}`, is_error: true };
+        }
+        
+        case 'tabs_context': {
+          const response = await browser.runtime.sendMessage({ action: 'tabs-context' });
+          
+          if (response.success && response.data) {
+            const { currentTabId, availableTabs, tabGroupId } = response.data;
+            const result = {
+              current_tab_id: currentTabId,
+              tab_group_id: tabGroupId,
+              tabs: availableTabs.map((t: any) => ({
+                id: t.tabId,
+                title: t.title,
+                url: t.url
+              }))
+            };
+            return { content: JSON.stringify(result, null, 2) };
+          }
+          return { content: `Error getting tabs context: ${response.error}`, is_error: true };
+        }
+        
+        case 'tabs_create': {
+          const response = await browser.runtime.sendMessage({
+            action: 'tabs-create',
+            url: toolInput.url
+          });
+          
+          if (response.success && response.data) {
+            // Update target to the new tab
+            state.targetTabId = response.data.tabId;
+            await loadTabs();
+            return { content: `Created new tab (ID: ${response.data.tabId})${toolInput.url ? ` and navigated to ${toolInput.url}` : ''}` };
+          }
+          return { content: `Error creating tab: ${response.error}`, is_error: true };
+        }
+        
+        case 'get_page_text': {
+          const results = await browser.scripting.executeScript({
+            target: { tabId: targetId! },
+            func: () => document.body.innerText
+          });
+          
+          if (results && results[0]?.result) {
+            const maxLength = toolInput.max_length || 50000;
+            const text = results[0].result.slice(0, maxLength);
+            return { content: text };
+          }
+          return { content: 'Error: Could not get page text', is_error: true };
+        }
+        
+        default:
+          return { content: `Unknown tool: ${toolName}`, is_error: true };
+      }
+    };
+    
+    return await withTimeout(
+      executeWithTimeout(),
+      timeout,
+      `${toolName}${toolInput.action ? `:${toolInput.action}` : ''}`
+    );
+    
   } catch (error: any) {
     console.error(`[Eidolon Agent] Tool execution error:`, error);
+    
+    // Provide helpful context for timeout errors
+    if (error.message.includes('timed out')) {
+      return { 
+        content: `Error: ${toolName} operation timed out after ${timeout / 1000}s.\n\nSuggestion: The page may be slow to respond or an element may be unresponsive. Try:\n1. Using read_page to check current page state\n2. Waiting for the page to load (use wait action)\n3. Trying a different approach`, 
+        is_error: true 
+      };
+    }
+    
     return { content: `Error executing ${toolName}: ${error.message}`, is_error: true };
   }
 }
@@ -3702,6 +3735,149 @@ async function setValueByRef(tabId: number, ref: string, value: string): Promise
 }
 
 /**
+ * Validate ref before executing action - provides detailed error context
+ */
+async function validateRefBeforeAction(tabId: number, ref: string): Promise<{
+  valid: boolean;
+  error?: string;
+  suggestion?: string;
+  alternatives?: Array<{ ref: string; role: string; name: string; similarity: number }>;
+}> {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string) => {
+        const validateRef = (window as any).__validateRef;
+        const findSimilar = (window as any).__findSimilarElement;
+        
+        if (!validateRef) {
+          return { valid: false, error: 'Validation function not available. Page may need refresh.' };
+        }
+        
+        const validation = validateRef(refId);
+        
+        // If invalid and we have element info from before, try to find similar elements
+        if (!validation.valid && findSimilar && validation.elementInfo) {
+          const alternatives = findSimilar(
+            validation.elementInfo.role,
+            validation.elementInfo.name,
+            3
+          );
+          return { ...validation, alternatives };
+        }
+        
+        return validation;
+      },
+      args: [ref]
+    });
+    
+    const result = results?.[0]?.result;
+    if (!result) {
+      return { valid: false, error: 'Script execution failed' };
+    }
+    
+    return result;
+  } catch (error: any) {
+    return { valid: false, error: error.message };
+  }
+}
+
+/**
+ * Highlight element for visual feedback before action
+ */
+async function highlightRef(tabId: number, ref: string, duration: number = 1000): Promise<boolean> {
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: (refId: string, dur: number) => {
+        const highlight = (window as any).__highlightRef;
+        return highlight ? highlight(refId, dur) : false;
+      },
+      args: [ref, duration]
+    });
+    return results?.[0]?.result || false;
+  } catch (error) {
+    console.warn('[Eidolon Agent] Failed to highlight ref:', error);
+    return false;
+  }
+}
+
+/**
+ * Build detailed error message for Claude with context and suggestions
+ */
+function buildRefErrorMessage(
+  ref: string,
+  action: string,
+  validation: {
+    error?: string;
+    suggestion?: string;
+    alternatives?: Array<{ ref: string; role: string; name: string; similarity: number }>;
+  }
+): string {
+  let message = `Error: Could not ${action} element with ref "${ref}".`;
+  
+  if (validation.error) {
+    message += `\n\nReason: ${validation.error}`;
+  }
+  
+  if (validation.suggestion) {
+    message += `\n\nSuggestion: ${validation.suggestion}`;
+  }
+  
+  if (validation.alternatives && validation.alternatives.length > 0) {
+    message += '\n\nPossible alternatives:';
+    validation.alternatives.forEach((alt, i) => {
+      message += `\n  ${i + 1}. ${alt.ref} (${alt.role}: "${alt.name}") - ${Math.round(alt.similarity * 100)}% match`;
+    });
+    message += '\n\nConsider using read_page to get fresh element references, or try one of the alternatives above.';
+  }
+  
+  return message;
+}
+
+/**
+ * Timeout utility - wraps a promise with a timeout
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operationName: string = 'Operation'
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${operationName} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    
+    promise
+      .then(result => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch(error => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
+// Tool-specific timeout settings (in milliseconds)
+const TOOL_TIMEOUTS = {
+  screenshot: 10000,      // 10s - screenshots can be slow
+  click: 5000,            // 5s
+  type: 5000,             // 5s
+  focus: 3000,            // 3s
+  scroll: 3000,           // 3s
+  key: 3000,              // 3s
+  navigate: 30000,        // 30s - navigation can be slow
+  wait: 65000,            // 65s - max wait is 60s + buffer
+  read_page: 15000,       // 15s - building tree can be slow
+  tabs_context: 5000,     // 5s
+  tabs_create: 10000,     // 10s
+  get_page_text: 10000,   // 10s
+  default: 15000          // 15s default
+};
+
+/**
  * Execute the 'computer' tool actions
  */
 async function executeComputerTool(tabId: number, input: Record<string, any>): Promise<{
@@ -3729,6 +3905,27 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
       return executeComputerTool(tabId, { action: 'screenshot' });
     }
     return { content: message };
+  };
+  
+  // Validate ref before actions that require it
+  const validateRefForAction = async (actionName: string): Promise<{ valid: boolean; errorResponse?: { content: string; is_error: boolean } }> => {
+    if (!ref) return { valid: true }; // No ref to validate
+    
+    const validation = await validateRefBeforeAction(tabId, ref);
+    if (!validation.valid) {
+      return {
+        valid: false,
+        errorResponse: {
+          content: buildRefErrorMessage(ref, actionName, validation),
+          is_error: true
+        }
+      };
+    }
+    
+    // Optionally highlight the element before action (can be configured)
+    // await highlightRef(tabId, ref, 500);
+    
+    return { valid: true };
   };
   
   switch (action) {
@@ -3762,18 +3959,37 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
     case 'middle_click': {
       // Prefer ref-based clicking
       if (ref) {
+        // Validate ref first
+        const refValidation = await validateRefForAction('click');
+        if (!refValidation.valid && refValidation.errorResponse) {
+          return refValidation.errorResponse;
+        }
+        
         // For left_click, use direct DOM click (more reliable)
         if (action === 'left_click') {
           const result = await clickElementByRef(tabId, ref);
           if (!result.success) {
-            return { content: `Click on ${ref} failed: ${result.error}`, is_error: true };
+            // If click failed, try to provide helpful context
+            const validation = await validateRefBeforeAction(tabId, ref);
+            return { 
+              content: buildRefErrorMessage(ref, 'click', {
+                error: result.error,
+                suggestion: validation.suggestion,
+                alternatives: validation.alternatives
+              }), 
+              is_error: true 
+            };
           }
           return successWithScreenshot(`Clicked ${ref}`);
         }
         // For other click types, resolve to coordinates and use CDP
         const coords = await resolveRefToCoordinates(tabId, ref);
         if (!coords) {
-          return { content: `Error: Could not find element with ref "${ref}"`, is_error: true };
+          const validation = await validateRefBeforeAction(tabId, ref);
+          return { 
+            content: buildRefErrorMessage(ref, 'click', validation), 
+            is_error: true 
+          };
         }
         input.coordinate = [coords.x, coords.y];
       }
@@ -3804,9 +4020,24 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
       if (!ref) {
         return { content: 'Error: ref is required for focus action', is_error: true };
       }
+      
+      // Validate ref first
+      const refValidation = await validateRefForAction('focus');
+      if (!refValidation.valid && refValidation.errorResponse) {
+        return refValidation.errorResponse;
+      }
+      
       const result = await focusElementByRef(tabId, ref);
       if (!result.success) {
-        return { content: `Focus on ${ref} failed: ${result.error}`, is_error: true };
+        const validation = await validateRefBeforeAction(tabId, ref);
+        return { 
+          content: buildRefErrorMessage(ref, 'focus', {
+            error: result.error,
+            suggestion: validation.suggestion,
+            alternatives: validation.alternatives
+          }), 
+          is_error: true 
+        };
       }
       return successWithScreenshot(`Focused ${ref}`);
     }
@@ -3818,13 +4049,30 @@ async function executeComputerTool(tabId: number, input: Record<string, any>): P
       
       // If ref is provided, focus/set value on that element first
       if (ref) {
+        // Validate ref first
+        const refValidation = await validateRefForAction('type');
+        if (!refValidation.valid && refValidation.errorResponse) {
+          return refValidation.errorResponse;
+        }
+        
         // Try to set value directly (works for input/textarea)
         const setResult = await setValueByRef(tabId, ref, input.text);
         if (setResult.success) {
           return successWithScreenshot(`Typed "${input.text}" into ${ref}`);
         }
         // Fall back to focus + type via CDP
-        await focusElementByRef(tabId, ref);
+        const focusResult = await focusElementByRef(tabId, ref);
+        if (!focusResult.success) {
+          const validation = await validateRefBeforeAction(tabId, ref);
+          return { 
+            content: buildRefErrorMessage(ref, 'type (focus failed)', {
+              error: focusResult.error,
+              suggestion: validation.suggestion,
+              alternatives: validation.alternatives
+            }), 
+            is_error: true 
+          };
+        }
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       

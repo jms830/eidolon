@@ -1185,92 +1185,216 @@ IMPORTANT:
                 debugLog('│  ├─ events parsed:', parsedEventCount);
                 debugLog('│  └─ assistant message length:', assistantMessage.length);
                 
-                // Parse tool_use blocks from the response with multiple strategies
+                // Parse tool_use blocks from the response with robust multi-strategy parser
                 const toolUses: any[] = [];
                 const seenToolIds = new Set<string>();
+                const seenToolHashes = new Set<string>(); // For deduplication by content
                 let match;
                 
+                // Known tool names for validation
+                const VALID_TOOL_NAMES = ['computer', 'read_page', 'tabs_context', 'tabs_create', 'get_page_text'];
+                
+                // Validate tool structure
+                const isValidTool = (tool: any): boolean => {
+                  if (!tool || typeof tool !== 'object') return false;
+                  if (!tool.name || typeof tool.name !== 'string') return false;
+                  if (!VALID_TOOL_NAMES.includes(tool.name)) return false;
+                  if (!tool.input || typeof tool.input !== 'object') return false;
+                  return true;
+                };
+                
+                // Generate hash for deduplication
+                const getToolHash = (tool: any): string => {
+                  return JSON.stringify({ name: tool.name, input: tool.input });
+                };
+                
                 // Helper to add tool if not duplicate
-                const addTool = (tool: any) => {
+                const addTool = (tool: any, source: string) => {
+                  if (!isValidTool(tool)) {
+                    debugLog(`[BG] Invalid tool from ${source}:`, tool);
+                    return false;
+                  }
+                  
+                  // Generate ID if missing
                   if (!tool.id) {
                     tool.id = `tool_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
                   }
-                  if (!seenToolIds.has(tool.id)) {
-                    seenToolIds.add(tool.id);
-                    toolUses.push(tool);
+                  
+                  // Check for duplicates by ID or content
+                  const hash = getToolHash(tool);
+                  if (seenToolIds.has(tool.id) || seenToolHashes.has(hash)) {
+                    debugLog(`[BG] Skipping duplicate tool from ${source}:`, tool.name);
+                    return false;
                   }
+                  
+                  seenToolIds.add(tool.id);
+                  seenToolHashes.add(hash);
+                  toolUses.push(tool);
+                  tool.type = 'tool_use';
+                  debugLog(`[BG] Added tool from ${source}:`, tool.name);
+                  return true;
                 };
                 
-                // Strategy 1: ```tool_use code blocks
+                // Strategy 1: ```tool_use code blocks (highest confidence)
                 const toolUseBlockRegex = /```tool_use\s*([\s\S]*?)```/g;
                 while ((match = toolUseBlockRegex.exec(assistantMessage)) !== null) {
                   try {
-                    const toolJson = JSON.parse(match[1].trim());
-                    if (toolJson.name && toolJson.input) {
-                      toolJson.type = 'tool_use';
-                      addTool(toolJson);
+                    const content = match[1].trim();
+                    // Handle potential array of tools
+                    if (content.startsWith('[')) {
+                      const tools = JSON.parse(content);
+                      if (Array.isArray(tools)) {
+                        tools.forEach(t => addTool(t, 'tool_use block (array)'));
+                      }
+                    } else {
+                      const toolJson = JSON.parse(content);
+                      addTool(toolJson, 'tool_use block');
                     }
                   } catch (e) {
-                    console.warn('[BG] Failed to parse tool_use block:', e);
+                    debugLog('[BG] Failed to parse tool_use block:', e);
                   }
                 }
                 
-                // Strategy 2: ```json code blocks with tool_use
+                // Strategy 2: ```json code blocks with tool_use type or valid tool name
                 const jsonBlockRegex = /```json\s*([\s\S]*?)```/g;
                 while ((match = jsonBlockRegex.exec(assistantMessage)) !== null) {
                   try {
-                    const toolJson = JSON.parse(match[1].trim());
-                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
-                      addTool(toolJson);
+                    const content = match[1].trim();
+                    const parsed = JSON.parse(content);
+                    
+                    // Handle array of tools
+                    if (Array.isArray(parsed)) {
+                      parsed.forEach(item => {
+                        if (item.type === 'tool_use' || VALID_TOOL_NAMES.includes(item.name)) {
+                          addTool(item, 'json block (array)');
+                        }
+                      });
+                    } else if (parsed.type === 'tool_use' || VALID_TOOL_NAMES.includes(parsed.name)) {
+                      addTool(parsed, 'json block');
                     }
                   } catch (e) {
-                    // Not a tool use, ignore
+                    // Not valid JSON, ignore
                   }
                 }
                 
-                // Strategy 3: Generic code blocks
-                const genericBlockRegex = /```\s*([\s\S]*?)```/g;
+                // Strategy 3: Generic code blocks (any language tag or none)
+                const genericBlockRegex = /```(?:\w*)\s*([\s\S]*?)```/g;
                 while ((match = genericBlockRegex.exec(assistantMessage)) !== null) {
                   try {
                     const content = match[1].trim();
-                    // Skip if it's a language-tagged block that we already handled
+                    // Skip if already processed as tool_use or json
                     if (content.startsWith('tool_use') || content.startsWith('json')) continue;
-                    const toolJson = JSON.parse(content);
-                    if (toolJson.type === 'tool_use' && toolJson.name && toolJson.input) {
-                      addTool(toolJson);
+                    
+                    // Try to parse as JSON
+                    const parsed = JSON.parse(content);
+                    if (Array.isArray(parsed)) {
+                      parsed.forEach(item => addTool(item, 'generic block (array)'));
+                    } else {
+                      addTool(parsed, 'generic block');
                     }
                   } catch (e) {
                     // Not JSON, ignore
                   }
                 }
                 
-                // Strategy 4: Inline JSON - more flexible regex that handles nested objects
-                // Look for {"type":"tool_use" or {"name":"computer" patterns
-                const inlineJsonRegex = /\{[^{}]*"(?:type"\s*:\s*"tool_use|name"\s*:\s*"(?:computer|read_page|tabs_context|tabs_create|get_page_text)")[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
-                while ((match = inlineJsonRegex.exec(assistantMessage)) !== null) {
-                  try {
-                    const toolJson = JSON.parse(match[0]);
-                    if (toolJson.name && toolJson.input) {
-                      toolJson.type = 'tool_use';
-                      addTool(toolJson);
+                // Strategy 4: Balanced JSON extraction with brace matching
+                // This handles nested objects properly
+                const extractBalancedJson = (text: string, startIdx: number): string | null => {
+                  if (text[startIdx] !== '{') return null;
+                  let depth = 0;
+                  let inString = false;
+                  let escape = false;
+                  
+                  for (let i = startIdx; i < text.length; i++) {
+                    const char = text[i];
+                    
+                    if (escape) {
+                      escape = false;
+                      continue;
                     }
-                  } catch (e) {
-                    // Try to extract and fix malformed JSON
-                    try {
-                      // Sometimes Claude doesn't close nested objects properly
-                      let jsonStr = match[0];
-                      const openBraces = (jsonStr.match(/\{/g) || []).length;
-                      const closeBraces = (jsonStr.match(/\}/g) || []).length;
-                      if (openBraces > closeBraces) {
-                        jsonStr += '}'.repeat(openBraces - closeBraces);
-                        const toolJson = JSON.parse(jsonStr);
-                        if (toolJson.name && toolJson.input) {
-                          toolJson.type = 'tool_use';
-                          addTool(toolJson);
-                        }
+                    
+                    if (char === '\\' && inString) {
+                      escape = true;
+                      continue;
+                    }
+                    
+                    if (char === '"' && !escape) {
+                      inString = !inString;
+                      continue;
+                    }
+                    
+                    if (!inString) {
+                      if (char === '{') depth++;
+                      if (char === '}') depth--;
+                      if (depth === 0) {
+                        return text.substring(startIdx, i + 1);
                       }
-                    } catch (e2) {
-                      console.warn('[BG] Failed to parse inline tool_use:', e);
+                    }
+                  }
+                  return null;
+                };
+                
+                // Find potential tool JSON objects by looking for tool names
+                const toolNamePattern = /"name"\s*:\s*"(computer|read_page|tabs_context|tabs_create|get_page_text)"/g;
+                while ((match = toolNamePattern.exec(assistantMessage)) !== null) {
+                  // Find the start of this JSON object
+                  let startIdx = match.index;
+                  while (startIdx > 0 && assistantMessage[startIdx] !== '{') {
+                    startIdx--;
+                  }
+                  
+                  if (assistantMessage[startIdx] === '{') {
+                    const jsonStr = extractBalancedJson(assistantMessage, startIdx);
+                    if (jsonStr) {
+                      try {
+                        const toolJson = JSON.parse(jsonStr);
+                        addTool(toolJson, 'inline balanced');
+                      } catch (e) {
+                        debugLog('[BG] Failed to parse balanced JSON:', e);
+                      }
+                    }
+                  }
+                }
+                
+                // Strategy 5: XML-style tool tags (fallback for some prompt formats)
+                const xmlToolRegex = /<tool_use>\s*([\s\S]*?)\s*<\/tool_use>/gi;
+                while ((match = xmlToolRegex.exec(assistantMessage)) !== null) {
+                  try {
+                    const content = match[1].trim();
+                    // Try to parse the content as JSON
+                    const toolJson = JSON.parse(content);
+                    addTool(toolJson, 'xml tag');
+                  } catch (e) {
+                    // Try to extract name and input from XML-like format
+                    const nameMatch = /<name>(.*?)<\/name>/i.exec(match[1]);
+                    const inputMatch = /<input>([\s\S]*?)<\/input>/i.exec(match[1]);
+                    if (nameMatch && inputMatch) {
+                      try {
+                        const tool = {
+                          name: nameMatch[1].trim(),
+                          input: JSON.parse(inputMatch[1].trim())
+                        };
+                        addTool(tool, 'xml parsed');
+                      } catch (e2) {
+                        debugLog('[BG] Failed to parse XML tool input:', e2);
+                      }
+                    }
+                  }
+                }
+                
+                // Strategy 6: Simple key-value pattern matching (last resort)
+                if (toolUses.length === 0) {
+                  // Look for patterns like: name: "computer", input: { action: "..." }
+                  const simplePattern = /name\s*[=:]\s*["']?(computer|read_page|tabs_context|tabs_create|get_page_text)["']?\s*[,;]?\s*input\s*[=:]\s*(\{[\s\S]*?\})/gi;
+                  while ((match = simplePattern.exec(assistantMessage)) !== null) {
+                    try {
+                      const tool = {
+                        name: match[1],
+                        input: JSON.parse(match[2])
+                      };
+                      addTool(tool, 'simple pattern');
+                    } catch (e) {
+                      debugLog('[BG] Failed to parse simple pattern:', e);
                     }
                   }
                 }
