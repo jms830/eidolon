@@ -95,6 +95,177 @@ function getRequiredElement<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
+// ============================================================================
+// TOAST NOTIFICATION SYSTEM
+// ============================================================================
+
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+interface ToastOptions {
+  duration?: number;
+  closable?: boolean;
+}
+
+let toastContainer: HTMLElement | null = null;
+
+function getToastContainer(): HTMLElement {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    toastContainer.setAttribute('role', 'alert');
+    toastContainer.setAttribute('aria-live', 'polite');
+    document.body.appendChild(toastContainer);
+  }
+  return toastContainer;
+}
+
+function showToast(message: string, type: ToastType = 'info', options: ToastOptions = {}): void {
+  const { duration = 4000, closable = true } = options;
+  const container = getToastContainer();
+  
+  const icons: Record<ToastType, string> = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+    info: 'ℹ'
+  };
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type}`;
+  toast.innerHTML = `
+    <span class="toast__icon" aria-hidden="true">${icons[type]}</span>
+    <span class="toast__message">${message}</span>
+    ${closable ? '<button class="toast__close" aria-label="Close notification">×</button>' : ''}
+  `;
+  
+  if (closable) {
+    const closeBtn = toast.querySelector('.toast__close');
+    closeBtn?.addEventListener('click', () => removeToast(toast));
+  }
+  
+  container.appendChild(toast);
+  
+  if (duration > 0) {
+    setTimeout(() => removeToast(toast), duration);
+  }
+}
+
+function removeToast(toast: HTMLElement): void {
+  toast.classList.add('toast--fade-out');
+  setTimeout(() => toast.remove(), 300);
+}
+
+// Convenience functions
+const toast = {
+  success: (message: string, options?: ToastOptions) => showToast(message, 'success', options),
+  error: (message: string, options?: ToastOptions) => showToast(message, 'error', options),
+  warning: (message: string, options?: ToastOptions) => showToast(message, 'warning', options),
+  info: (message: string, options?: ToastOptions) => showToast(message, 'info', options),
+};
+
+// ============================================================================
+// LOADING STATE MANAGEMENT
+// ============================================================================
+
+let loadingOverlay: HTMLElement | null = null;
+
+function showLoadingOverlay(message: string = 'Loading...'): void {
+  if (loadingOverlay) return;
+  
+  loadingOverlay = document.createElement('div');
+  loadingOverlay.className = 'loading-overlay';
+  loadingOverlay.innerHTML = `
+    <div class="loading-spinner"></div>
+    <div class="loading-text">${message}</div>
+  `;
+  document.body.appendChild(loadingOverlay);
+}
+
+function hideLoadingOverlay(): void {
+  if (loadingOverlay) {
+    loadingOverlay.remove();
+    loadingOverlay = null;
+  }
+}
+
+function updateLoadingMessage(message: string): void {
+  if (loadingOverlay) {
+    const textEl = loadingOverlay.querySelector('.loading-text');
+    if (textEl) textEl.textContent = message;
+  }
+}
+
+// ============================================================================
+// CONFIRMATION MODAL
+// ============================================================================
+
+interface ConfirmOptions {
+  title?: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  type?: 'danger' | 'warning' | 'primary';
+}
+
+function showConfirmModal(options: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    const { 
+      title = 'Confirm Action', 
+      message, 
+      confirmText = 'Confirm',
+      cancelText = 'Cancel',
+      type = 'primary'
+    } = options;
+    
+    const icons: Record<string, string> = {
+      danger: '🗑️',
+      warning: '⚠️',
+      primary: '❓'
+    };
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'display: flex; align-items: center; justify-content: center;';
+    overlay.innerHTML = `
+      <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-modal__title" id="confirm-title">
+          <span aria-hidden="true">${icons[type]}</span>
+          ${title}
+        </div>
+        <div class="confirm-modal__message">${message}</div>
+        <div class="confirm-modal__actions">
+          <button class="confirm-modal__btn confirm-modal__btn--cancel">${cancelText}</button>
+          <button class="confirm-modal__btn confirm-modal__btn--${type}">${confirmText}</button>
+        </div>
+      </div>
+    `;
+    
+    const cancelBtn = overlay.querySelector('.confirm-modal__btn--cancel');
+    const confirmBtn = overlay.querySelector(`.confirm-modal__btn--${type}`);
+    
+    const cleanup = (result: boolean) => {
+      overlay.remove();
+      resolve(result);
+    };
+    
+    cancelBtn?.addEventListener('click', () => cleanup(false));
+    confirmBtn?.addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup(false);
+    });
+    
+    // Keyboard handling
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cleanup(false);
+    });
+    
+    document.body.appendChild(overlay);
+    
+    // Focus the cancel button by default (safer option)
+    (cancelBtn as HTMLElement)?.focus();
+  });
+}
+
 // DOM Elements
 const statusBar = getRequiredElement('status-bar');
 const statusText = getRequiredElement('status-text');
@@ -604,6 +775,47 @@ function setupEventListeners() {
   globalSearch.addEventListener('input', (e) => {
     const query = (e.target as HTMLInputElement).value.toLowerCase();
     performSearch(query);
+  });
+  
+  // Keyboard shortcut for search (/ or Cmd+K)
+  document.addEventListener('keydown', (e) => {
+    // Don't trigger if user is typing in an input
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+    
+    // "/" key or Cmd/Ctrl + K to focus search
+    if (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key === 'k')) {
+      e.preventDefault();
+      globalSearch.focus();
+      globalSearch.select();
+    }
+    
+    // Number keys 1-6 to switch tabs
+    if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+      const tabKeys: { [key: string]: string } = {
+        '1': 'projects',
+        '2': 'files', 
+        '3': 'conversations',
+        '4': 'analytics',
+        '5': 'sync',
+        '6': 'settings'
+      };
+      
+      if (tabKeys[e.key]) {
+        e.preventDefault();
+        switchTab(tabKeys[e.key]);
+      }
+    }
+  });
+  
+  // Escape to clear search and blur
+  globalSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      globalSearch.value = '';
+      globalSearch.blur();
+      performSearch('');
+    }
   });
 
   // Select all buttons
@@ -1191,7 +1403,7 @@ async function renameProjectFile(projectId: string, file: any) {
     await apiClient.deleteFile(state.currentOrg.uuid, projectId, file.uuid);
     await apiClient.uploadFile(state.currentOrg.uuid, projectId, newName, file.content);
 
-    alert(`File renamed to "${newName}"`);
+    toast.success(`File renamed to "${newName}"`);
 
     // Refresh the project card
     const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
@@ -1203,7 +1415,7 @@ async function renameProjectFile(projectId: string, file: any) {
     }
   } catch (error) {
     console.error('Error renaming file:', error);
-    alert(`Failed to rename file: ${(error as Error).message}`);
+    toast.error(`Failed to rename file: ${(error as Error).message}`);
   }
 }
 
@@ -1211,9 +1423,16 @@ async function renameProjectFile(projectId: string, file: any) {
  * Delete a project file
  */
 async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLElement) {
-  if (!confirm(`Delete "${file.file_name}"? This cannot be undone.`)) {
-    return;
-  }
+  // Use confirmation modal instead of browser confirm
+  const confirmed = await showConfirmModal({
+    title: 'Delete File',
+    message: `Are you sure you want to delete "${file.file_name}"? This action cannot be undone.`,
+    confirmText: 'Delete',
+    cancelText: 'Cancel',
+    type: 'danger'
+  });
+  
+  if (!confirmed) return;
 
   try {
     if (!state.currentOrg) {
@@ -1235,10 +1454,10 @@ async function deleteProjectFile(projectId: string, file: any, fileItem: HTMLEle
     fileItem.style.opacity = '0';
     setTimeout(() => fileItem.remove(), 300);
 
-    alert(`File "${file.file_name}" deleted`);
+    toast.success(`File "${file.file_name}" deleted`);
   } catch (error) {
     console.error('Error deleting file:', error);
-    alert(`Failed to delete file: ${(error as Error).message}`);
+    toast.error(`Failed to delete file: ${(error as Error).message}`);
   }
 }
 
@@ -1275,7 +1494,7 @@ async function bulkDeleteProjectFiles(container: HTMLElement, projectId: string)
       }
     }
 
-    alert(`Deleted ${selectedCount} file(s)`);
+    toast.success(`Deleted ${selectedCount} file(s)`);
 
     // Refresh the project card
     const card = document.querySelector(`[data-project-id="${projectId}"]`) as HTMLElement;
@@ -1286,7 +1505,7 @@ async function bulkDeleteProjectFiles(container: HTMLElement, projectId: string)
     }
   } catch (error) {
     console.error('Error bulk deleting files:', error);
-    alert(`Failed to delete files: ${(error as Error).message}`);
+    toast.error(`Failed to delete files: ${(error as Error).message}`);
   }
 }
 
@@ -3104,7 +3323,7 @@ async function syncNow(dryRun: boolean = false) {
     console.error('Sync failed:', error);
     hideSyncProgress();
     logSyncActivity('error', `Sync failed: ${(error as Error).message}`);
-    alert(`Sync failed: ${(error as Error).message}`);
+    toast.error(`Sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
     // Update workspace status in Settings tab
@@ -3117,12 +3336,12 @@ async function syncNow(dryRun: boolean = false) {
  */
 async function syncChatsOnly(dryRun: boolean = false) {
   if (state.isSyncing) {
-    alert('Sync already in progress');
+    toast.warning('Sync already in progress');
     return;
   }
 
   if (!state.currentOrg) {
-    alert('No organization selected');
+    toast.error('No organization selected');
     return;
   }
 
@@ -3244,7 +3463,7 @@ async function syncChatsOnly(dryRun: boolean = false) {
     console.error('Chats sync failed:', error);
     hideSyncProgress();
     logSyncActivity('error', `Chats sync failed: ${(error as Error).message}`);
-    alert(`Chats sync failed: ${(error as Error).message}`);
+    toast.error(`Chats sync failed: ${(error as Error).message}`);
   } finally {
     state.isSyncing = false;
     // Update workspace status in Settings tab

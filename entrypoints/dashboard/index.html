@@ -18,55 +18,67 @@
         </button>
       </div>
       <div class="header-right">
-        <div class="search-bar">
+        <div class="search-bar" role="search">
           <input
-            type="text"
+            type="search"
             id="global-search"
             placeholder="Search projects, files, conversations..."
             class="global-search-input"
+            aria-label="Search projects, files, and conversations"
           >
-          <button id="search-btn" class="search-btn">🔍</button>
+          <button id="search-btn" class="search-btn" aria-label="Search">
+            <span aria-hidden="true">🔍</span>
+          </button>
+          <span class="keyboard-hint" aria-hidden="true">
+            <kbd>/</kbd>
+          </span>
         </div>
-        <button id="refresh-all-btn" class="icon-btn" title="Refresh Data">
-          <span class="btn-icon">↻</span>
+        <button id="refresh-all-btn" class="icon-btn" title="Refresh Data" aria-label="Refresh all data">
+          <span class="btn-icon" aria-hidden="true">↻</span>
           <span class="btn-label">Refresh</span>
         </button>
-        <button id="auth-btn" class="icon-btn" title="Authentication">
-          <span class="btn-icon">🔐</span>
+        <button id="auth-btn" class="icon-btn" title="Authentication" aria-label="Manage authentication">
+          <span class="btn-icon" aria-hidden="true">🔐</span>
           <span class="btn-label">Auth</span>
         </button>
-        <button id="dark-mode-toggle" class="icon-btn" title="Toggle Dark Mode">
-          <span class="btn-icon">🌙</span>
+        <button id="dark-mode-toggle" class="icon-btn" title="Toggle Dark Mode" aria-label="Toggle dark mode">
+          <span class="btn-icon" aria-hidden="true">🌙</span>
           <span class="btn-label">Dark</span>
         </button>
       </div>
     </header>
 
     <!-- Navigation Tabs -->
-    <nav class="dashboard-nav">
-      <button class="nav-tab active" data-tab="projects">
-        <span class="tab-icon">📁</span>
+    <nav class="dashboard-nav" role="tablist" aria-label="Dashboard sections">
+      <button class="nav-tab active" data-tab="projects" role="tab" aria-selected="true" aria-controls="tab-projects">
+        <span class="tab-icon" aria-hidden="true">📁</span>
         <span class="tab-label">Projects</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>1</kbd></span>
       </button>
-      <button class="nav-tab" data-tab="files">
-        <span class="tab-icon">📄</span>
+      <button class="nav-tab" data-tab="files" role="tab" aria-selected="false" aria-controls="tab-files">
+        <span class="tab-icon" aria-hidden="true">📄</span>
         <span class="tab-label">Files</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>2</kbd></span>
       </button>
-      <button class="nav-tab" data-tab="conversations">
-        <span class="tab-icon">💬</span>
+      <button class="nav-tab" data-tab="conversations" role="tab" aria-selected="false" aria-controls="tab-conversations">
+        <span class="tab-icon" aria-hidden="true">💬</span>
         <span class="tab-label">Conversations</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>3</kbd></span>
       </button>
-      <button class="nav-tab" data-tab="sync">
-        <span class="tab-icon">🔄</span>
-        <span class="tab-label">Sync</span>
-      </button>
-      <button class="nav-tab" data-tab="analytics">
-        <span class="tab-icon">📊</span>
+      <button class="nav-tab" data-tab="analytics" role="tab" aria-selected="false" aria-controls="tab-analytics">
+        <span class="tab-icon" aria-hidden="true">📊</span>
         <span class="tab-label">Analytics</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>4</kbd></span>
       </button>
-      <button class="nav-tab" data-tab="settings">
-        <span class="tab-icon">⚙️</span>
+      <button class="nav-tab" data-tab="sync" role="tab" aria-selected="false" aria-controls="tab-sync">
+        <span class="tab-icon" aria-hidden="true">🔄</span>
+        <span class="tab-label">Sync</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>5</kbd></span>
+      </button>
+      <button class="nav-tab" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
+        <span class="tab-icon" aria-hidden="true">⚙️</span>
         <span class="tab-label">Settings</span>
+        <span class="keyboard-hint" aria-hidden="true"><kbd>6</kbd></span>
       </button>
     </nav>
 
