@@ -3676,30 +3676,35 @@ async function sendMessageViaOpenCode(content: string, attachments: any[]): Prom
       }
     );
     
-    // Extract the response text
-    // OpenCode returns messages in a specific format
+    // Extract the response text from OpenCode API format
+    // Response format: { info: { id, role, ... }, parts: [{ type: 'text', text: '...' }, ...] }
     let responseText = 'No response received';
     if (response) {
-      if (typeof response === 'string') {
+      // Check for the standard OpenCode response format with parts array
+      const parts = response.parts || response.data?.parts;
+      if (Array.isArray(parts)) {
+        // Extract text from all text-type parts
+        const textParts = parts
+          .filter((p: any) => p.type === 'text' && p.text)
+          .map((p: any) => p.text);
+        
+        if (textParts.length > 0) {
+          responseText = textParts.join('\n');
+        }
+      } else if (typeof response === 'string') {
         responseText = response;
       } else if (response.content) {
         responseText = response.content;
       } else if (response.text) {
         responseText = response.text;
-      } else if (response.message) {
-        responseText = response.message;
-      } else if (Array.isArray(response.parts)) {
-        // Handle multi-part response
-        responseText = response.parts
-          .filter((p: any) => p.type === 'text')
-          .map((p: any) => p.text)
-          .join('\n');
       } else {
-        // Try to stringify for debugging
-        console.log('[Eidolon] OpenCode response format:', response);
+        // Fallback: try to stringify for debugging
+        console.log('[Eidolon] Unexpected OpenCode response format:', response);
         responseText = JSON.stringify(response, null, 2);
       }
     }
+    
+    console.log('[Eidolon] OpenCode response:', responseText.substring(0, 100) + '...');
     
     // Add assistant response
     const assistantMessage: Message = {
