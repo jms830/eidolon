@@ -16,6 +16,14 @@ import {
   type ProviderStatus,
   OAUTH_PROVIDERS,
 } from '../../utils/oauth';
+import {
+  openCodeService,
+  getConnectionStatus,
+  getServerUrl,
+  setServerUrl,
+  formatOpencodeError,
+  type OpenCodeConnectionStatus,
+} from '../../utils/opencode/client';
 
 // ========================================================================
 // TYPES
@@ -432,6 +440,17 @@ interface SyncState {
   settings: SyncSettings;
 }
 
+// OpenCode connection state
+type ChatBackend = 'claude-cookie' | 'opencode';
+
+interface OpenCodeState {
+  connected: boolean;
+  serverUrl: string;
+  sessionId: string | null;
+  checking: boolean;
+  error: string | null;
+}
+
 
 interface AppState {
   currentProject: Project | null;
@@ -463,6 +482,10 @@ interface AppState {
   currentStyle: PersonalizedStyle | null;
   // Workspace sync
   sync: SyncState;
+  // Chat backend selection
+  chatBackend: ChatBackend;
+  // OpenCode server connection
+  opencode: OpenCodeState;
 }
 
 // Default models fallback - will be updated from Claude.ai if available
@@ -542,6 +565,16 @@ const state: AppState = {
     fileCount: 0,
     chatCount: 0,
     settings: { ...DEFAULT_SYNC_SETTINGS }
+  },
+  // Chat backend - defaults to Claude cookie auth, can switch to OpenCode
+  chatBackend: (localStorage.getItem('eidolon-chat-backend') as ChatBackend) || 'claude-cookie',
+  // OpenCode server connection state
+  opencode: {
+    connected: false,
+    serverUrl: 'http://localhost:4096',
+    sessionId: null,
+    checking: false,
+    error: null
   }
 };
 
@@ -603,7 +636,8 @@ async function init() {
     checkAuthentication(),
     loadAvailableModels(),
     loadAccounts(),
-    initSyncState()
+    initSyncState(),
+    checkOpenCodeConnection()
   ]);
   
   console.log('[Eidolon SidePanel] Ready!');
@@ -1946,6 +1980,35 @@ function setupEventListeners() {
   // Validate session button
   const validateBtn = getElement('validate-session-btn');
   validateBtn.addEventListener('click', validateSession);
+  
+  // Chat backend selector
+  const backendClaudeCookie = document.getElementById('backend-claude-cookie') as HTMLInputElement;
+  const backendOpencode = document.getElementById('backend-opencode') as HTMLInputElement;
+  
+  if (backendClaudeCookie && backendOpencode) {
+    // Set initial state
+    if (state.chatBackend === 'opencode') {
+      backendOpencode.checked = true;
+    } else {
+      backendClaudeCookie.checked = true;
+    }
+    
+    // Handle changes
+    backendClaudeCookie.addEventListener('change', () => {
+      if (backendClaudeCookie.checked) {
+        switchChatBackend('claude-cookie');
+      }
+    });
+    
+    backendOpencode.addEventListener('change', () => {
+      if (backendOpencode.checked) {
+        switchChatBackend('opencode');
+      }
+    });
+    
+    // Update OpenCode status display initially
+    updateOpenCodeStatusUI();
+  }
   
   // History search
   const historySearchInput = getElement<HTMLInputElement>('history-search-input');
@@ -3581,20 +3644,115 @@ async function addCurrentPageToProject() {
   }
 }
 
+/**
+ * Send a message via OpenCode server
+ */
+async function sendMessageViaOpenCode(content: string, attachments: any[]): Promise<void> {
+  // Ensure we have a session
+  if (!state.opencode.sessionId) {
+    console.log('[Eidolon] Creating new OpenCode session...');
+    const session = await openCodeService.createSession();
+    state.opencode.sessionId = session.id || session.sessionID;
+    console.log('[Eidolon] Created OpenCode session:', state.opencode.sessionId);
+  }
+  
+  // Build the full prompt with any attachments
+  let fullPrompt = content;
+  if (attachments.length > 0) {
+    fullPrompt += '\n\n--- Attached Content ---\n';
+    for (const att of attachments) {
+      fullPrompt += `\n[${att.file_name}]\n${att.extracted_content || att.content || ''}\n`;
+    }
+  }
+  
+  try {
+    // Send message to OpenCode
+    const response = await openCodeService.sendMessage(
+      state.opencode.sessionId!,
+      fullPrompt,
+      {
+        providerID: 'anthropic',  // TODO: Make this configurable
+        modelID: state.currentModel || 'claude-sonnet-4-20250514'
+      }
+    );
+    
+    // Extract the response text
+    // OpenCode returns messages in a specific format
+    let responseText = 'No response received';
+    if (response) {
+      if (typeof response === 'string') {
+        responseText = response;
+      } else if (response.content) {
+        responseText = response.content;
+      } else if (response.text) {
+        responseText = response.text;
+      } else if (response.message) {
+        responseText = response.message;
+      } else if (Array.isArray(response.parts)) {
+        // Handle multi-part response
+        responseText = response.parts
+          .filter((p: any) => p.type === 'text')
+          .map((p: any) => p.text)
+          .join('\n');
+      } else {
+        // Try to stringify for debugging
+        console.log('[Eidolon] OpenCode response format:', response);
+        responseText = JSON.stringify(response, null, 2);
+      }
+    }
+    
+    // Add assistant response
+    const assistantMessage: Message = {
+      id: `msg-${Date.now()}`,
+      role: 'assistant',
+      content: responseText,
+      timestamp: new Date()
+    };
+    
+    state.messages.push(assistantMessage);
+    renderMessages();
+    
+  } catch (error) {
+    console.error('[Eidolon] OpenCode send error:', error);
+    
+    // If session was invalid, clear it and retry once
+    if (state.opencode.sessionId) {
+      state.opencode.sessionId = null;
+      throw new Error(`OpenCode error: ${formatOpencodeError(error)}. Please try again.`);
+    }
+    
+    throw error;
+  }
+}
+
 async function sendMessage() {
   const input = getElement<HTMLTextAreaElement>('message-input');
   const content = input.value.trim();
   
   if (!content && state.attachments.length === 0) return;
   
-  // Ensure we're authenticated before sending (same as clicking validate in settings)
-  if (!state.isAuthenticated) {
-    showActivity('Authenticating...');
-    await validateSession();
+  // Check which backend we're using
+  if (state.chatBackend === 'opencode') {
+    // For OpenCode, check server connection instead of Claude.ai auth
+    if (!state.opencode.connected) {
+      showActivity('Checking OpenCode connection...');
+      await checkOpenCodeConnection();
+      if (!state.opencode.connected) {
+        hideActivity();
+        showOpenCodeInstructions();
+        return;
+      }
+    }
+  } else {
+    // For Claude.ai, check cookie-based authentication
     if (!state.isAuthenticated) {
-      hideActivity();
-      alert('Please log in to Claude.ai first, then try again.');
-      return;
+      showActivity('Authenticating...');
+      await validateSession();
+      if (!state.isAuthenticated) {
+        hideActivity();
+        alert('Please log in to Claude.ai first, then try again.');
+        return;
+      }
     }
   }
   
@@ -3759,29 +3917,38 @@ async function sendMessage() {
     // ====================================================================
     // NORMAL MODE: Simple chat without tools
     // ====================================================================
-    const response = await browser.runtime.sendMessage({
-      action: 'send-chat-message',
-      conversationId: state.currentConversationId,
-      message: fullContent,
-      attachments: apiAttachments,
-      model: state.currentModel,
-      personalizedStyles: state.currentStyle ? [state.currentStyle] : undefined
-    });
     
-    if (!response.success) {
-      throw new Error(response.error || 'Failed to send message');
+    // Route to appropriate backend
+    if (state.chatBackend === 'opencode') {
+      // Use OpenCode server
+      await sendMessageViaOpenCode(fullContent, apiAttachments);
+    } else {
+      // Use Claude.ai cookie-based API
+      const response = await browser.runtime.sendMessage({
+        action: 'send-chat-message',
+        conversationId: state.currentConversationId,
+        message: fullContent,
+        attachments: apiAttachments,
+        model: state.currentModel,
+        personalizedStyles: state.currentStyle ? [state.currentStyle] : undefined
+      });
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to send message');
+      }
+      
+      // Add assistant response
+      const assistantMessage: Message = {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: response.data.response || 'No response received',
+        timestamp: new Date()
+      };
+      
+      state.messages.push(assistantMessage);
+      renderMessages();
     }
     
-    // Add assistant response
-    const assistantMessage: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'assistant',
-      content: response.data.response || 'No response received',
-      timestamp: new Date()
-    };
-    
-    state.messages.push(assistantMessage);
-    renderMessages();
     hideActivity();
     
   } catch (error: any) {
@@ -5717,6 +5884,149 @@ browser.runtime.onMessage.addListener((msg) => {
 
 // ========================================================================
 // SYNC FUNCTIONS
+// ========================================================================
+
+// ========================================================================
+// OPENCODE CONNECTION
+// ========================================================================
+
+/**
+ * Check if OpenCode server is running and update state
+ */
+async function checkOpenCodeConnection(): Promise<void> {
+  state.opencode.checking = true;
+  
+  try {
+    // Get saved server URL
+    const serverUrl = await getServerUrl();
+    state.opencode.serverUrl = serverUrl;
+    
+    // Check connection
+    const status = await getConnectionStatus();
+    
+    state.opencode.connected = status.connected;
+    state.opencode.error = status.error || null;
+    
+    if (status.connected) {
+      console.log('[Eidolon] OpenCode server connected:', status.info);
+    } else {
+      console.log('[Eidolon] OpenCode server not available:', status.error);
+    }
+  } catch (error) {
+    state.opencode.connected = false;
+    state.opencode.error = formatOpencodeError(error);
+  } finally {
+    state.opencode.checking = false;
+  }
+  
+  updateOpenCodeStatusUI();
+}
+
+/**
+ * Update UI to reflect OpenCode connection status
+ */
+function updateOpenCodeStatusUI(): void {
+  // Update the chat backend indicator if it exists
+  const backendIndicator = document.getElementById('chat-backend-indicator');
+  if (backendIndicator) {
+    if (state.chatBackend === 'opencode') {
+      if (state.opencode.connected) {
+        backendIndicator.className = 'backend-indicator connected';
+        backendIndicator.title = `Connected to OpenCode at ${state.opencode.serverUrl}`;
+        backendIndicator.innerHTML = '<span class="backend-dot"></span> OpenCode';
+      } else {
+        backendIndicator.className = 'backend-indicator disconnected';
+        backendIndicator.title = state.opencode.error || 'OpenCode server not running';
+        backendIndicator.innerHTML = '<span class="backend-dot"></span> OpenCode (offline)';
+      }
+    } else {
+      backendIndicator.className = 'backend-indicator claude';
+      backendIndicator.title = 'Using Claude.ai session';
+      backendIndicator.innerHTML = '<span class="backend-dot"></span> Claude.ai';
+    }
+  }
+  
+  // Update OAuth section to show OpenCode status
+  const openCodeStatus = document.getElementById('opencode-connection-status');
+  if (openCodeStatus) {
+    if (state.opencode.checking) {
+      openCodeStatus.innerHTML = '<span class="status-checking">Checking...</span>';
+    } else if (state.opencode.connected) {
+      openCodeStatus.innerHTML = `
+        <span class="status-connected">Connected</span>
+        <span class="status-url">${state.opencode.serverUrl}</span>
+      `;
+    } else {
+      openCodeStatus.innerHTML = `
+        <span class="status-disconnected">Not running</span>
+        <button class="start-opencode-btn" onclick="showOpenCodeInstructions()">How to start</button>
+      `;
+    }
+  }
+}
+
+/**
+ * Show instructions for starting OpenCode server
+ */
+function showOpenCodeInstructions(): void {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content opencode-instructions-modal">
+      <div class="modal-header">
+        <h3>Start OpenCode Server</h3>
+        <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>To use OpenCode as a chat backend, run this command in your terminal:</p>
+        <pre class="code-block">opencode serve --port=4096</pre>
+        <p class="hint">Keep the terminal open while using Eidolon. The server will use your OpenCode API keys (configured via <code>opencode auth</code>).</p>
+        <div class="modal-actions">
+          <button class="action-btn" onclick="checkOpenCodeConnection(); this.closest('.modal-overlay').remove();">
+            Check Connection
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
+}
+
+/**
+ * Switch chat backend between Claude.ai cookie auth and OpenCode
+ */
+async function switchChatBackend(backend: ChatBackend): Promise<void> {
+  state.chatBackend = backend;
+  localStorage.setItem('eidolon-chat-backend', backend);
+  
+  if (backend === 'opencode') {
+    // Check connection when switching to OpenCode
+    await checkOpenCodeConnection();
+    
+    if (!state.opencode.connected) {
+      showOpenCodeInstructions();
+    }
+  }
+  
+  updateOpenCodeStatusUI();
+  
+  // Clear current conversation when switching backends
+  state.currentConversationId = null;
+  state.opencode.sessionId = null;
+  state.messages = [];
+  renderMessages();
+}
+
+// Make functions available globally for onclick handlers
+(window as any).showOpenCodeInstructions = showOpenCodeInstructions;
+(window as any).checkOpenCodeConnection = checkOpenCodeConnection;
+(window as any).switchChatBackend = switchChatBackend;
+
+// ========================================================================
+// SYNC STATE MANAGEMENT
 // ========================================================================
 
 /**

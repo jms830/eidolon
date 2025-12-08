@@ -534,6 +534,30 @@
         </div>
 
         <div class="settings-section">
+          <h4>💬 Chat Backend</h4>
+          <p class="setting-hint">Choose how Eidolon chat connects to AI</p>
+          <div class="chat-backend-selector">
+            <label class="backend-option">
+              <input type="radio" name="chat-backend" value="claude-cookie" id="backend-claude-cookie">
+              <div class="backend-option-content">
+                <span class="backend-name">Claude.ai Session</span>
+                <span class="backend-desc">Uses your browser login (no API key needed)</span>
+              </div>
+            </label>
+            <label class="backend-option">
+              <input type="radio" name="chat-backend" value="opencode" id="backend-opencode">
+              <div class="backend-option-content">
+                <span class="backend-name">OpenCode Server</span>
+                <span class="backend-desc">Uses your local OpenCode with API keys</span>
+              </div>
+            </label>
+          </div>
+          <div id="opencode-connection-status" class="opencode-status">
+            <!-- Status populated by JS -->
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h4>🔗 API Connections (OAuth)</h4>
           <p class="setting-hint">Connect your AI subscriptions for agent mode (no API keys needed)</p>
           <div id="oauth-connections-list" class="oauth-connections-list">

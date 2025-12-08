@@ -3954,6 +3954,130 @@ body {
    Multi-provider OAuth connection management
    ======================================================================== */
 
+/* Chat Backend Selector */
+.chat-backend-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.backend-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.backend-option:hover {
+  background: var(--bg-300);
+}
+
+.backend-option:has(input:checked) {
+  border-color: var(--accent-main-100);
+  background: var(--accent-secondary-100);
+}
+
+.backend-option input[type="radio"] {
+  margin-top: 2px;
+  accent-color: var(--accent-main-100);
+}
+
+.backend-option-content {
+  flex: 1;
+}
+
+.backend-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-100);
+  display: block;
+}
+
+.backend-desc {
+  font-size: 12px;
+  color: var(--text-400);
+  margin-top: 2px;
+}
+
+.opencode-status {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg-200);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.opencode-status .status-checking {
+  color: var(--text-400);
+}
+
+.opencode-status .status-connected {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.opencode-status .status-disconnected {
+  color: var(--warning);
+}
+
+.opencode-status .status-url {
+  display: block;
+  font-size: 11px;
+  color: var(--text-400);
+  margin-top: 4px;
+  font-family: var(--font-mono);
+}
+
+.start-opencode-btn {
+  margin-left: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--accent-main-100);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.start-opencode-btn:hover {
+  background: var(--accent-main-200);
+}
+
+/* OpenCode Instructions Modal */
+.opencode-instructions-modal {
+  max-width: 400px;
+}
+
+.opencode-instructions-modal .code-block {
+  background: var(--bg-300);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin: 12px 0;
+  overflow-x: auto;
+  user-select: all;
+}
+
+.opencode-instructions-modal .hint {
+  font-size: 12px;
+  color: var(--text-400);
+}
+
+.opencode-instructions-modal code {
+  background: var(--bg-300);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .oauth-connections-list {
   display: flex;
   flex-direction: column;
