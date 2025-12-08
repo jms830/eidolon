@@ -4051,7 +4051,7 @@ body {
 
 /* OpenCode Instructions Modal */
 .opencode-instructions-modal {
-  max-width: 400px;
+  max-width: 480px;
 }
 
 .opencode-instructions-modal .code-block {
@@ -4060,14 +4060,21 @@ body {
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 13px;
-  margin: 12px 0;
+  margin: 8px 0;
   overflow-x: auto;
   user-select: all;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .opencode-instructions-modal .hint {
   font-size: 12px;
   color: var(--text-400);
+  margin: 4px 0 0 0;
+}
+
+.opencode-instructions-modal .hint a {
+  color: var(--accent-color);
 }
 
 .opencode-instructions-modal code {
@@ -4076,6 +4083,59 @@ body {
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.opencode-instructions-modal .code-option {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent-color);
+}
+
+.opencode-instructions-modal .code-option strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-100);
+}
+
+.opencode-instructions-modal .code-option .code-block {
+  margin: 8px 0 4px 0;
+}
+
+.opencode-instructions-modal .setup-note {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-color);
+}
+
+.opencode-instructions-modal .setup-note strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-200);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.opencode-instructions-modal .modal-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.opencode-instructions-modal .docs-link {
+  color: var(--text-400);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.opencode-instructions-modal .docs-link:hover {
+  color: var(--accent-color);
+  text-decoration: underline;
 }
 
 .oauth-connections-list {

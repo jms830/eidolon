@@ -5983,13 +5983,32 @@ function showOpenCodeInstructions(): void {
         <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
       </div>
       <div class="modal-body">
-        <p>To use OpenCode as a chat backend, run this command in your terminal:</p>
-        <pre class="code-block">opencode serve --port=4096</pre>
-        <p class="hint">Keep the terminal open while using Eidolon. The server will use your OpenCode API keys (configured via <code>opencode auth</code>).</p>
+        <p>OpenCode provides a self-hosted AI coding assistant. Run one of these commands:</p>
+        
+        <div class="code-option">
+          <strong>Web UI + API</strong> (recommended)
+          <pre class="code-block">opencode web --port=4096</pre>
+          <p class="hint">Opens a web UI at <a href="http://localhost:4096" target="_blank">localhost:4096</a> and provides the API for Eidolon.</p>
+        </div>
+        
+        <div class="code-option">
+          <strong>API Only</strong>
+          <pre class="code-block">opencode serve --port=4096</pre>
+          <p class="hint">Headless server - use Eidolon sidebar as your chat interface.</p>
+        </div>
+        
+        <div class="setup-note">
+          <strong>First time setup:</strong>
+          <pre class="code-block">curl -fsSL https://opencode.ai/install | bash
+opencode auth login</pre>
+          <p class="hint">Configure your API keys (Anthropic, OpenAI, etc.) via the auth command.</p>
+        </div>
+        
         <div class="modal-actions">
           <button class="action-btn" onclick="checkOpenCodeConnection(); this.closest('.modal-overlay').remove();">
             Check Connection
           </button>
+          <a href="https://opencode.ai/docs/" target="_blank" class="docs-link">View Docs</a>
         </div>
       </div>
     </div>
