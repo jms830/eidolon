@@ -4312,3 +4312,233 @@ body {
 [data-mode="dark"] .oauth-provider-item.connected {
   background: rgba(16, 185, 129, 0.08);
 }
+
+/* ====================================================================
+   TERMINAL PANEL
+   ==================================================================== */
+
+.terminal-toggle.active {
+  background: var(--accent-color);
+  color: white;
+}
+
+.terminal-toggle.active:hover {
+  background: var(--accent-main-100);
+}
+
+.terminal-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 300px;
+  min-height: 150px;
+  max-height: 70vh;
+  background: #191515;
+  border-top: 1px solid var(--border-300);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transition: transform 0.2s ease;
+}
+
+.terminal-panel.hidden {
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #131010;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.terminal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-icon {
+  display: flex;
+  align-items: center;
+  color: #888;
+}
+
+.terminal-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #d4d4d4;
+}
+
+.terminal-status {
+  font-size: 11px;
+  color: #666;
+}
+
+.terminal-status.connected {
+  color: #10b981;
+}
+
+.terminal-status.disconnected {
+  color: #ef4444;
+}
+
+.terminal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-header-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.terminal-header-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #d4d4d4;
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Ghostty terminal styling */
+.terminal-container [data-component="terminal"] {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: #666;
+  font-size: 13px;
+}
+
+.terminal-placeholder p {
+  margin: 0;
+}
+
+.terminal-placeholder .action-btn {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+
+.terminal-placeholder .action-btn:hover {
+  background: var(--accent-main-100);
+}
+
+.terminal-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  background: transparent;
+}
+
+.terminal-resize-handle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Adjust main content when terminal is open */
+body.terminal-open .view-container {
+  margin-bottom: 300px;
+}
+
+body.terminal-open .settings-panel {
+  bottom: 300px;
+}
+
+/* Terminal tabs (for multiple terminals) */
+.terminal-tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: 12px;
+}
+
+.terminal-tab {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #888;
+  background: transparent;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.terminal-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+}
+
+.terminal-tab.active {
+  background: #191515;
+  color: #d4d4d4;
+}
+
+/* Terminal not available state */
+.terminal-panel.not-available .terminal-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.terminal-unavailable-message {
+  text-align: center;
+  color: #666;
+  padding: 20px;
+}
+
+.terminal-unavailable-message h4 {
+  margin: 0 0 8px 0;
+  color: #888;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.terminal-unavailable-message p {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+}
+
+.terminal-unavailable-message code {
+  display: block;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #10b981;
+  margin-top: 8px;
+}

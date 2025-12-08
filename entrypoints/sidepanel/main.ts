@@ -22,8 +22,18 @@ import {
   getServerUrl,
   setServerUrl,
   formatOpencodeError,
+  ptyService,
   type OpenCodeConnectionStatus,
 } from '../../utils/opencode/client';
+import {
+  createTerminal,
+  destroyTerminal,
+  destroyAllTerminals,
+  focusTerminal,
+  fitTerminal,
+  clearTerminal,
+  type TerminalInstance,
+} from '../../utils/terminal/terminal';
 
 // ========================================================================
 // TYPES
@@ -486,6 +496,12 @@ interface AppState {
   chatBackend: ChatBackend;
   // OpenCode server connection
   opencode: OpenCodeState;
+  // Terminal state
+  terminal: {
+    isOpen: boolean;
+    instance: TerminalInstance | null;
+    height: number;
+  };
 }
 
 // Default models fallback - will be updated from Claude.ai if available
@@ -575,6 +591,12 @@ const state: AppState = {
     sessionId: null,
     checking: false,
     error: null
+  },
+  // Terminal state
+  terminal: {
+    isOpen: false,
+    instance: null,
+    height: 300
   }
 };
 
@@ -1754,6 +1776,30 @@ function setupEventListeners() {
   settingsBtn.addEventListener('click', () => {
     togglePanel('settings-panel');
   });
+  
+  // Terminal toggle button
+  const terminalToggleBtn = document.getElementById('terminal-toggle-btn');
+  terminalToggleBtn?.addEventListener('click', toggleTerminal);
+  
+  // Terminal panel buttons
+  const terminalCloseBtn = document.getElementById('terminal-close-btn');
+  terminalCloseBtn?.addEventListener('click', closeTerminal);
+  
+  const terminalClearBtn = document.getElementById('terminal-clear-btn');
+  terminalClearBtn?.addEventListener('click', () => {
+    if (state.terminal.instance) {
+      clearTerminal(state.terminal.instance.id);
+    }
+  });
+  
+  const terminalConnectBtn = document.getElementById('terminal-connect-btn');
+  terminalConnectBtn?.addEventListener('click', initTerminal);
+  
+  // Terminal resize handle
+  const terminalResizeHandle = document.getElementById('terminal-resize-handle');
+  if (terminalResizeHandle) {
+    setupTerminalResize(terminalResizeHandle);
+  }
   
   // Close panel buttons
   document.querySelectorAll('.close-btn').forEach(btn => {
@@ -6048,6 +6094,209 @@ async function switchChatBackend(backend: ChatBackend): Promise<void> {
 (window as any).showOpenCodeInstructions = showOpenCodeInstructions;
 (window as any).checkOpenCodeConnection = checkOpenCodeConnection;
 (window as any).switchChatBackend = switchChatBackend;
+
+// ========================================================================
+// TERMINAL PANEL
+// ========================================================================
+
+/**
+ * Toggle terminal panel visibility
+ */
+async function toggleTerminal(): Promise<void> {
+  if (state.terminal.isOpen) {
+    closeTerminal();
+  } else {
+    await openTerminal();
+  }
+}
+
+/**
+ * Open terminal panel
+ */
+async function openTerminal(): Promise<void> {
+  const terminalPanel = document.getElementById('terminal-panel');
+  const terminalToggleBtn = document.getElementById('terminal-toggle-btn');
+  
+  if (!terminalPanel) return;
+  
+  state.terminal.isOpen = true;
+  terminalPanel.classList.remove('hidden');
+  terminalToggleBtn?.classList.add('active');
+  document.body.classList.add('terminal-open');
+  
+  // Set panel height
+  terminalPanel.style.height = `${state.terminal.height}px`;
+  
+  // Initialize terminal if not already done
+  if (!state.terminal.instance) {
+    await initTerminal();
+  } else {
+    // Just focus and fit existing terminal
+    focusTerminal(state.terminal.instance.id);
+    fitTerminal(state.terminal.instance.id);
+  }
+}
+
+/**
+ * Close terminal panel
+ */
+function closeTerminal(): void {
+  const terminalPanel = document.getElementById('terminal-panel');
+  const terminalToggleBtn = document.getElementById('terminal-toggle-btn');
+  
+  state.terminal.isOpen = false;
+  terminalPanel?.classList.add('hidden');
+  terminalToggleBtn?.classList.remove('active');
+  document.body.classList.remove('terminal-open');
+}
+
+/**
+ * Initialize terminal with OpenCode PTY
+ */
+async function initTerminal(): Promise<void> {
+  const terminalContainer = document.getElementById('terminal-container');
+  const terminalPlaceholder = document.getElementById('terminal-placeholder');
+  const terminalStatus = document.getElementById('terminal-status');
+  
+  if (!terminalContainer) return;
+  
+  // Check OpenCode connection first
+  if (!state.opencode.connected) {
+    await checkOpenCodeConnection();
+  }
+  
+  if (!state.opencode.connected) {
+    // Show placeholder with instructions
+    if (terminalPlaceholder) {
+      terminalPlaceholder.style.display = 'flex';
+      terminalPlaceholder.innerHTML = `
+        <div class="terminal-unavailable-message">
+          <h4>OpenCode Server Required</h4>
+          <p>Start the OpenCode server to use the terminal:</p>
+          <code>opencode web --port=4096</code>
+        </div>
+      `;
+    }
+    return;
+  }
+  
+  // Hide placeholder
+  if (terminalPlaceholder) {
+    terminalPlaceholder.style.display = 'none';
+  }
+  
+  // Update status
+  if (terminalStatus) {
+    terminalStatus.textContent = 'Connecting...';
+    terminalStatus.className = 'terminal-status';
+  }
+  
+  try {
+    // Create terminal instance
+    const instance = await createTerminal(
+      terminalContainer,
+      {
+        fontSize: 14,
+        theme: {
+          background: '#191515',
+          foreground: '#d4d4d4',
+        }
+      },
+      {
+        onConnect: () => {
+          console.log('[Eidolon] Terminal connected');
+          if (terminalStatus) {
+            terminalStatus.textContent = 'Connected';
+            terminalStatus.className = 'terminal-status connected';
+          }
+        },
+        onDisconnect: () => {
+          console.log('[Eidolon] Terminal disconnected');
+          if (terminalStatus) {
+            terminalStatus.textContent = 'Disconnected';
+            terminalStatus.className = 'terminal-status disconnected';
+          }
+        },
+        onError: (error) => {
+          console.error('[Eidolon] Terminal error:', error);
+          if (terminalStatus) {
+            terminalStatus.textContent = 'Error';
+            terminalStatus.className = 'terminal-status disconnected';
+          }
+        }
+      }
+    );
+    
+    state.terminal.instance = instance;
+    
+  } catch (error) {
+    console.error('[Eidolon] Failed to initialize terminal:', error);
+    
+    if (terminalPlaceholder) {
+      terminalPlaceholder.style.display = 'flex';
+      terminalPlaceholder.innerHTML = `
+        <div class="terminal-unavailable-message">
+          <h4>Failed to Connect</h4>
+          <p>${error instanceof Error ? error.message : 'Unknown error'}</p>
+          <button class="action-btn" onclick="initTerminal()">Retry</button>
+        </div>
+      `;
+    }
+    
+    if (terminalStatus) {
+      terminalStatus.textContent = 'Error';
+      terminalStatus.className = 'terminal-status disconnected';
+    }
+  }
+}
+
+/**
+ * Setup terminal panel resize functionality
+ */
+function setupTerminalResize(handle: HTMLElement): void {
+  let isResizing = false;
+  let startY = 0;
+  let startHeight = 0;
+  
+  handle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startY = e.clientY;
+    startHeight = state.terminal.height;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    const delta = startY - e.clientY;
+    const newHeight = Math.min(Math.max(startHeight + delta, 150), window.innerHeight * 0.7);
+    
+    state.terminal.height = newHeight;
+    
+    const terminalPanel = document.getElementById('terminal-panel');
+    if (terminalPanel) {
+      terminalPanel.style.height = `${newHeight}px`;
+    }
+    
+    // Refit terminal to new size
+    if (state.terminal.instance) {
+      fitTerminal(state.terminal.instance.id);
+    }
+  });
+  
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+}
+
+// Make terminal functions available globally
+(window as any).toggleTerminal = toggleTerminal;
+(window as any).initTerminal = initTerminal;
 
 // ========================================================================
 // SYNC STATE MANAGEMENT

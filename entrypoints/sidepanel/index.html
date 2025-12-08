@@ -38,12 +38,63 @@
           <rect x="9" y="9" width="5" height="5" rx="1"/>
         </svg>
       </button>
+      <!-- Terminal Toggle Button -->
+      <button id="terminal-toggle-btn" class="header-btn terminal-toggle" title="Toggle Terminal (requires OpenCode)">
+        <svg class="btn-icon-svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="1" y="2" width="14" height="12" rx="2"/>
+          <path d="M4 6l2.5 2.5L4 11"/>
+          <path d="M9 11h3"/>
+        </svg>
+      </button>
       <!-- Account/Settings Avatar Button (opens settings panel) -->
       <button id="settings-btn" class="header-account-btn" title="Account & Settings">
         <span id="header-account-avatar" class="header-account-avatar">?</span>
       </button>
     </div>
   </header>
+  
+  <!-- Terminal Panel (slides up from bottom) -->
+  <div id="terminal-panel" class="terminal-panel hidden">
+    <div class="terminal-header">
+      <div class="terminal-header-left">
+        <span class="terminal-icon">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="2" width="14" height="12" rx="2"/>
+            <path d="M4 6l2.5 2.5L4 11"/>
+            <path d="M9 11h3"/>
+          </svg>
+        </span>
+        <span class="terminal-title" id="terminal-title">Terminal</span>
+        <span class="terminal-status" id="terminal-status"></span>
+      </div>
+      <div class="terminal-header-right">
+        <button id="terminal-new-btn" class="terminal-header-btn" title="New Terminal">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="6" y1="2" x2="6" y2="10"/>
+            <line x1="2" y1="6" x2="10" y2="6"/>
+          </svg>
+        </button>
+        <button id="terminal-clear-btn" class="terminal-header-btn" title="Clear Terminal">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 3h8M3 3v7a1 1 0 001 1h4a1 1 0 001-1V3M5 3V2h2v1"/>
+          </svg>
+        </button>
+        <button id="terminal-close-btn" class="terminal-header-btn" title="Close Terminal">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 2l8 8M10 2l-8 8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="terminal-container" class="terminal-container">
+      <!-- ghostty-web terminal renders here -->
+      <div class="terminal-placeholder" id="terminal-placeholder">
+        <p>Terminal requires OpenCode server</p>
+        <button id="terminal-connect-btn" class="action-btn">Connect to OpenCode</button>
+      </div>
+    </div>
+    <div class="terminal-resize-handle" id="terminal-resize-handle"></div>
+  </div>
 
   <!-- Eidolon View (default) -->
   <div id="view-container-eidolon" class="view-container active">

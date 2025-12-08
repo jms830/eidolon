@@ -327,6 +327,138 @@ export const openCodeService = {
   }
 };
 
+// ====================================================================
+// PTY (Terminal) Types
+// ====================================================================
+
+export interface PtyInfo {
+  id: string;
+  title: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  status: 'running' | 'exited';
+  pid: number;
+}
+
+export interface PtyCreateOptions {
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  title?: string;
+  env?: Record<string, string>;
+}
+
+export interface PtyUpdateOptions {
+  title?: string;
+  size?: {
+    rows: number;
+    cols: number;
+  };
+}
+
+/**
+ * PTY (Terminal) service for managing terminal sessions
+ * Requires OpenCode server to be running
+ */
+export const ptyService = {
+  /**
+   * Create a new PTY session
+   * POST /pty
+   */
+  async create(options: PtyCreateOptions = {}): Promise<PtyInfo> {
+    const url = await getServerUrl();
+    const response = await fetch(`${url}/pty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options)
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create PTY: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * List all PTY sessions
+   * GET /pty
+   */
+  async list(): Promise<PtyInfo[]> {
+    const url = await getServerUrl();
+    const response = await fetch(`${url}/pty`);
+    if (!response.ok) {
+      throw new Error(`Failed to list PTYs: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Get PTY session info
+   * GET /pty/:id
+   */
+  async get(id: string): Promise<PtyInfo | null> {
+    const url = await getServerUrl();
+    const response = await fetch(`${url}/pty/${id}`);
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(`Failed to get PTY: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Update PTY session (resize, rename)
+   * PATCH /pty/:id
+   */
+  async update(id: string, options: PtyUpdateOptions): Promise<PtyInfo> {
+    const url = await getServerUrl();
+    const response = await fetch(`${url}/pty/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options)
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update PTY: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Remove PTY session
+   * DELETE /pty/:id
+   */
+  async remove(id: string): Promise<void> {
+    const url = await getServerUrl();
+    const response = await fetch(`${url}/pty/${id}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to remove PTY: ${response.statusText}`);
+    }
+  },
+
+  /**
+   * Get WebSocket URL for PTY connection
+   * Used to connect terminal to PTY I/O
+   */
+  async getWebSocketUrl(id: string, directory?: string): Promise<string> {
+    const url = await getServerUrl();
+    // Convert http:// to ws:// or https:// to wss://
+    const wsUrl = url.replace(/^http/, 'ws');
+    const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    return `${wsUrl}/pty/${id}/connect${params}`;
+  },
+
+  /**
+   * Connect to PTY via WebSocket
+   * Returns WebSocket instance for bidirectional communication
+   */
+  async connect(id: string, directory?: string): Promise<WebSocket> {
+    const wsUrl = await this.getWebSocketUrl(id, directory);
+    return new WebSocket(wsUrl);
+  }
+};
+
 /**
  * Helper to format OpenCode errors for display
  */
