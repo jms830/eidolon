@@ -449,6 +449,16 @@
           </div>
         </div>
 
+        <!-- API Connections (OAuth) -->
+        <div class="settings-section-card">
+          <h3>🔗 API Connections (OAuth)</h3>
+          <p class="section-description">Connect your AI subscriptions for agent mode (no API keys needed)</p>
+          
+          <div id="oauth-connections-list" class="oauth-connections-list">
+            <div class="oauth-loading">Loading connections...</div>
+          </div>
+        </div>
+
         <!-- Developer Settings -->
         <div class="settings-section-card">
           <h3>🛠️ Developer</h3>
@@ -601,6 +611,27 @@
           <button id="validate-session-btn" class="action-btn">Validate Session</button>
           <button id="show-session-key-btn" class="action-btn">Show Session Key</button>
           <button id="close-auth-modal" class="action-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OAuth Code Input Modal -->
+    <div id="oauth-code-modal" class="modal-overlay hidden">
+      <div class="modal-content oauth-code-modal">
+        <div class="modal-header">
+          <h3 id="oauth-modal-title">Connect Account</h3>
+          <button id="close-oauth-modal" class="close-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p id="oauth-instructions" class="oauth-code-instructions">
+            Follow the instructions in the new tab, then paste the authorization code below.
+          </p>
+          <input type="text" id="oauth-code-input" class="oauth-code-input" placeholder="Paste authorization code here...">
+          <input type="hidden" id="oauth-provider-id">
+          <div class="oauth-code-actions">
+            <button id="oauth-cancel-btn" class="action-btn secondary">Cancel</button>
+            <button id="oauth-submit-btn" class="primary-btn">Connect</button>
+          </div>
         </div>
       </div>
     </div>

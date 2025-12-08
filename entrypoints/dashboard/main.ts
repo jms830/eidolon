@@ -11,6 +11,15 @@ import { createTagBadge, showTagSelectionModal, createTagFilter } from '../../ut
 import { ClaudeAPIClient } from '../../utils/api/client';
 import { SyncManager, type SyncAccountInfo } from '../../utils/sync/SyncManager';
 import {
+  startAuthorization,
+  exchangeCodeForTokens,
+  getAllProviderStatus,
+  removeCredentials,
+  type OAuthProviderType,
+  type ProviderStatus,
+  OAUTH_PROVIDERS,
+} from '../../utils/oauth';
+import {
   getWorkspaceConfig,
   saveWorkspaceConfig,
   updateSyncSettings,
@@ -1584,6 +1593,9 @@ function setupEventListeners() {
     state.isSyncing = false;
     hideSyncProgress();
   });
+  
+  // Setup OAuth modal event listeners
+  setupOAuthEventListeners();
 }
 
 function switchTab(tabName: string) {
@@ -5683,6 +5695,9 @@ function initSettingsTab() {
       updateSettingsWorkspaceStatus();
     }
   });
+  
+  // Load OAuth connections status
+  loadOAuthConnections();
 }
 
 /**
@@ -6033,3 +6048,338 @@ function setupDarkModeToggle() {
 // Initialize dark mode on page load
 initDarkMode();
 setupDarkModeToggle();
+
+// ========================================================================
+// OAUTH CONNECTION MANAGEMENT
+// ========================================================================
+
+/**
+ * Load and render OAuth connections in settings panel
+ */
+async function loadOAuthConnections(): Promise<void> {
+  const connectionsList = document.getElementById('oauth-connections-list');
+  if (!connectionsList) return;
+
+  try {
+    const statuses = await getAllProviderStatus();
+    renderOAuthConnections(statuses);
+  } catch (error) {
+    console.error('[Dashboard] Failed to load OAuth connections:', error);
+    connectionsList.innerHTML = `
+      <div class="oauth-loading">Failed to load connections</div>
+    `;
+  }
+}
+
+/**
+ * Render OAuth provider connections
+ */
+function renderOAuthConnections(statuses: ProviderStatus[]): void {
+  const connectionsList = document.getElementById('oauth-connections-list');
+  if (!connectionsList) return;
+
+  const providerIcons: Record<OAuthProviderType, string> = {
+    anthropic: '🤖',
+    openai: '💬',
+    google: '✨',
+  };
+
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude (Anthropic)',
+    openai: 'ChatGPT (OpenAI)',
+    google: 'Gemini (Google)',
+  };
+
+  const providerDescs: Record<OAuthProviderType, string> = {
+    anthropic: 'Uses your Claude Pro/Max subscription',
+    openai: 'Uses your ChatGPT Plus/Pro subscription',
+    google: 'Uses your Gemini Advanced subscription',
+  };
+
+  connectionsList.innerHTML = statuses.map(status => {
+    const config = OAUTH_PROVIDERS[status.provider];
+    const isConnected = status.connected;
+    return `
+      <div class="oauth-provider-item ${isConnected ? 'connected' : ''}" data-provider="${status.provider}">
+        <div class="oauth-provider-icon ${status.provider}">
+          ${providerIcons[status.provider]}
+        </div>
+        <div class="oauth-provider-info">
+          <div class="oauth-provider-name">
+            ${providerNames[status.provider]}
+            ${isConnected ? '<span class="oauth-connected-badge">Connected</span>' : ''}
+          </div>
+          <div class="oauth-provider-desc">${providerDescs[status.provider]}</div>
+          ${isConnected && status.email ? `<div class="oauth-provider-email">${escapeHtmlOAuth(status.email)}</div>` : ''}
+        </div>
+        <div class="oauth-provider-action">
+          ${isConnected 
+            ? `<button class="oauth-disconnect-btn" data-provider="${status.provider}">Disconnect</button>`
+            : `<button class="oauth-connect-btn" data-provider="${status.provider}">Connect</button>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach event listeners
+  connectionsList.querySelectorAll('.oauth-connect-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const provider = (e.target as HTMLElement).getAttribute('data-provider') as OAuthProviderType;
+      if (provider) {
+        await startOAuthFlow(provider);
+      }
+    });
+  });
+
+  connectionsList.querySelectorAll('.oauth-disconnect-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const provider = (e.target as HTMLElement).getAttribute('data-provider') as OAuthProviderType;
+      if (provider) {
+        await disconnectOAuthProvider(provider);
+      }
+    });
+  });
+}
+
+/**
+ * Escape HTML for OAuth display
+ */
+function escapeHtmlOAuth(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Start OAuth flow for a provider
+ */
+async function startOAuthFlow(provider: OAuthProviderType): Promise<void> {
+  try {
+    const auth = await startAuthorization(provider);
+    
+    // Open auth URL in new tab
+    await browser.tabs.create({ url: auth.url, active: true });
+    
+    // Show modal with waiting state (code will be captured automatically)
+    showOAuthWaitingModal(provider);
+  } catch (error) {
+    console.error('[Dashboard] OAuth start failed:', error);
+    toast.error(`Failed to start OAuth: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Show OAuth waiting modal (auto-capture mode)
+ */
+function showOAuthWaitingModal(provider: OAuthProviderType): void {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  const providerIdInput = document.getElementById('oauth-provider-id') as HTMLInputElement;
+  const codeInput = document.getElementById('oauth-code-input') as HTMLInputElement;
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+
+  if (!modal || !titleEl || !instructionsEl || !providerIdInput || !codeInput) return;
+
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+
+  titleEl.textContent = `Connecting ${providerNames[provider]}...`;
+  instructionsEl.innerHTML = `
+    <div style="text-align: center; padding: 12px 0;">
+      <div style="font-size: 24px; margin-bottom: 8px;">🔐</div>
+      <div>Complete the authorization in the new tab.</div>
+      <div style="color: var(--text-400); font-size: 12px; margin-top: 8px;">
+        The code will be captured automatically.<br>
+        If it doesn't work, paste the code manually below.
+      </div>
+    </div>
+  `;
+  providerIdInput.value = provider;
+  codeInput.value = '';
+  codeInput.placeholder = 'Or paste code here if auto-capture fails...';
+  if (submitBtn) submitBtn.textContent = 'Submit Code';
+
+  modal.classList.remove('hidden');
+}
+
+/**
+ * Show OAuth code input modal
+ */
+function showOAuthCodeModal(provider: OAuthProviderType, instructions: string): void {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  const providerIdInput = document.getElementById('oauth-provider-id') as HTMLInputElement;
+  const codeInput = document.getElementById('oauth-code-input') as HTMLInputElement;
+
+  if (!modal || !titleEl || !instructionsEl || !providerIdInput || !codeInput) return;
+
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+
+  titleEl.textContent = `Connect ${providerNames[provider]}`;
+  instructionsEl.textContent = instructions;
+  providerIdInput.value = provider;
+  codeInput.value = '';
+  codeInput.focus();
+
+  modal.classList.remove('hidden');
+}
+
+/**
+ * Close OAuth code modal
+ */
+function closeOAuthCodeModal(): void {
+  const modal = document.getElementById('oauth-code-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+/**
+ * Submit OAuth code
+ */
+async function submitOAuthCode(): Promise<void> {
+  const codeInput = document.getElementById('oauth-code-input') as HTMLInputElement;
+  const providerIdInput = document.getElementById('oauth-provider-id') as HTMLInputElement;
+  
+  if (!codeInput || !providerIdInput) return;
+  
+  const code = codeInput.value.trim();
+  const provider = providerIdInput.value as OAuthProviderType;
+  
+  if (!code) {
+    toast.warning('Please enter the authorization code');
+    return;
+  }
+  
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+  if (submitBtn) submitBtn.disabled = true;
+  
+  try {
+    await exchangeCodeForTokens(code);
+    toast.success('Connected successfully!');
+    closeOAuthCodeModal();
+    // Reload connections
+    await loadOAuthConnections();
+  } catch (error) {
+    console.error('[Dashboard] OAuth code exchange failed:', error);
+    toast.error(`Connection failed: ${(error as Error).message}`);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+/**
+ * Disconnect OAuth provider
+ */
+async function disconnectOAuthProvider(provider: OAuthProviderType): Promise<void> {
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+  
+  if (!confirm(`Disconnect ${providerNames[provider]}? You'll need to re-authorize to use it again.`)) {
+    return;
+  }
+  
+  try {
+    await removeCredentials(provider);
+    toast.success(`${providerNames[provider]} disconnected`);
+    await loadOAuthConnections();
+  } catch (error) {
+    console.error('[Dashboard] Failed to disconnect OAuth:', error);
+    toast.error(`Failed to disconnect: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Setup OAuth event listeners
+ */
+function setupOAuthEventListeners(): void {
+  // Close modal buttons
+  document.getElementById('close-oauth-modal')?.addEventListener('click', closeOAuthCodeModal);
+  document.getElementById('oauth-cancel-btn')?.addEventListener('click', closeOAuthCodeModal);
+  
+  // Submit button
+  document.getElementById('oauth-submit-btn')?.addEventListener('click', submitOAuthCode);
+  
+  // Enter key in input
+  document.getElementById('oauth-code-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      submitOAuthCode();
+    }
+  });
+  
+  // Click outside modal to close
+  document.getElementById('oauth-code-modal')?.addEventListener('click', (e) => {
+    if (e.target === document.getElementById('oauth-code-modal')) {
+      closeOAuthCodeModal();
+    }
+  });
+  
+  // Listen for OAuth callback from background script (auto-capture)
+  browser.runtime.onMessage.addListener((message) => {
+    if (message.type === 'oauth-callback' && message.code) {
+      console.log('[Dashboard] Received OAuth callback with code');
+      handleAutoOAuthCallback(message.code);
+    }
+  });
+}
+
+/**
+ * Handle automatically captured OAuth callback
+ */
+async function handleAutoOAuthCallback(code: string): Promise<void> {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  
+  // Only process if modal is open (meaning we're expecting a callback)
+  if (!modal || modal.classList.contains('hidden')) {
+    return;
+  }
+  
+  // Update UI to show processing
+  if (titleEl) titleEl.textContent = 'Completing connection...';
+  if (instructionsEl) {
+    instructionsEl.innerHTML = `
+      <div style="text-align: center; padding: 12px 0;">
+        <div style="font-size: 24px; margin-bottom: 8px;">⏳</div>
+        <div>Exchanging authorization code...</div>
+      </div>
+    `;
+  }
+  
+  try {
+    const result = await exchangeCodeForTokens(code);
+    
+    if (result.type === 'success') {
+      toast.success('Connected successfully!');
+      closeOAuthCodeModal();
+      await loadOAuthConnections();
+    } else {
+      toast.error(`Connection failed: ${result.error}`);
+      // Reset modal to allow manual entry
+      if (instructionsEl) {
+        instructionsEl.innerHTML = `
+          <div style="color: var(--error); margin-bottom: 12px;">
+            Auto-capture failed: ${result.error}
+          </div>
+          <div>Please paste the authorization code manually:</div>
+        `;
+      }
+      if (titleEl) titleEl.textContent = 'Enter Code Manually';
+    }
+  } catch (error) {
+    console.error('[Dashboard] OAuth auto-callback failed:', error);
+    toast.error(`Connection failed: ${(error as Error).message}`);
+  }
+}

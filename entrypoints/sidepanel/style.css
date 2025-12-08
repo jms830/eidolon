@@ -3948,3 +3948,183 @@ body {
   font-size: 11px;
   color: var(--text-500);
 }
+
+/* ========================================================================
+   OAUTH CONNECTIONS STYLES
+   Multi-provider OAuth connection management
+   ======================================================================== */
+
+.oauth-connections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.oauth-loading {
+  color: var(--text-400);
+  font-size: 13px;
+  padding: 12px;
+  text-align: center;
+}
+
+.oauth-provider-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-200);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-200);
+  transition: all 0.15s ease;
+}
+
+.oauth-provider-item:hover {
+  background: var(--bg-300);
+  border-color: var(--border-300);
+}
+
+.oauth-provider-item.connected {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.oauth-provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.oauth-provider-icon.claude {
+  background: linear-gradient(135deg, #CC785C 0%, #D4A574 100%);
+  color: white;
+}
+
+.oauth-provider-icon.chatgpt {
+  background: linear-gradient(135deg, #10A37F 0%, #1ED3A3 100%);
+  color: white;
+}
+
+.oauth-provider-icon.gemini {
+  background: linear-gradient(135deg, #4285F4 0%, #8AB4F8 100%);
+  color: white;
+}
+
+.oauth-provider-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.oauth-provider-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-100);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oauth-provider-name .status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-400);
+}
+
+.oauth-provider-name .status-dot.connected {
+  background: var(--success);
+}
+
+.oauth-provider-desc {
+  font-size: 12px;
+  color: var(--text-400);
+  margin-top: 2px;
+}
+
+.oauth-provider-email {
+  font-size: 11px;
+  color: var(--success);
+  margin-top: 2px;
+}
+
+.oauth-provider-action {
+  flex-shrink: 0;
+}
+
+.oauth-connect-btn {
+  padding: 6px 12px;
+  background: var(--accent-main-100);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-connect-btn:hover {
+  background: var(--accent-main-200);
+}
+
+.oauth-disconnect-btn {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-400);
+  border: 1px solid var(--border-300);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oauth-disconnect-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #EF4444;
+  color: #EF4444;
+}
+
+/* OAuth Code Input Modal */
+.oauth-code-modal {
+  max-width: 400px;
+}
+
+.oauth-code-instructions {
+  font-size: 13px;
+  color: var(--text-300);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.oauth-code-input {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-200);
+  border: 1px solid var(--border-300);
+  border-radius: var(--radius-md);
+  color: var(--text-100);
+  font-size: 14px;
+  font-family: monospace;
+  margin-bottom: 16px;
+}
+
+.oauth-code-input:focus {
+  outline: none;
+  border-color: var(--accent-main-100);
+}
+
+.oauth-code-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Dark mode adjustments */
+[data-mode="dark"] .oauth-provider-item.connected {
+  background: rgba(16, 185, 129, 0.08);
+}

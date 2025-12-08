@@ -2545,5 +2545,80 @@ IMPORTANT:
     return false;
   });
 
+  // ========================================================================
+  // OAuth Callback URL Capture
+  // Automatically captures authorization codes from OAuth redirect URLs
+  // ========================================================================
+  
+  // OAuth redirect URL patterns to watch for
+  const OAUTH_CALLBACK_PATTERNS = [
+    'https://console.anthropic.com/oauth/code/callback',  // Anthropic
+    'http://localhost:1455/auth/callback',                 // OpenAI
+    'http://localhost:8085/oauth2callback',                // Google
+  ];
+  
+  /**
+   * Extract authorization code from OAuth callback URL
+   */
+  function extractOAuthCode(url: string): { code: string; state?: string } | null {
+    try {
+      const urlObj = new URL(url);
+      const code = urlObj.searchParams.get('code');
+      const state = urlObj.searchParams.get('state');
+      
+      if (code) {
+        return { code, state: state || undefined };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  
+  /**
+   * Check if URL matches any OAuth callback pattern
+   */
+  function isOAuthCallback(url: string): boolean {
+    return OAUTH_CALLBACK_PATTERNS.some(pattern => url.startsWith(pattern));
+  }
+  
+  // Listen for tab URL changes to capture OAuth callbacks
+  browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Only process when URL changes and is complete
+    if (!changeInfo.url || !tab.url) return;
+    
+    const url = changeInfo.url;
+    
+    // Check if this is an OAuth callback URL
+    if (!isOAuthCallback(url)) return;
+    
+    debugLog('[OAuth] Detected callback URL:', url);
+    
+    const extracted = extractOAuthCode(url);
+    if (!extracted) {
+      debugLog('[OAuth] No code found in callback URL');
+      return;
+    }
+    
+    debugLog('[OAuth] Extracted code, broadcasting to extension pages');
+    
+    // Broadcast the OAuth code to all extension pages (dashboard, sidepanel, popup)
+    // They will handle the token exchange
+    browser.runtime.sendMessage({
+      type: 'oauth-callback',
+      code: extracted.code,
+      state: extracted.state,
+    }).catch(() => {
+      // Ignore errors if no listeners
+    });
+    
+    // Close the OAuth tab after a short delay to let the message be received
+    setTimeout(() => {
+      browser.tabs.remove(tabId).catch(() => {
+        // Tab might already be closed
+      });
+    }, 500);
+  });
+
   console.log('Eidolon service worker initialized');
 });

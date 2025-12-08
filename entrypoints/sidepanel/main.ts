@@ -5,6 +5,17 @@
 
 import './style.css';
 import { settingsService, type SettingsChangeEvent } from '../../utils/settings/settingsService';
+import {
+  startAuthorization,
+  exchangeCodeForTokens,
+  getAllProviderStatus,
+  removeCredentials,
+  importClaudeCodeCredentials,
+  refreshTokens,
+  type OAuthProviderType,
+  type ProviderStatus,
+  OAUTH_PROVIDERS,
+} from '../../utils/oauth';
 
 // ========================================================================
 // TYPES
@@ -86,6 +97,13 @@ const PRESET_PLATFORMS: Omit<Platform, 'order' | 'isVisible'>[] = [
     isBuiltIn: false
   },
   {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    url: 'https://chat.deepseek.com',
+    icon: 'deepseek',
+    isBuiltIn: false
+  },
+  {
     id: 'poe',
     name: 'Poe',
     url: 'https://poe.com',
@@ -123,6 +141,7 @@ const PLATFORM_ICONS: Record<string, string> = {
   // Gemini - "G" letter icon
   gemini: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="17" font-size="14" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">G</text></svg>`,
   perplexity: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+  deepseek: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="16" font-size="9" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">DS</text></svg>`,
   poe: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path fill="white" d="M8 8h8v2H8zM8 11h8v2H8zM8 14h5v2H8z"/></svg>`,
   you: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
   huggingface: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8zm-3-9a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 019 11zm6 0a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 0115 11zm-6.5 3a.5.5 0 00-.5.5c0 1.93 1.57 3.5 3.5 3.5h1c1.93 0 3.5-1.57 3.5-3.5a.5.5 0 00-.5-.5h-7z"/></svg>`,
@@ -2645,6 +2664,526 @@ function showNotification(message: string, type: 'success' | 'error' | 'info' = 
   }
 }
 
+// ========================================================================
+// OAUTH CONNECTION MANAGEMENT
+// ========================================================================
+
+/**
+ * Load and render OAuth connections in settings panel
+ */
+async function loadOAuthConnections(): Promise<void> {
+  const connectionsList = document.getElementById('oauth-connections-list');
+  if (!connectionsList) return;
+  
+  try {
+    const statuses = await getAllProviderStatus();
+    renderOAuthConnections(statuses);
+  } catch (error) {
+    console.error('[Eidolon] Failed to load OAuth connections:', error);
+    connectionsList.innerHTML = `
+      <div class="oauth-loading">Failed to load connections</div>
+    `;
+  }
+}
+
+/**
+ * Render OAuth provider connections
+ */
+function renderOAuthConnections(statuses: ProviderStatus[]): void {
+  const connectionsList = document.getElementById('oauth-connections-list');
+  if (!connectionsList) return;
+  
+  const providerIcons: Record<OAuthProviderType, string> = {
+    anthropic: 'C',
+    openai: 'G',
+    google: 'G',
+  };
+  
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+  
+  const providerDescs: Record<OAuthProviderType, string> = {
+    anthropic: 'Use your Claude Pro/Max subscription',
+    openai: 'Use your ChatGPT Plus/Pro/Team subscription',
+    google: 'Use your Gemini Advanced subscription',
+  };
+  
+  connectionsList.innerHTML = statuses.map(status => {
+    const config = OAUTH_PROVIDERS[status.provider];
+    const isConnected = status.connected;
+    
+    return `
+      <div class="oauth-provider-item ${isConnected ? 'connected' : ''}" data-provider="${status.provider}">
+        <div class="oauth-provider-icon ${status.provider}">
+          ${providerIcons[status.provider]}
+        </div>
+        <div class="oauth-provider-info">
+          <div class="oauth-provider-name">
+            ${providerNames[status.provider]}
+            <span class="status-dot ${isConnected ? 'connected' : ''}"></span>
+          </div>
+          <div class="oauth-provider-desc">${providerDescs[status.provider]}</div>
+          ${isConnected && status.email ? `<div class="oauth-provider-email">${escapeHtml(status.email)}</div>` : ''}
+        </div>
+        <div class="oauth-provider-action">
+          ${isConnected 
+            ? `<button class="oauth-disconnect-btn" data-provider="${status.provider}">Disconnect</button>`
+            : `<button class="oauth-connect-btn" data-provider="${status.provider}">Connect</button>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Add event listeners
+  connectionsList.querySelectorAll('.oauth-connect-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const provider = (e.target as HTMLElement).getAttribute('data-provider') as OAuthProviderType;
+      if (provider) {
+        await startOAuthFlow(provider);
+      }
+    });
+  });
+  
+  connectionsList.querySelectorAll('.oauth-disconnect-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const provider = (e.target as HTMLElement).getAttribute('data-provider') as OAuthProviderType;
+      if (provider) {
+        await disconnectOAuthProvider(provider);
+      }
+    });
+  });
+}
+
+/**
+ * Start OAuth flow for a provider
+ */
+async function startOAuthFlow(provider: OAuthProviderType): Promise<void> {
+  try {
+    const auth = await startAuthorization(provider);
+    
+    // Open the authorization URL in a new tab
+    await browser.tabs.create({ url: auth.url, active: true });
+    
+    // Show modal with waiting state (code will be captured automatically)
+    showOAuthWaitingModal(provider);
+  } catch (error) {
+    console.error('[Eidolon] OAuth start failed:', error);
+    showNotification(`Failed to start OAuth: ${(error as Error).message}`, 'error');
+  }
+}
+
+/**
+ * Show OAuth waiting modal (auto-capture mode)
+ */
+function showOAuthWaitingModal(provider: OAuthProviderType): void {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  const providerIdInput = document.getElementById('oauth-provider-id') as HTMLInputElement;
+  const codeInput = document.getElementById('oauth-code-input') as HTMLTextAreaElement;
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+
+  if (!modal || !titleEl || !instructionsEl || !providerIdInput || !codeInput) return;
+
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+
+  titleEl.textContent = `Connecting ${providerNames[provider]}...`;
+  
+  // Special instructions for Anthropic - OAuth may not work, offer Claude Code import
+  if (provider === 'anthropic') {
+    instructionsEl.innerHTML = `
+      <div style="text-align: center; padding: 12px 0;">
+        <div style="font-size: 24px; margin-bottom: 8px;">🔐</div>
+        <div>Complete the authorization in the new tab.</div>
+        <div style="color: var(--text-400); font-size: 12px; margin-top: 8px;">
+          If clicking "Authorize" doesn't work, Claude's OAuth<br>
+          is restricted. Use the <strong>Import from Claude Code</strong> option below.
+        </div>
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+          <button id="import-claude-code-btn" class="oauth-submit-btn" style="background: var(--accent-color);">
+            📥 Import from Claude Code CLI
+          </button>
+          <div style="color: var(--text-400); font-size: 11px; margin-top: 6px;">
+            Imports tokens from ~/.claude/.credentials.json
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add click handler for import button after DOM update
+    setTimeout(() => {
+      document.getElementById('import-claude-code-btn')?.addEventListener('click', showClaudeCodeImportModal);
+    }, 0);
+  } else {
+    instructionsEl.innerHTML = `
+      <div style="text-align: center; padding: 12px 0;">
+        <div style="font-size: 24px; margin-bottom: 8px;">🔐</div>
+        <div>Complete the authorization in the new tab.</div>
+        <div style="color: var(--text-400); font-size: 12px; margin-top: 8px;">
+          The code will be captured automatically.<br>
+          If it doesn't work, paste the code manually below.
+        </div>
+      </div>
+    `;
+  }
+  
+  providerIdInput.value = provider;
+  codeInput.value = '';
+  codeInput.placeholder = 'Or paste code here if auto-capture fails...';
+  if (submitBtn) submitBtn.textContent = 'Submit Code';
+
+  modal.classList.remove('hidden');
+}
+
+/**
+ * Show modal to import Claude Code credentials
+ */
+function showClaudeCodeImportModal(): void {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  const codeInput = document.getElementById('oauth-code-input') as HTMLTextAreaElement;
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+
+  if (!modal || !titleEl || !instructionsEl || !codeInput) return;
+
+  titleEl.textContent = 'Import CLI Credentials';
+  instructionsEl.innerHTML = `
+    <div style="padding: 8px 0;">
+      <div style="margin-bottom: 12px;">
+        Paste credentials from <strong>Claude Code CLI</strong> or <strong>OpenCode</strong>:
+      </div>
+      <div style="background: var(--bg-200); padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; margin-bottom: 12px;">
+        <strong>Claude Code:</strong> ~/.claude/.credentials.json<br>
+        <strong>OpenCode:</strong> ~/.local/share/opencode/auth.json
+      </div>
+      <div style="color: var(--text-400); font-size: 11px; line-height: 1.6;">
+        <strong>Copy commands:</strong><br>
+        <code style="background: var(--bg-200); padding: 2px 6px; border-radius: 3px; display: inline-block; margin: 2px 0;">Claude: cat ~/.claude/.credentials.json | xclip -selection clipboard</code><br>
+        <code style="background: var(--bg-200); padding: 2px 6px; border-radius: 3px; display: inline-block; margin: 2px 0;">OpenCode: cat ~/.local/share/opencode/auth.json | xclip -selection clipboard</code><br>
+        <code style="background: var(--bg-200); padding: 2px 6px; border-radius: 3px; display: inline-block; margin: 2px 0; color: var(--text-500);">macOS: replace xclip with pbcopy</code>
+      </div>
+    </div>
+  `;
+  
+  codeInput.value = '';
+  codeInput.placeholder = 'Paste JSON credentials here...';
+  codeInput.style.minHeight = '100px';
+  
+  if (submitBtn) {
+    submitBtn.textContent = 'Import Credentials';
+    submitBtn.style.display = 'block';
+    // Replace click handler
+    const handleImport = async () => {
+      console.log('[Eidolon] Import button clicked, content length:', codeInput.value.length);
+      await importClaudeCredentials(codeInput.value);
+      codeInput.style.minHeight = '';
+    };
+    submitBtn.onclick = handleImport;
+  }
+  
+  // Show the modal
+  modal.classList.remove('hidden');
+}
+
+/**
+ * Import Claude Code credentials
+ */
+async function importClaudeCredentials(jsonContent: string): Promise<void> {
+  console.log('[Eidolon] importClaudeCredentials called');
+  console.log('[Eidolon] Content preview:', jsonContent.substring(0, 100));
+  
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+  const instructionsEl = document.getElementById('oauth-instructions');
+  
+  // Helper to show error in modal
+  const showError = (title: string, details: string, hint?: string) => {
+    if (instructionsEl) {
+      instructionsEl.innerHTML = `
+        <div style="padding: 12px; background: var(--error-bg, #fef2f2); border: 1px solid var(--error-border, #fecaca); border-radius: 8px; margin-bottom: 12px;">
+          <div style="color: var(--error-text, #dc2626); font-weight: 600; margin-bottom: 8px;">
+            ${title}
+          </div>
+          <div style="color: var(--text-500, #6b7280); font-size: 13px; margin-bottom: 8px;">
+            ${details}
+          </div>
+          ${hint ? `
+          <div style="color: var(--text-400, #9ca3af); font-size: 12px; padding-top: 8px; border-top: 1px solid var(--error-border, #fecaca);">
+            <strong>How to fix:</strong> ${hint}
+          </div>
+          ` : ''}
+        </div>
+        <div style="font-size: 12px; color: var(--text-400);">
+          You can try pasting new credentials or cancel to close this dialog.
+        </div>
+      `;
+    }
+    showNotification(title, 'error');
+  };
+  
+  if (!jsonContent.trim()) {
+    console.log('[Eidolon] Empty content');
+    showNotification('Please paste the credentials JSON', 'error');
+    return;
+  }
+  
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Importing...';
+  }
+  
+  try {
+    console.log('[Eidolon] Calling importClaudeCodeCredentials...');
+    const result = await importClaudeCodeCredentials(jsonContent);
+    console.log('[Eidolon] Import result:', result);
+    
+    if (result.success) {
+      const sourceName = result.source || 'CLI';
+      
+      // If tokens are expired, try to refresh them
+      if (result.needsRefresh) {
+        console.log('[Eidolon] Tokens expired, attempting refresh...');
+        if (submitBtn) {
+          submitBtn.textContent = 'Refreshing tokens...';
+        }
+        
+        const refreshResult = await refreshTokens('anthropic');
+        console.log('[Eidolon] Refresh result:', refreshResult);
+        
+        if (refreshResult.success) {
+          closeOAuthCodeModal();
+          showNotification(`Credentials from ${sourceName} imported and refreshed!`);
+          await loadOAuthConnections();
+        } else {
+          // Show detailed error in the modal
+          const errorDetails = refreshResult.error || 'Unknown error';
+          const hint = refreshResult.hint || 'Run "claude" or "opencode" in your terminal to re-authenticate, then copy the new credentials.';
+          
+          showError(
+            'Token Refresh Failed',
+            `Your ${sourceName} tokens were imported but are expired. Refresh error: ${errorDetails}`,
+            hint
+          );
+          
+          // Still refresh the connections display to show the (expired) connection
+          await loadOAuthConnections();
+        }
+      } else {
+        closeOAuthCodeModal();
+        showNotification(`Credentials from ${sourceName} imported successfully!`);
+        await loadOAuthConnections();
+      }
+    } else {
+      console.error('[Eidolon] Import failed:', result.error);
+      showError(
+        'Import Failed', 
+        result.error || 'Unknown error',
+        'Make sure you copied the entire JSON contents of your credentials file.'
+      );
+    }
+  } catch (error) {
+    console.error('[Eidolon] Import exception:', error);
+    showError(
+      'Import Error',
+      (error as Error).message,
+      'Check the browser console for more details'
+    );
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Import Credentials';
+    }
+  }
+}
+
+/**
+ * Show OAuth code input modal
+ */
+function showOAuthCodeModal(provider: OAuthProviderType, instructions: string): void {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  const providerIdInput = document.getElementById('oauth-provider-id') as HTMLInputElement;
+  const codeInput = document.getElementById('oauth-code-input') as HTMLTextAreaElement;
+  
+  if (!modal || !titleEl || !instructionsEl || !providerIdInput || !codeInput) return;
+  
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+  
+  titleEl.textContent = `Connect ${providerNames[provider]}`;
+  instructionsEl.textContent = instructions;
+  providerIdInput.value = provider;
+  codeInput.value = '';
+  
+  modal.classList.remove('hidden');
+  codeInput.focus();
+}
+
+/**
+ * Close OAuth code modal
+ */
+function closeOAuthCodeModal(): void {
+  const modal = document.getElementById('oauth-code-modal');
+  modal?.classList.add('hidden');
+}
+
+/**
+ * Submit OAuth code
+ */
+async function submitOAuthCode(): Promise<void> {
+  const codeInput = document.getElementById('oauth-code-input') as HTMLTextAreaElement;
+  const code = codeInput?.value?.trim();
+  
+  if (!code) {
+    showNotification('Please enter the authorization code', 'error');
+    return;
+  }
+  
+  const submitBtn = document.getElementById('oauth-submit-btn') as HTMLButtonElement;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Connecting...';
+  }
+  
+  try {
+    const result = await exchangeCodeForTokens(code);
+    
+    if (result.type === 'success') {
+      closeOAuthCodeModal();
+      showNotification('Connected successfully!');
+      await loadOAuthConnections();
+    } else {
+      showNotification(`Failed: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showNotification(`Error: ${(error as Error).message}`, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Connect';
+    }
+  }
+}
+
+/**
+ * Disconnect OAuth provider
+ */
+async function disconnectOAuthProvider(provider: OAuthProviderType): Promise<void> {
+  const providerNames: Record<OAuthProviderType, string> = {
+    anthropic: 'Claude',
+    openai: 'ChatGPT',
+    google: 'Gemini',
+  };
+  
+  if (!confirm(`Disconnect ${providerNames[provider]}? You'll need to re-authorize to use it again.`)) {
+    return;
+  }
+  
+  try {
+    await removeCredentials(provider);
+    showNotification(`${providerNames[provider]} disconnected`);
+    await loadOAuthConnections();
+  } catch (error) {
+    showNotification(`Failed to disconnect: ${(error as Error).message}`, 'error');
+  }
+}
+
+/**
+ * Setup OAuth event listeners
+ */
+function setupOAuthEventListeners(): void {
+  // Close modal
+  document.getElementById('close-oauth-modal')?.addEventListener('click', closeOAuthCodeModal);
+  document.getElementById('oauth-cancel-btn')?.addEventListener('click', closeOAuthCodeModal);
+  
+  // Submit code
+  document.getElementById('oauth-submit-btn')?.addEventListener('click', submitOAuthCode);
+  
+  // Enter to submit
+  document.getElementById('oauth-code-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      submitOAuthCode();
+    }
+  });
+  
+  // Click outside to close
+  document.getElementById('oauth-code-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      closeOAuthCodeModal();
+    }
+  });
+  
+  // Listen for OAuth callback from background script (auto-capture)
+  browser.runtime.onMessage.addListener((message) => {
+    if (message.type === 'oauth-callback' && message.code) {
+      console.log('[Sidepanel] Received OAuth callback with code');
+      handleAutoOAuthCallback(message.code);
+    }
+  });
+}
+
+/**
+ * Handle automatically captured OAuth callback
+ */
+async function handleAutoOAuthCallback(code: string): Promise<void> {
+  const modal = document.getElementById('oauth-code-modal');
+  const titleEl = document.getElementById('oauth-modal-title');
+  const instructionsEl = document.getElementById('oauth-instructions');
+  
+  // Only process if modal is open (meaning we're expecting a callback)
+  if (!modal || modal.classList.contains('hidden')) {
+    return;
+  }
+  
+  // Update UI to show processing
+  if (titleEl) titleEl.textContent = 'Completing connection...';
+  if (instructionsEl) {
+    instructionsEl.innerHTML = `
+      <div style="text-align: center; padding: 12px 0;">
+        <div style="font-size: 24px; margin-bottom: 8px;">⏳</div>
+        <div>Exchanging authorization code...</div>
+      </div>
+    `;
+  }
+  
+  try {
+    const result = await exchangeCodeForTokens(code);
+    
+    if (result.type === 'success') {
+      showNotification('Connected successfully!');
+      closeOAuthCodeModal();
+      await loadOAuthConnections();
+    } else {
+      showNotification(`Connection failed: ${result.error}`, 'error');
+      // Reset modal to allow manual entry
+      if (instructionsEl) {
+        instructionsEl.innerHTML = `
+          <div style="color: var(--error); margin-bottom: 12px;">
+            Auto-capture failed: ${result.error}
+          </div>
+          <div>Please paste the authorization code manually:</div>
+        `;
+      }
+      if (titleEl) titleEl.textContent = 'Enter Code Manually';
+    }
+  } catch (error) {
+    console.error('[Sidepanel] OAuth auto-callback failed:', error);
+    showNotification(`Connection failed: ${(error as Error).message}`, 'error');
+  }
+}
+
 /**
  * Setup account switcher event listeners
  */
@@ -2682,13 +3221,17 @@ function setupAccountSwitcher(): void {
     showNotification('Log in to Claude.ai - account will auto-save');
   });
   
-  // Load accounts when settings panel opens (settings-btn is now the account avatar)
+  // Load accounts and OAuth connections when settings panel opens
   const settingsBtn = document.getElementById('settings-btn');
   settingsBtn?.addEventListener('click', () => {
     // Small delay to ensure panel is visible
     setTimeout(loadAccounts, 100);
     setTimeout(loadExportSettings, 100);
+    setTimeout(loadOAuthConnections, 100);
   });
+  
+  // Setup OAuth event listeners
+  setupOAuthEventListeners();
   
   // Platform export toggles
   const exportClaudeToggle = document.getElementById('export-claude-toggle') as HTMLInputElement;
