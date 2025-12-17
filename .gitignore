@@ -53,6 +53,10 @@ desktop.ini
 session_keys.json
 *.pem
 
+# OAuth secrets (DO NOT COMMIT)
+utils/oauth/oauth.secrets.ts
+oauth.secrets.ts
+
 # Reports & Examples
 reports/
 example-extensions/

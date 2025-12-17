@@ -93,32 +93,20 @@ export interface OAuthStorage {
 // PROVIDER CONFIGURATIONS
 // ============================================================================
 
-/**
- * Claude/Anthropic OAuth Configuration
- * Uses Claude Pro/Max subscription via console.anthropic.com OAuth
- */
+import { OAUTH_SECRETS } from './oauth.secrets';
+
 export const ANTHROPIC_CONFIG: OAuthProvider = {
   id: 'anthropic',
   name: 'Claude',
   description: 'Use your Claude Pro or Max subscription',
   icon: 'claude',
-  // Use console.anthropic.com - same as Claude Code CLI binary
   authUrl: 'https://console.anthropic.com/oauth/authorize',
   tokenUrl: 'https://console.anthropic.com/v1/oauth/token',
-  // Client ID from Claude Code CLI (works with subscription OAuth)
-  clientId: 'REDACTED_ANTHROPIC_CLIENT_ID',
-  // Minimal scopes for API access:
-  // - user:inference - make API calls using subscription
-  // - user:profile - get user info
-  // Note: user:sessions:claude_code causes 400 errors when authorizing
+  clientId: OAUTH_SECRETS.anthropic.clientId,
   scopes: ['user:inference', 'user:profile'],
   redirectUri: 'https://console.anthropic.com/oauth/code/callback',
 };
 
-/**
- * OpenAI/ChatGPT OAuth Configuration
- * Uses ChatGPT Plus/Pro/Team subscription via auth.openai.com
- */
 export const OPENAI_CONFIG: OAuthProvider = {
   id: 'openai',
   name: 'ChatGPT',
@@ -126,16 +114,11 @@ export const OPENAI_CONFIG: OAuthProvider = {
   icon: 'chatgpt',
   authUrl: 'https://auth.openai.com/oauth/authorize',
   tokenUrl: 'https://auth.openai.com/oauth/token',
-  clientId: 'REDACTED_OPENAI_CLIENT_ID',
+  clientId: OAUTH_SECRETS.openai.clientId,
   scopes: ['openid', 'profile', 'email', 'offline_access'],
   redirectUri: 'http://localhost:1455/auth/callback',
 };
 
-/**
- * Google/Gemini OAuth Configuration  
- * Uses Gemini Advanced subscription via Google OAuth
- * Credentials from: https://github.com/jenslys/opencode-gemini-auth
- */
 export const GOOGLE_CONFIG: OAuthProvider = {
   id: 'google',
   name: 'Gemini',
@@ -143,8 +126,8 @@ export const GOOGLE_CONFIG: OAuthProvider = {
   icon: 'gemini',
   authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenUrl: 'https://oauth2.googleapis.com/token',
-  clientId: 'REDACTED_GOOGLE_CLIENT_ID',
-  clientSecret: 'REDACTED_GOOGLE_CLIENT_SECRET', // Fixed: Cu5 not Cu3
+  clientId: OAUTH_SECRETS.google.clientId,
+  clientSecret: OAUTH_SECRETS.google.clientSecret,
   scopes: [
     'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/userinfo.email',
