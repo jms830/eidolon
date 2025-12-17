@@ -611,3 +611,5 @@ This simplified, Google Drive-style sync approach is:
 - ✅ **Maintainable:** Clean architecture, well-tested, documented
 
 By focusing on workspace-wide sync rather than per-project management, we avoid complexity while delivering the core value users need: seamless local/remote file synchronization for ALL their Claude.ai projects.
+
+**Last Modified**: 2025-10-14

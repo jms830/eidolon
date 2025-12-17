@@ -115,3 +115,5 @@ console.log('\n=== END INSPECTOR ===');
 - **Title**: Which selector successfully finds the conversation title?
 - **Messages**: Which selector finds the message elements?
 - **Classes**: What are the actual class names being used?
+
+**Last Modified**: 2025-11-29

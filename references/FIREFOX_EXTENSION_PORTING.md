@@ -253,3 +253,5 @@ Check File System Access API status:
 For questions about Firefox submission or development:
 - GitHub Issues: https://github.com/jms830/eidolon/issues
 - Firefox Add-ons Developer Hub: https://addons.mozilla.org/developers/
+
+**Last Modified**: 2025-11-17

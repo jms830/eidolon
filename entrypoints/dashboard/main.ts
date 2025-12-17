@@ -65,6 +65,8 @@ interface AppState {
   fileFilter: { projectId: string; projectName: string } | null;
   lastDiffResult: any | null;
   lastDiffTimestamp: number | null;
+  pinned: Set<string>;
+  showPinnedOnly: boolean;
   favorites: Set<string>;
   showFavoritesOnly: boolean;
 }
@@ -92,6 +94,8 @@ const state: AppState = {
   fileFilter: null,
   lastDiffResult: null,
   lastDiffTimestamp: null,
+  pinned: new Set(),
+  showPinnedOnly: false,
   favorites: new Set(),
   showFavoritesOnly: false,
 };
@@ -137,10 +141,10 @@ function showToast(message: string, type: ToastType = 'info', options: ToastOpti
   const container = getToastContainer();
   
   const icons: Record<ToastType, string> = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ'
+    success: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 8l4 4 7-7"/></svg>`,
+    error: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="7"/><path d="M8 5v3M8 11h.01"/></svg>`,
+    warning: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2l-7 12h14L8 2z"/><path d="M8 6v4M8 12h.01"/></svg>`,
+    info: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="7"/><path d="M8 8V5M8 11h.01"/></svg>`
   };
   
   const toast = document.createElement('div');
@@ -148,7 +152,7 @@ function showToast(message: string, type: ToastType = 'info', options: ToastOpti
   toast.innerHTML = `
     <span class="toast__icon" aria-hidden="true">${icons[type]}</span>
     <span class="toast__message">${message}</span>
-    ${closable ? '<button class="toast__close" aria-label="Close notification">×</button>' : ''}
+    ${closable ? `<button class="toast__close" aria-label="Close notification"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>` : ''}
   `;
   
   if (closable) {
@@ -394,9 +398,9 @@ function getProjectContextMenuItems(projectId: string, project: any): ContextMen
       dividerAfter: true,
     },
     {
-      label: state.favorites.has(projectId) ? 'Remove from Favorites' : 'Add to Favorites',
-      icon: '⭐',
-      action: () => toggleFavorite(projectId),
+      label: state.pinned.has(projectId) ? 'Unpin' : 'Pin',
+      icon: '📌',
+      action: () => togglePinned(projectId),
     },
     {
       label: 'Manage Tags',
@@ -801,6 +805,16 @@ const orgSwitcherModal = getRequiredElement('org-switcher-modal');
 const orgList = getRequiredElement('org-list');
 const closeOrgModal = getRequiredElement('close-org-modal');
 
+// Account switcher elements
+const accountSwitcherBtn = getRequiredElement('account-switcher-btn');
+const currentAccountAvatar = getRequiredElement('current-account-avatar');
+const currentAccountName = getRequiredElement('current-account-name');
+const accountSwitcherModal = getRequiredElement('account-switcher-modal');
+const accountList = getRequiredElement('account-list');
+const closeAccountModal = getRequiredElement('close-account-modal');
+const addAccountBtn = getRequiredElement('add-account-btn');
+const refreshSessionBtn = getRequiredElement('refresh-session-btn');
+
 // Auth modal elements
 const authBtn = getRequiredElement('auth-btn');
 const authModal = getRequiredElement('auth-modal');
@@ -1074,8 +1088,12 @@ async function initialize() {
     console.error('Failed to get current organization:', error);
   }
 
+  // Load account display
+  await loadAccountDisplay();
+
   setupEventListeners();
   await initSyncTab();
+  await loadPinned();
   await loadFavorites();
   await handleHashNavigation();
   
@@ -1357,8 +1375,14 @@ function setupEventListeners() {
       return;
     }
 
+    // Handle pin button clicks
+    if (target.classList.contains('pin-btn')) {
+      togglePinned(projectId);
+      return;
+    }
+
     // Handle favorite button clicks
-    if (target.classList.contains('favorite-btn')) {
+    if (target.classList.contains('fav-btn')) {
       toggleFavorite(projectId);
       return;
     }
@@ -1525,6 +1549,24 @@ function setupEventListeners() {
     });
   }
 
+  // Account switcher
+  accountSwitcherBtn.addEventListener('click', showAccountSwitcher);
+  closeAccountModal.addEventListener('click', () => {
+    accountSwitcherModal.classList.add('hidden');
+  });
+  addAccountBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://claude.ai/login' });
+  });
+  refreshSessionBtn.addEventListener('click', () => {
+    validateAuthSession();
+  });
+  // Close account modal when clicking outside
+  accountSwitcherModal.addEventListener('click', (e) => {
+    if (e.target === accountSwitcherModal) {
+      accountSwitcherModal.classList.add('hidden');
+    }
+  });
+
   // Org switcher
   orgSwitcherBtn.addEventListener('click', showOrgSwitcher);
   closeOrgModal.addEventListener('click', () => {
@@ -1661,6 +1703,11 @@ function renderProjects() {
     });
   }
 
+  // Filter by pinned if enabled
+  if (state.showPinnedOnly) {
+    filteredProjects = filteredProjects.filter(project => state.pinned.has(project.uuid));
+  }
+
   // Filter by favorites if enabled
   if (state.showFavoritesOnly) {
     filteredProjects = filteredProjects.filter(project => state.favorites.has(project.uuid));
@@ -1673,7 +1720,11 @@ function renderProjects() {
     if (state.showFavoritesOnly && state.filterTags.length > 0) {
       emptyMessage = 'No favorite projects match the selected tags';
     } else if (state.showFavoritesOnly) {
-      emptyMessage = 'No favorite projects yet. Click the ⭐ on a project to add it to favorites.';
+      emptyMessage = 'No favorites yet. Click the ⭐ on a project to favorite it.';
+    } else if (state.showPinnedOnly && state.filterTags.length > 0) {
+      emptyMessage = 'No pinned projects match the selected tags';
+    } else if (state.showPinnedOnly) {
+      emptyMessage = 'No pinned projects yet. Click the 📌 on a project to pin it.';
     } else if (state.filterTags.length > 0) {
       emptyMessage = 'No projects match the selected tags';
     }
@@ -1704,25 +1755,31 @@ function renderProjects() {
     const title = document.createElement('h3');
     title.textContent = project.name;
 
-    const favorite = document.createElement('button');
-    favorite.className = 'favorite-btn';
-    if (state.favorites.has(project.uuid)) {
-      favorite.classList.add('active');
+    const pinBtn = document.createElement('button');
+    pinBtn.className = 'pin-btn';
+    if (state.pinned.has(project.uuid)) {
+      pinBtn.classList.add('active');
     }
-    favorite.textContent = '⭐';
-    favorite.title = state.favorites.has(project.uuid) ? 'Remove from favorites' : 'Add to favorites';
-    // Event handled by delegation in setupEventListeners
+    pinBtn.textContent = '📌';
+    pinBtn.title = state.pinned.has(project.uuid) ? 'Unpin' : 'Pin';
 
-    // Expand/collapse button
+    const favBtn = document.createElement('button');
+    favBtn.className = 'fav-btn';
+    if (state.favorites.has(project.uuid)) {
+      favBtn.classList.add('active');
+    }
+    favBtn.textContent = '⭐';
+    favBtn.title = state.favorites.has(project.uuid) ? 'Remove from favorites' : 'Add to favorites';
+
     const expandBtn = document.createElement('button');
     expandBtn.className = 'expand-btn';
     expandBtn.textContent = '▶';
     expandBtn.title = 'Show files';
-    // Event handled by delegation in setupEventListeners
 
     header.appendChild(checkbox);
     header.appendChild(title);
-    header.appendChild(favorite);
+    header.appendChild(favBtn);
+    header.appendChild(pinBtn);
     header.appendChild(expandBtn);
 
     const description = document.createElement('p');
@@ -2677,6 +2734,57 @@ function toggleSelectAllProjects() {
   renderProjects();
 }
 
+async function loadPinned(): Promise<void> {
+  try {
+    const result = await chrome.storage.local.get('eidolon_pinned');
+    const pinnedArray = result.eidolon_pinned || [];
+    state.pinned = new Set(pinnedArray);
+  } catch (error) {
+    console.error('Failed to load pinned:', error);
+  }
+}
+
+async function savePinned(): Promise<void> {
+  try {
+    await chrome.storage.local.set({ 
+      eidolon_pinned: Array.from(state.pinned) 
+    });
+  } catch (error) {
+    console.error('Failed to save pinned:', error);
+  }
+}
+
+async function togglePinned(uuid: string): Promise<void> {
+  if (state.pinned.has(uuid)) {
+    state.pinned.delete(uuid);
+    toast.info('Unpinned');
+  } else {
+    state.pinned.add(uuid);
+    toast.success('Pinned');
+  }
+  await savePinned();
+  renderProjects();
+  updatePinnedFilterCount();
+}
+
+function togglePinnedFilter(): void {
+  state.showPinnedOnly = !state.showPinnedOnly;
+  const filterBtn = document.getElementById('pinned-filter-btn');
+  if (filterBtn) {
+    filterBtn.classList.toggle('active', state.showPinnedOnly);
+  }
+  renderProjects();
+}
+
+function updatePinnedFilterCount(): void {
+  const countEl = document.querySelector('.pinned-count');
+  if (countEl) {
+    countEl.textContent = state.pinned.size.toString();
+  }
+}
+
+// ============ Favorites Functions ============
+
 async function loadFavorites(): Promise<void> {
   try {
     const result = await chrome.storage.local.get('eidolon_favorites');
@@ -3245,24 +3353,23 @@ function sortProjectsBy(key: 'name' | 'date' | 'files') {
 }
 
 function filterProjects(filter: string) {
-  // Handle different filter types
+  // Handle different filter types - reset both filters first
+  state.showPinnedOnly = false;
+  state.showFavoritesOnly = false;
+  
   switch (filter) {
-    case 'all':
-      state.showFavoritesOnly = false;
+    case 'pinned':
+      state.showPinnedOnly = true;
       break;
     case 'favorites':
       state.showFavoritesOnly = true;
       break;
     case 'active':
       // TODO: Implement active filter (non-archived)
-      state.showFavoritesOnly = false;
       break;
     case 'archived':
       // TODO: Implement archived filter
-      state.showFavoritesOnly = false;
       break;
-    default:
-      state.showFavoritesOnly = false;
   }
   renderProjects();
 }
@@ -4572,6 +4679,10 @@ async function syncRenameWithAutoDirection(
   rename: { oldName: string; newName: string },
   projectInfo: any
 ): Promise<void> {
+  if (!state.workspaceHandle) {
+    throw new Error('Workspace not configured');
+  }
+
   try {
     // Validate session with retry logic
     let sessionResponse;
@@ -4917,7 +5028,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
         `⬇ Remote Only (${diff.remoteOnly.length})`,
         'These projects exist on Claude.ai but not in your workspace'
       );
-      diff.remoteOnly.forEach(p => {
+      diff.remoteOnly.forEach((p: any) => {
         const item = document.createElement('div');
         item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between;';
         const name = document.createElement('span');
@@ -4938,7 +5049,7 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
         `⬆ Local Only (${diff.localOnly.length})`,
         'These folders exist locally but are not matched to any remote project'
       );
-      diff.localOnly.forEach(folder => {
+      diff.localOnly.forEach((folder: string) => {
         const item = document.createElement('div');
         item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px;';
         item.textContent = folder;
@@ -5136,13 +5247,13 @@ function renderDiffUI(diff: any, modalContent: HTMLElement, modalOverlay: HTMLEl
     }
 
     // In sync projects
-    const inSyncProjects = diff.matched.filter(p => !p.hasDifferences);
+    const inSyncProjects = diff.matched.filter((p: any) => !p.hasDifferences);
     if (inSyncProjects.length > 0) {
       const section = createDiffSection(
         `✅ In Sync (${inSyncProjects.length})`,
         'These projects are identical locally and remotely'
       );
-      inSyncProjects.forEach(p => {
+      inSyncProjects.forEach((p: any) => {
         const item = document.createElement('div');
         item.style.cssText = 'padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between;';
         const name = document.createElement('span');
@@ -5298,6 +5409,168 @@ function logSyncActivity(type: 'success' | 'error' | 'info', message: string) {
   // Limit to 50 entries
   while (syncLogContent.children.length > 50) {
     syncLogContent.removeChild(syncLogContent.lastChild!);
+  }
+}
+
+// ============================================================================
+// Account Switcher Functions
+// ============================================================================
+
+interface AccountInfo {
+  id: string;
+  name: string;
+  color: string;
+  type: 'work' | 'personal' | 'other';
+  isActive?: boolean;
+  organizationId?: string;
+  organizationName?: string;
+}
+
+interface AccountsStorage {
+  accounts: AccountInfo[];
+  activeAccountId?: string;
+}
+
+/**
+ * Get initials from account name
+ */
+function getAccountInitials(name: string): string {
+  const parts = name.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
+/**
+ * Update account display in header
+ */
+function updateAccountDisplay(storage?: AccountsStorage) {
+  if (!storage || !storage.accounts || storage.accounts.length === 0) {
+    currentAccountName.textContent = 'No Account';
+    currentAccountAvatar.textContent = '?';
+    currentAccountAvatar.style.backgroundColor = '#666';
+    return;
+  }
+  
+  const activeAccount = storage.accounts.find(a => a.isActive || a.id === storage.activeAccountId);
+  if (activeAccount) {
+    currentAccountName.textContent = activeAccount.name;
+    currentAccountAvatar.textContent = getAccountInitials(activeAccount.name);
+    currentAccountAvatar.style.backgroundColor = activeAccount.color || '#cc785c';
+  } else {
+    currentAccountName.textContent = 'No Account';
+    currentAccountAvatar.textContent = '?';
+    currentAccountAvatar.style.backgroundColor = '#666';
+  }
+}
+
+/**
+ * Show account switcher modal
+ */
+async function showAccountSwitcher() {
+  try {
+    // Fetch accounts from storage
+    const result = await chrome.storage.local.get('eidolon_accounts');
+    const storage: AccountsStorage = result.eidolon_accounts || { accounts: [] };
+    
+    // Clear existing list
+    accountList.innerHTML = '';
+    
+    if (!storage.accounts || storage.accounts.length === 0) {
+      accountList.innerHTML = `
+        <div class="empty-state" style="padding: 24px; text-align: center;">
+          <div style="font-size: 32px; margin-bottom: 8px;">👤</div>
+          <div style="color: var(--text-300);">No accounts saved yet.<br>Log in to Claude.ai to auto-save.</div>
+        </div>
+      `;
+    } else {
+      // Sort: active first, then by name
+      const sortedAccounts = [...storage.accounts].sort((a, b) => {
+        if (a.isActive && !b.isActive) return -1;
+        if (!a.isActive && b.isActive) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      
+      sortedAccounts.forEach(account => {
+        const isActive = account.isActive || account.id === storage.activeAccountId;
+        const initials = getAccountInitials(account.name);
+        
+        const accountItem = document.createElement('div');
+        accountItem.className = `account-item ${isActive ? 'active' : ''}`;
+        accountItem.innerHTML = `
+          <div class="account-avatar" style="background-color: ${account.color || '#cc785c'}">${initials}</div>
+          <div class="account-info">
+            <div class="account-name">${escapeHtml(account.name)}</div>
+            <div class="account-org">${escapeHtml(account.organizationName || 'Unknown org')}</div>
+          </div>
+          <span class="account-badge ${account.type}">${account.type}</span>
+          ${isActive ? '<span class="account-current">Current</span>' : ''}
+        `;
+        
+        // Click to switch
+        accountItem.addEventListener('click', async () => {
+          if (!isActive) {
+            await switchAccount(account.id);
+          }
+        });
+        
+        accountList.appendChild(accountItem);
+      });
+    }
+    
+    // Show modal
+    accountSwitcherModal.classList.remove('hidden');
+  } catch (error) {
+    console.error('Failed to show account switcher:', error);
+    toast.error('Failed to load accounts. Please try again.');
+  }
+}
+
+/**
+ * Switch to a different account
+ */
+async function switchAccount(accountId: string) {
+  try {
+    toast.info('Switching account...');
+    
+    const response = await browser.runtime.sendMessage({ 
+      action: 'switch-account',
+      accountId 
+    });
+    
+    if (response.success) {
+      // Close modal
+      accountSwitcherModal.classList.add('hidden');
+      
+      // Reload data
+      toast.success('Account switched successfully!');
+      await loadProjects();
+      await loadAllFiles();
+      await loadConversations();
+      
+      // Update displays
+      const result = await chrome.storage.local.get('eidolon_accounts');
+      updateAccountDisplay(result.eidolon_accounts);
+      updateOrgDisplay();
+    } else {
+      toast.error('Failed to switch account: ' + (response.error || 'Unknown error'));
+    }
+  } catch (error) {
+    console.error('Failed to switch account:', error);
+    toast.error('Failed to switch account. Please try again.');
+  }
+}
+
+/**
+ * Load and display accounts on init
+ */
+async function loadAccountDisplay() {
+  try {
+    const result = await chrome.storage.local.get('eidolon_accounts');
+    updateAccountDisplay(result.eidolon_accounts);
+  } catch (error) {
+    console.error('Failed to load account display:', error);
   }
 }
 
@@ -5472,7 +5745,7 @@ async function checkAuthStatus() {
             </span>
           </div>
         </div>
-        ${!isValid ? '<div class="auth-warning">⚠️ Authentication failed. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Validate Session" again.</div>' : ''}
+        ${!isValid ? '<div class="auth-warning">⚠️ Authentication failed. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Refresh Claude.ai Session" again.</div>' : ''}
       `;
     } else {
       // Not authenticated
@@ -5482,7 +5755,7 @@ async function checkAuthStatus() {
           <div class="auth-value auth-invalid">❌ Not Authenticated</div>
         </div>
         <div class="auth-warning">
-          ⚠️ No session found. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Validate Session".
+          ⚠️ No session found. Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to log in, then click "Refresh Claude.ai Session".
         </div>
       `;
     }
@@ -5570,6 +5843,50 @@ async function toggleSessionKeyDisplay() {
 // ========================================================================
 // EXPORT SETTINGS
 // ========================================================================
+
+/**
+ * Initialize developer mode toggle and visibility
+ */
+async function initDeveloperMode(): Promise<void> {
+  const toggle = document.getElementById('settings-developer-mode-toggle') as HTMLInputElement;
+  const developerTab = document.querySelector('.settings-tab-btn[data-tab="developer"]') as HTMLElement;
+  
+  if (!toggle || !developerTab) return;
+  
+  // Load saved preference - default to TRUE (show developer tab by default)
+  const result = await chrome.storage.local.get('eidolon_developer_mode');
+  const developerMode = result.eidolon_developer_mode !== false; // Default true
+  
+  toggle.checked = developerMode;
+  updateDeveloperTabVisibility(developerMode, developerTab);
+  
+  // Listen for changes
+  toggle.addEventListener('change', async () => {
+    const enabled = toggle.checked;
+    await chrome.storage.local.set({ eidolon_developer_mode: enabled });
+    updateDeveloperTabVisibility(enabled, developerTab);
+    
+    // If disabling and currently on developer tab, switch to general
+    if (!enabled) {
+      const activeTab = document.querySelector('.settings-tab-btn.active');
+      if (activeTab?.getAttribute('data-tab') === 'developer') {
+        const generalTab = document.querySelector('.settings-tab-btn[data-tab="general"]') as HTMLElement;
+        generalTab?.click();
+      }
+    }
+  });
+}
+
+/**
+ * Show or hide the Developer tab button
+ */
+function updateDeveloperTabVisibility(visible: boolean, tabBtn: HTMLElement): void {
+  if (visible) {
+    tabBtn.style.display = '';
+  } else {
+    tabBtn.style.display = 'none';
+  }
+}
 
 /**
  * Load export settings and update UI
@@ -5674,11 +5991,36 @@ function initSettingsTab() {
   // Initialize settings service for dashboard context
   settingsService.init('dashboard');
   
+  // Settings Tabs Switching Logic
+  const tabBtns = document.querySelectorAll('.settings-tab-btn');
+  const tabContents = document.querySelectorAll('.settings-tab-content');
+  
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLElement;
+      const tabId = target.getAttribute('data-tab');
+      
+      // Update buttons
+      tabBtns.forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+      
+      // Update content
+      tabContents.forEach(c => c.classList.remove('active'));
+      const content = document.getElementById(`settings-tab-${tabId}`);
+      if (content) {
+        content.classList.add('active');
+      }
+    });
+  });
+  
   // Load export settings
   loadExportSettings();
   
   // Load other settings
   loadSettingsTabState();
+  
+  // Initialize developer mode
+  initDeveloperMode();
   
   // Setup auto-save on toggle changes (no save button needed)
   setupSettingsAutoSave();
@@ -5900,7 +6242,7 @@ async function updateSettingsWorkspaceStatus() {
   try {
     const config = await getWorkspaceConfig();
     
-    if (!config?.path) {
+    if (!config?.workspacePath) {
       // Not configured
       indicator.className = 'workspace-status-indicator not-configured';
       statusText.textContent = 'Not configured';
@@ -5912,8 +6254,8 @@ async function updateSettingsWorkspaceStatus() {
     // Show workspace path
     if (pathRow && pathEl) {
       pathRow.style.display = 'flex';
-      pathEl.textContent = config.path;
-      pathEl.title = config.path;
+      pathEl.textContent = config.workspacePath;
+      pathEl.title = config.workspacePath;
     }
     
     // Show last sync time
@@ -6059,6 +6401,19 @@ setupDarkModeToggle();
 async function loadOAuthConnections(): Promise<void> {
   const connectionsList = document.getElementById('oauth-connections-list');
   if (!connectionsList) return;
+
+  // Show skeleton while loading (already in HTML, but ensure it's there if needed)
+  if (connectionsList.children.length === 0 || !connectionsList.querySelector('.skeleton-card')) {
+    connectionsList.innerHTML = `
+      <div class="oauth-loading skeleton-card">
+        <div class="skeleton skeleton-avatar"></div>
+        <div class="skeleton-lines">
+          <div class="skeleton skeleton-text w-75"></div>
+          <div class="skeleton skeleton-text w-50"></div>
+        </div>
+      </div>
+    `;
+  }
 
   try {
     const statuses = await getAllProviderStatus();

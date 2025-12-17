@@ -32,6 +32,9 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   project_uuid?: string;
+  // Local-only metadata
+  isFavorite?: boolean;
+  favoritedAt?: string;
 }
 
 export interface Message {

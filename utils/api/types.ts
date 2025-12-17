@@ -68,6 +68,9 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   project_uuid?: string;
+  // Local-only metadata (Eidolon extension)
+  isFavorite?: boolean;
+  favoritedAt?: string; // ISO timestamp
 }
 
 export interface Message {

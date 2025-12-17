@@ -420,3 +420,5 @@ When implementing new features:
 3. **Search Worker** - Add `utils/search/indexWorker.ts` for local search
 4. **Components** - Build reusable UI in `components/` directory
 5. **State Management** - Consider Zustand for complex state (already in dependencies)
+
+**Last Modified**: 2025-10-10

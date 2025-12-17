@@ -6,6 +6,10 @@
  * 
  * API Reference: https://opencode.ai/docs/server/
  * SDK Reference: https://opencode.ai/docs/sdk/
+ * 
+ * Project Switching:
+ * All API calls support an optional `directory` parameter to switch project context.
+ * This allows working with multiple projects from a single server instance.
  */
 
 // Import directly from client submodule to avoid server-side Node.js dependencies
@@ -15,8 +19,19 @@ import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/clie
 const DEFAULT_PORT = 4096;
 const DEFAULT_HOST = 'localhost';
 
-// Storage key for custom server URL
+// Storage keys
 const STORAGE_KEY = 'eidolon_opencode_server_url';
+const PROJECT_DIR_KEY = 'eidolon_opencode_project_dir';
+
+// ====================================================================
+// OpenCode Project Types
+// ====================================================================
+
+export interface OpenCodeProject {
+  path: string;        // Full path to project directory
+  name: string;        // Project name (derived from path or config)
+  lastUsed?: number;   // Timestamp of last use
+}
 
 // ====================================================================
 // Type Extensions for SDK
@@ -122,47 +137,152 @@ export const openCodeService = {
     }
   },
 
+  // ====================================================================
+  // Project Management
+  // OpenCode tracks all known projects. Use ?directory= to switch context.
+  // ====================================================================
+
+  /**
+   * List all known projects from OpenCode
+   * GET /project
+   */
+  async listProjects(): Promise<OpenCodeProject[]> {
+    const url = await getServerUrl();
+    try {
+      const response = await fetch(`${url}/project`);
+      if (!response.ok) {
+        throw new Error(`Failed to list projects: ${response.statusText}`);
+      }
+      const data = await response.json();
+      // API returns array of project objects with: id, worktree, vcsDir?, vcs, time
+      if (Array.isArray(data)) {
+        return data.map((item: string | { path?: string; worktree?: string; name?: string; id?: string }) => {
+          if (typeof item === 'string') {
+            return {
+              path: item,
+              name: item.split('/').pop() || item
+            };
+          }
+          // Handle both 'path' and 'worktree' fields (OpenCode API uses 'worktree')
+          const projectPath = item.path || item.worktree || '';
+          return {
+            path: projectPath,
+            name: item.name || projectPath.split('/').pop() || projectPath || 'Unknown'
+          };
+        });
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to list projects:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Get current project info
+   * GET /project/current with optional ?directory= to get info for a specific project
+   */
+  async getCurrentProject(directory?: string): Promise<OpenCodeProject | null> {
+    const url = await getServerUrl();
+    try {
+      const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+      const response = await fetch(`${url}/project/current${params}`);
+      if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error(`Failed to get current project: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return {
+        path: data.path || data.directory || directory || '',
+        name: data.name || (data.path || directory || '').split('/').pop() || 'Unknown'
+      };
+    } catch (error) {
+      console.error('Failed to get current project:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Get/set the saved project directory from storage
+   */
+  async getSelectedProjectDir(): Promise<string | null> {
+    try {
+      const result = await chrome.storage.local.get(PROJECT_DIR_KEY);
+      return result[PROJECT_DIR_KEY] || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async setSelectedProjectDir(directory: string | null): Promise<void> {
+    if (directory) {
+      await chrome.storage.local.set({ [PROJECT_DIR_KEY]: directory });
+    } else {
+      await chrome.storage.local.remove(PROJECT_DIR_KEY);
+    }
+  },
+
+  // ====================================================================
+  // Session Management (with project directory support)
+  // ====================================================================
+
   /**
    * Create a new chat session
    * POST /session with body { title? }
+   * Supports optional directory parameter for project context
    */
-  async createSession(title?: string): Promise<any> {
+  async createSession(title?: string, directory?: string): Promise<any> {
     const url = await getServerUrl();
-    const client = createClient(url);
-    const response = await client.session.create({ 
-      body: title ? { title } : {} 
+    const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    
+    const response = await fetch(`${url}/session${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(title ? { title } : {})
     });
-    return (response as any).data || response;
+    
+    if (!response.ok) {
+      throw new Error(`Failed to create session: ${response.statusText}`);
+    }
+    return response.json();
   },
 
   /**
    * List all available sessions
+   * Supports optional directory parameter for project context
    */
-  async listSessions(): Promise<any[]> {
+  async listSessions(directory?: string): Promise<any[]> {
     const url = await getServerUrl();
-    const client = createClient(url);
-    const response = await client.session.list();
-    return (response as any).data || response || [];
+    const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    
+    const response = await fetch(`${url}/session${params}`);
+    if (!response.ok) {
+      throw new Error(`Failed to list sessions: ${response.statusText}`);
+    }
+    return response.json();
   },
 
   /**
    * Get messages for a session
    * GET /session/:id/message
+   * Supports optional directory parameter for project context
    */
-  async getMessages(sessionId: string): Promise<any[]> {
+  async getMessages(sessionId: string, directory?: string): Promise<any[]> {
     const url = await getServerUrl();
-    const client = createClient(url);
-    const response = await client.session.messages({ 
-      path: { id: sessionId } 
-    });
-    return (response as any).data || response || [];
+    const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    
+    const response = await fetch(`${url}/session/${sessionId}/message${params}`);
+    if (!response.ok) {
+      throw new Error(`Failed to get messages: ${response.statusText}`);
+    }
+    return response.json();
   },
 
   /**
    * Send a chat message to a session and wait for response
    * POST /session/:id/message
    * 
-   * Uses the session.prompt() SDK method which maps to the /message endpoint
+   * Supports optional directory parameter for project context
    */
   async sendMessage(
     sessionId: string, 
@@ -170,25 +290,32 @@ export const openCodeService = {
     options?: {
       providerID?: string;
       modelID?: string;
+      directory?: string;
     }
   ): Promise<any> {
     const url = await getServerUrl();
-    const client = createClient(url);
     
     const {
       providerID = 'anthropic',
-      modelID = 'claude-sonnet-4-20250514'
+      modelID = 'claude-sonnet-4-20250514',
+      directory
     } = options || {};
 
-    const response = await client.session.prompt({
-      path: { id: sessionId },
-      body: {
+    const params = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    
+    const response = await fetch(`${url}/session/${sessionId}/message${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         model: { providerID, modelID },
         parts: [{ type: 'text', text: content }]
-      }
+      })
     });
     
-    return (response as any).data || response;
+    if (!response.ok) {
+      throw new Error(`Failed to send message: ${response.statusText}`);
+    }
+    return response.json();
   },
 
   /**
@@ -236,6 +363,51 @@ export const openCodeService = {
     } catch {
       return this.getDefaultModels();
     }
+  },
+
+  // ====================================================================
+  // TUI (Terminal UI) helpers
+  // ====================================================================
+
+  async openModelsInTui(): Promise<void> {
+    await callTuiEndpoint('open-models');
+  },
+
+  async openSessionsInTui(): Promise<void> {
+    await callTuiEndpoint('open-sessions');
+  },
+
+  async openHelpInTui(): Promise<void> {
+    await callTuiEndpoint('open-help');
+  },
+
+  async openThemesInTui(): Promise<void> {
+    await callTuiEndpoint('open-themes');
+  },
+
+  /**
+   * Create a new session in the TUI (equivalent to /new command)
+   */
+  async newSessionInTui(): Promise<void> {
+    await callTuiEndpoint('execute-command', { command: 'new' });
+  },
+
+  async appendPrompt(prompt: string): Promise<void> {
+    if (!prompt) return;
+    await callTuiEndpoint('append-prompt', { prompt });
+  },
+
+  async clearPrompt(): Promise<void> {
+    await callTuiEndpoint('clear-prompt');
+  },
+
+  async submitPrompt(): Promise<void> {
+    await callTuiEndpoint('submit-prompt');
+  },
+
+  async executeTuiCommand(command: string): Promise<void> {
+    if (!command) return;
+    await callTuiEndpoint('execute-command', { command });
   },
 
   /**
@@ -326,6 +498,19 @@ export const openCodeService = {
     return (response as any).data || response || [];
   }
 };
+
+async function callTuiEndpoint(endpoint: string, body?: any): Promise<void> {
+  const url = await getServerUrl();
+  const response = await fetch(`${url}/tui/${endpoint}`, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to call ${endpoint}: ${response.statusText}`);
+  }
+}
+
 
 // ====================================================================
 // PTY (Terminal) Types

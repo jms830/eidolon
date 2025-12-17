@@ -293,3 +293,5 @@ To add a new platform:
 ---
 
 **Built with ❤️ by the Eidolon team**
+
+**Last Modified**: 2025-11-29

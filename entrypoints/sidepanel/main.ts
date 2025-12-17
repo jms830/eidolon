@@ -24,6 +24,7 @@ import {
   formatOpencodeError,
   ptyService,
   type OpenCodeConnectionStatus,
+  type OpenCodeProject,
 } from '../../utils/opencode/client';
 import {
   createTerminal,
@@ -32,8 +33,32 @@ import {
   focusTerminal,
   fitTerminal,
   clearTerminal,
+  changeDirectory,
   type TerminalInstance,
 } from '../../utils/terminal/terminal';
+import {
+  type Block,
+  type ChatBlock,
+  type CommandBlock,
+  type SystemBlock,
+  type ErrorBlock,
+  type BlocksState,
+  type InputAnalysis,
+  type SlashCommand,
+  createChatBlock,
+  createCommandBlock,
+  createSystemBlock,
+  createErrorBlock,
+  createInitialBlocksState,
+  blocksReducer,
+  analyzeInput,
+  getAllSlashCommands,
+  getSlashCommand,
+  extractSuggestedCommands,
+  formatCommandOutput,
+  formatDuration,
+  formatBlockTime,
+} from '../../utils/blocks/blockService';
 
 // ========================================================================
 // TYPES
@@ -122,6 +147,13 @@ const PRESET_PLATFORMS: Omit<Platform, 'order' | 'isVisible'>[] = [
     isBuiltIn: false
   },
   {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    url: 'https://openrouter.ai/playground',
+    icon: 'openrouter',
+    isBuiltIn: false
+  },
+  {
     id: 'poe',
     name: 'Poe',
     url: 'https://poe.com',
@@ -160,6 +192,7 @@ const PLATFORM_ICONS: Record<string, string> = {
   gemini: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="17" font-size="14" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">G</text></svg>`,
   perplexity: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
   deepseek: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="16" font-size="9" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">DS</text></svg>`,
+  openrouter: `<svg viewBox="0 0 24 24" fill="currentColor"><text x="12" y="16" font-size="9" font-weight="bold" text-anchor="middle" font-family="system-ui, sans-serif">OR</text></svg>`,
   poe: `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path fill="white" d="M8 8h8v2H8zM8 11h8v2H8zM8 14h5v2H8z"/></svg>`,
   you: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`,
   huggingface: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm0 18a8 8 0 118-8 8 8 0 01-8 8zm-3-9a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 019 11zm6 0a1.5 1.5 0 11-1.5-1.5A1.5 1.5 0 0115 11zm-6.5 3a.5.5 0 00-.5.5c0 1.93 1.57 3.5 3.5 3.5h1c1.93 0 3.5-1.57 3.5-3.5a.5.5 0 00-.5-.5h-7z"/></svg>`,
@@ -459,6 +492,14 @@ interface OpenCodeState {
   sessionId: string | null;
   checking: boolean;
   error: string | null;
+  // Project switching
+  projects: OpenCodeProject[];
+  selectedProjectDir: string | null;
+  currentProjectName: string | null;
+  // Session awareness for TUI
+  sessions: any[];
+  sessionsLoadedAt: number | null;
+  sessionsLoading: boolean;
 }
 
 
@@ -502,13 +543,24 @@ interface AppState {
     instance: TerminalInstance | null;
     height: number;
   };
+  // Warp-style blocks interface (experimental)
+  blocks: BlocksState;
+  useBlocksUI: boolean; // Feature flag for blocks interface
 }
 
-// Default models fallback - will be updated from Claude.ai if available
+// Default models fallback - will be updated from Claude.ai or OpenCode if available
 // These model IDs match what Claude.ai web interface uses
 // Model selection - use empty string to let Claude.ai use default model
-// The actual model IDs are fetched dynamically from Claude.ai bootstrap API
-let AVAILABLE_MODELS: Array<{ id: string; name: string; default: boolean }> = [
+// The actual model IDs are fetched dynamically from Claude.ai bootstrap API or OpenCode
+interface ModelInfo {
+  id: string;
+  name: string;
+  default: boolean;
+  provider?: string;  // e.g., 'anthropic', 'openai', 'google'
+  providerName?: string; // Display name for provider
+}
+
+let AVAILABLE_MODELS: ModelInfo[] = [
   { id: '', name: 'Default (Claude picks)', default: true },
 ];
 
@@ -557,7 +609,7 @@ const state: AppState = {
   tabGroupId: null,
   isLoading: false,
   isAuthenticated: false,
-  darkMode: localStorage.getItem('eidolon-dark-mode') === 'true',
+  darkMode: localStorage.getItem('eidolon-dark-mode') !== 'false', // Default to dark mode
   attachments: [],
   currentConversationId: null,
   agentMode: false, // Disabled by default - experimental feature
@@ -590,14 +642,24 @@ const state: AppState = {
     serverUrl: 'http://localhost:4096',
     sessionId: null,
     checking: false,
-    error: null
+    error: null,
+    projects: [],
+    selectedProjectDir: null,
+    currentProjectName: null,
+    sessions: [],
+    sessionsLoadedAt: null,
+    sessionsLoading: false,
   },
+
   // Terminal state
   terminal: {
     isOpen: false,
     instance: null,
     height: 300
-  }
+  },
+  // Warp-style blocks interface (experimental)
+  blocks: createInitialBlocksState(),
+  useBlocksUI: localStorage.getItem('eidolon-use-blocks-ui') === 'true' // Disabled by default
 };
 
 // ========================================================================
@@ -645,6 +707,7 @@ async function init() {
   setupEventListeners();
   setupViewToggle();
   setupSyncEventListeners();
+  setupProjectSelectorListeners();
   
   // Set initial model indicator
   updateModelIndicator();
@@ -658,9 +721,14 @@ async function init() {
     checkAuthentication(),
     loadAvailableModels(),
     loadAccounts(),
+    loadOrganizations(),
     initSyncState(),
-    checkOpenCodeConnection()
+    checkOpenCodeConnection(),
+    initDeveloperMode()
   ]);
+  
+  // Render the chat area (uses blocks UI if enabled)
+  renderChatArea();
   
   console.log('[Eidolon SidePanel] Ready!');
 }
@@ -1046,7 +1114,10 @@ function addCustomPlatform() {
   let url = urlInput?.value?.trim();
   
   if (!name || !url) {
-    alert('Please enter both name and URL');
+    showToast({ 
+      message: 'Please enter both name and URL',
+      type: 'warning'
+    });
     return;
   }
   
@@ -1058,7 +1129,10 @@ function addCustomPlatform() {
   try {
     new URL(url);
   } catch {
-    alert('Please enter a valid URL');
+    showToast({
+      message: 'Please enter a valid URL',
+      type: 'error'
+    });
     return;
   }
   
@@ -1256,7 +1330,10 @@ function loadCustomUrl(url: string) {
   try {
     new URL(normalizedUrl); // Validate URL format
   } catch {
-    alert('Please enter a valid URL');
+    showToast({
+      message: 'Please enter a valid URL',
+      type: 'error'
+    });
     return;
   }
   
@@ -1500,37 +1577,45 @@ function triggerFileUpload() {
 
 async function handleFileUpload(files: FileList | File[]) {
   const fileArray = Array.from(files);
+  const useTui = shouldUseTuiInterface();
   
   for (const file of fileArray) {
     try {
-      // Check file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         showNotification(`File "${file.name}" is too large (max 10MB)`, 'error');
         continue;
       }
       
-      // Read file content
       const content = await readFileContent(file);
+      const textContent = content as string;
+      const isImage = file.type.startsWith('image/') ||
+        file.name.toLowerCase().endsWith('.png') ||
+        file.name.toLowerCase().endsWith('.jpg') ||
+        file.name.toLowerCase().endsWith('.jpeg');
+      const isText = file.type.startsWith('text/') ||
+        /\.(js|ts|jsx|tsx|json|md|py|rb|go|rs|java|c|cpp|h|css|html|xml|yaml|yml|sh|bash)$/i.test(file.name);
       
-      // Determine type
-      const isImage = file.type.startsWith('image/');
-      const isText = file.type.startsWith('text/') || 
-                     /\.(js|ts|jsx|tsx|json|md|py|rb|go|rs|java|c|cpp|h|css|html|xml|yaml|yml|sh|bash)$/i.test(file.name);
+      if (useTui) {
+        const type: 'file' | 'screenshot' = isImage ? 'screenshot' : 'file';
+        const appended = await appendAttachmentToTuiPrompt(file.name, textContent, type);
+        if (appended) {
+          continue;
+        }
+      }
       
       if (isImage) {
         state.attachments.push({
           type: 'screenshot',
           name: file.name,
-          content: content as string // base64 data URL
+          content: textContent
         });
       } else if (isText) {
         state.attachments.push({
           type: 'file',
           name: file.name,
-          content: content as string
+          content: textContent
         });
       } else {
-        // Try to read as text anyway
         state.attachments.push({
           type: 'file',
           name: file.name,
@@ -1545,8 +1630,11 @@ async function handleFileUpload(files: FileList | File[]) {
     }
   }
   
-  renderAttachments();
+  if (!useTui) {
+    renderAttachments();
+  }
 }
+
 
 function readFileContent(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1721,10 +1809,48 @@ async function saveExportSettings(): Promise<void> {
 // ========================================================================
 
 function setupEventListeners() {
-  // Dashboard button (now in global header)
+  // Dashboard button (in more menu)
   const dashboardBtn = document.getElementById('dashboard-btn');
   dashboardBtn?.addEventListener('click', () => {
     browser.tabs.create({ url: chrome.runtime.getURL('/dashboard.html') });
+    closeHeaderMoreMenu();
+  });
+  
+  // Header More Menu
+  const headerMoreBtn = document.getElementById('header-more-btn');
+  const headerMoreDropdown = document.getElementById('header-more-dropdown');
+  
+  headerMoreBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !headerMoreDropdown?.classList.contains('hidden');
+    if (isOpen) {
+      closeHeaderMoreMenu();
+    } else {
+      headerMoreDropdown?.classList.remove('hidden');
+      headerMoreBtn.setAttribute('aria-expanded', 'true');
+    }
+  });
+  
+  // Close more menu when clicking outside
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.header-more-menu')) {
+      closeHeaderMoreMenu();
+    }
+  });
+  
+  // Open external button (in more menu)
+  const openExternalBtn = document.getElementById('open-external-btn');
+  openExternalBtn?.addEventListener('click', () => {
+    openCurrentViewExternal();
+    closeHeaderMoreMenu();
+  });
+  
+  // Keyboard shortcuts button (in more menu)
+  const keyboardShortcutsBtn = document.getElementById('keyboard-shortcuts-btn');
+  keyboardShortcutsBtn?.addEventListener('click', () => {
+    showKeyboardShortcuts();
+    closeHeaderMoreMenu();
   });
   
   // Project selector
@@ -1792,6 +1918,17 @@ function setupEventListeners() {
     }
   });
   
+  // Terminal new button (creates additional terminal - for now just reinitialize)
+  const terminalNewBtn = document.getElementById('terminal-new-btn');
+  terminalNewBtn?.addEventListener('click', async () => {
+    // Destroy existing terminal and create a new one
+    if (state.terminal.instance) {
+      await destroyTerminal(state.terminal.instance.id);
+      state.terminal.instance = null;
+    }
+    await initTerminal();
+  });
+  
   const terminalConnectBtn = document.getElementById('terminal-connect-btn');
   terminalConnectBtn?.addEventListener('click', initTerminal);
   
@@ -1824,10 +1961,45 @@ function setupEventListeners() {
     }
   });
   
-  // Auto-resize textarea
+  const stopBtn = getElement('tui-stop-btn');
+  stopBtn.addEventListener('click', () => {
+    if (!document.body.classList.contains('tui-mode')) {
+      showNotification('Terminal mode is unavailable while using Claude chat.', 'info');
+      return;
+    }
+    interruptTerminalSession(stopBtn);
+  });
+  
+  // TUI-only buttons: New Session, Sessions, and Help
+  const tuiNewSessionBtn = document.getElementById('tui-new-session-btn');
+  tuiNewSessionBtn?.addEventListener('click', () => {
+    performTuiAction('start a new session', () => openCodeService.newSessionInTui());
+  });
+  
+  const tuiSessionsBtn = document.getElementById('tui-sessions-btn');
+  tuiSessionsBtn?.addEventListener('click', () => {
+    performTuiAction('open the sessions manager', () => openCodeService.openSessionsInTui());
+  });
+  
+  const tuiHelpBtn = document.getElementById('tui-help-btn');
+  tuiHelpBtn?.addEventListener('click', () => {
+    performTuiAction('open help', () => openCodeService.openHelpInTui());
+  });
+  
+  const tuiThemesBtn = document.getElementById('tui-themes-btn');
+  tuiThemesBtn?.addEventListener('click', () => {
+    performTuiAction('open themes', () => openCodeService.openThemesInTui());
+  });
+  
+  // Auto-resize textarea and handle slash command autocomplete
   messageInput.addEventListener('input', () => {
     messageInput.style.height = 'auto';
     messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+    
+    // Show slash autocomplete when blocks UI is enabled
+    if (state.useBlocksUI) {
+      renderSlashAutocomplete(messageInput.value);
+    }
   });
   
   // New Chat button
@@ -1982,15 +2154,19 @@ function setupEventListeners() {
   // Model Selector Button
   const modelSelectorBtn = getElement('model-selector-btn');
   
-  modelSelectorBtn.addEventListener('click', (e) => {
+  modelSelectorBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
+    if (shouldUseTuiInterface()) {
+      await performTuiAction('open the model selector', () => openCodeService.openModelsInTui());
+      return;
+    }
     toggleClaudeMenu('model-menu');
   });
   
   // Close menus when clicking outside
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
-    if (!target.closest('.claude-menu') && !target.closest('.claude-icon-btn') && !target.closest('.claude-model-btn')) {
+    if (!target.closest('.claude-menu') && !target.closest('.toolbar-btn') && !target.closest('.model-selector-btn')) {
       closeAllClaudeMenus();
     }
   });
@@ -2022,6 +2198,38 @@ function setupEventListeners() {
     debugModeToggle.checked = result.eidolon_debug_mode === true;
   });
   debugModeToggle.addEventListener('change', toggleDebugMode);
+  
+  // Blocks UI toggle (Warp-style terminal/chat hybrid)
+  const blocksUIToggle = document.getElementById('blocks-ui-toggle') as HTMLInputElement | null;
+  if (blocksUIToggle) {
+    blocksUIToggle.checked = state.useBlocksUI;
+    blocksUIToggle.addEventListener('change', () => {
+      toggleBlocksUI();
+      blocksUIToggle.checked = state.useBlocksUI;
+    });
+  }
+  
+  // Projects root folder setting
+  const projectsRootInput = document.getElementById('projects-root-input') as HTMLInputElement;
+  if (projectsRootInput) {
+    // Load saved value
+    const savedRoot = localStorage.getItem('eidolon-projects-root') || '~/github';
+    projectsRootInput.value = savedRoot;
+    
+    // Save on blur (when user finishes editing)
+    projectsRootInput.addEventListener('blur', () => {
+      const value = projectsRootInput.value.trim() || '~/github';
+      localStorage.setItem('eidolon-projects-root', value);
+      console.log('[Eidolon] Projects root folder set to:', value);
+    });
+    
+    // Also save on Enter key
+    projectsRootInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        projectsRootInput.blur();
+      }
+    });
+  }
   
   // Validate session button
   const validateBtn = getElement('validate-session-btn');
@@ -2081,6 +2289,73 @@ function setupEventListeners() {
   
   // Setup account switcher
   setupAccountSwitcher();
+  
+  // Settings Tabs
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLElement;
+      const tabId = target.getAttribute('data-tab');
+      
+      // Update buttons
+      document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+      target.classList.add('active');
+      
+      // Update content
+      document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
+      const content = document.getElementById(`settings-tab-${tabId}`);
+      if (content) {
+        content.classList.add('active');
+      }
+    });
+  });
+}
+
+// ========================================================================
+// DEVELOPER MODE
+// ========================================================================
+
+/**
+ * Initialize developer mode toggle and visibility
+ */
+async function initDeveloperMode(): Promise<void> {
+  const toggle = document.getElementById('developer-mode-toggle') as HTMLInputElement;
+  const developerTab = document.querySelector('.settings-tab-btn[data-tab="developer"]') as HTMLElement;
+  
+  if (!toggle || !developerTab) return;
+  
+  // Load saved preference - default to TRUE (show developer tab by default)
+  const result = await chrome.storage.local.get('eidolon_developer_mode');
+  const developerMode = result.eidolon_developer_mode !== false; // Default true
+  
+  toggle.checked = developerMode;
+  updateDeveloperTabVisibility(developerMode, developerTab);
+  
+  // Listen for changes
+  toggle.addEventListener('change', async () => {
+    const enabled = toggle.checked;
+    await chrome.storage.local.set({ eidolon_developer_mode: enabled });
+    updateDeveloperTabVisibility(enabled, developerTab);
+    
+    // If disabling and currently on developer tab, switch to general
+    if (!enabled) {
+      const activeTab = document.querySelector('.settings-tab-btn.active');
+      if (activeTab?.getAttribute('data-tab') === 'developer') {
+        const generalTab = document.querySelector('.settings-tab-btn[data-tab="general"]') as HTMLElement;
+        generalTab?.click();
+      }
+    }
+  });
+}
+
+/**
+ * Show or hide the Developer tab button
+ */
+function updateDeveloperTabVisibility(visible: boolean, tabBtn: HTMLElement): void {
+  if (visible) {
+    tabBtn.style.display = '';
+  } else {
+    tabBtn.style.display = 'none';
+  }
 }
 
 // ========================================================================
@@ -2224,37 +2499,131 @@ async function checkAuthentication() {
   console.log('[Eidolon] Authentication failed after retries');
 }
 
-async function loadAvailableModels() {
+/**
+ * Load models from OpenCode API
+ * Returns models grouped by provider with proper display names
+ */
+async function loadModelsFromOpenCode(): Promise<ModelInfo[]> {
+  try {
+    const { providers, defaults } = await openCodeService.getProviders();
+    
+    if (!providers || providers.length === 0) {
+      console.log('[Eidolon] No providers from OpenCode, using defaults');
+      return [];
+    }
+    
+    const models: ModelInfo[] = [];
+    const defaultModelId = defaults?.['model'] || defaults?.['default'] || '';
+    
+    // Provider display names
+    const providerNames: Record<string, string> = {
+      anthropic: 'Anthropic',
+      openai: 'OpenAI',
+      google: 'Google',
+      'google-vertex': 'Google Vertex',
+      groq: 'Groq',
+      mistral: 'Mistral',
+      together: 'Together AI',
+      deepseek: 'DeepSeek',
+      ollama: 'Ollama',
+      openrouter: 'OpenRouter',
+      bedrock: 'AWS Bedrock',
+      'azure-openai': 'Azure OpenAI',
+    };
+    
+    for (const provider of providers) {
+      const providerId = provider.id || '';
+      const providerDisplayName = providerNames[providerId] || providerId;
+      
+      if (provider.models && Array.isArray(provider.models)) {
+        for (const model of provider.models) {
+          const modelId = model.id || '';
+          const fullModelId = `${providerId}:${modelId}`; // Use provider:model format
+          
+          models.push({
+            id: fullModelId,
+            name: model.name || modelId,
+            default: modelId === defaultModelId || fullModelId === defaultModelId,
+            provider: providerId,
+            providerName: providerDisplayName,
+          });
+        }
+      }
+    }
+    
+    // If no default was set, make first model default
+    if (models.length > 0 && !models.some(m => m.default)) {
+      models[0].default = true;
+    }
+    
+    console.log('[Eidolon] Loaded', models.length, 'models from OpenCode across', providers.length, 'providers');
+    return models;
+  } catch (error) {
+    console.warn('[Eidolon] Failed to load models from OpenCode:', error);
+    return [];
+  }
+}
+
+/**
+ * Load models from Claude.ai bootstrap API
+ */
+async function loadModelsFromClaudeAI(): Promise<ModelInfo[]> {
   try {
     const response = await browser.runtime.sendMessage({ action: 'get-available-models' });
     
     if (response.success && response.data && response.data.length > 0) {
-      // Update the models list with data from Claude.ai
-      // Models come pre-filtered to latest per family from background
-      AVAILABLE_MODELS = response.data.map((model: any, index: number) => ({
+      return response.data.map((model: any, index: number) => ({
         id: model.id || model.model_id || '',
         name: model.name || model.display_name || model.id || 'Unknown Model',
-        default: index === 0 // First model (Sonnet) is default
+        default: index === 0, // First model (Sonnet) is default
+        provider: 'anthropic',
+        providerName: 'Anthropic',
       }));
-      
-      console.log('[Eidolon] Loaded models from Claude.ai:', AVAILABLE_MODELS.map(m => m.name));
-      
-      // Update model names lookup
-      updateModelNames();
-      
-      // Re-render the model selector with new models
-      renderModelSelector();
-      renderModelMenu();
-      
-      // Update the indicator in case model name changed
-      updateModelIndicator();
-      
-      console.log('[Eidolon] Loaded models from Claude.ai:', AVAILABLE_MODELS.map(m => m.name));
     }
+    return [];
   } catch (error) {
-    console.warn('[Eidolon] Failed to load models from Claude.ai, using defaults:', error);
-    // Keep using the default fallback models
+    console.warn('[Eidolon] Failed to load models from Claude.ai:', error);
+    return [];
   }
+}
+
+/**
+ * Load available models based on current chat backend
+ * - OpenCode: fetches from /config/providers API (multiple providers)
+ * - Claude.ai: fetches from bootstrap API (Anthropic models only)
+ */
+async function loadAvailableModels() {
+  let models: ModelInfo[] = [];
+  
+  if (state.chatBackend === 'opencode' && state.opencode.connected) {
+    // Load from OpenCode API - supports multiple providers
+    models = await loadModelsFromOpenCode();
+    console.log('[Eidolon] Loaded models from OpenCode:', models.map(m => `${m.provider}:${m.name}`));
+  }
+  
+  // Fallback to Claude.ai if no models from OpenCode
+  if (models.length === 0) {
+    models = await loadModelsFromClaudeAI();
+    console.log('[Eidolon] Loaded models from Claude.ai:', models.map(m => m.name));
+  }
+  
+  // If still no models, keep default
+  if (models.length === 0) {
+    console.log('[Eidolon] No models loaded, keeping defaults');
+    return;
+  }
+  
+  AVAILABLE_MODELS = models;
+  
+  // Update model names lookup
+  updateModelNames();
+  
+  // Re-render the model selector with new models
+  renderModelSelector();
+  renderModelMenu();
+  
+  // Update the indicator in case model name changed
+  updateModelIndicator();
 }
 
 // ========================================================================
@@ -2302,6 +2671,19 @@ function renderModelSelector() {
 
 function renderConversationList() {
   const list = getElement('conversation-list');
+  
+  if (shouldUseTuiInterface()) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <p style="margin-bottom: 12px;">Sessions are managed inside the Eidolon terminal.</p>
+        <button id="tui-open-sessions-btn" class="quick-action-btn" type="button">Open Sessions Manager</button>
+      </div>
+    `;
+    document.getElementById('tui-open-sessions-btn')?.addEventListener('click', () => {
+      performTuiAction('open the sessions manager', () => openCodeService.openSessionsInTui());
+    });
+    return;
+  }
   
   if (state.conversations.length === 0) {
     list.innerHTML = '<div class="empty-state">No conversations yet</div>';
@@ -2489,6 +2871,103 @@ async function loadAccounts(): Promise<void> {
 }
 
 /**
+ * Load and render organizations list in settings panel
+ */
+async function loadOrganizations(): Promise<void> {
+  const orgList = document.getElementById('org-list');
+  if (!orgList) return;
+  
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'get-organizations' });
+    const currentOrgResponse = await browser.runtime.sendMessage({ action: 'get-current-org' });
+    const currentOrgId = currentOrgResponse.success ? currentOrgResponse.data?.uuid : null;
+    
+    if (response.success && response.data && response.data.length > 0) {
+      renderOrganizationsList(response.data, currentOrgId);
+    } else {
+      orgList.innerHTML = `
+        <div class="no-orgs">
+          <div class="no-orgs-text">No organizations found.<br>Please log in to Claude.ai.</div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('[Eidolon] Failed to load organizations:', error);
+    if (orgList) {
+      orgList.innerHTML = `
+        <div class="no-orgs">
+          <div class="no-orgs-text">Failed to load organizations</div>
+        </div>
+      `;
+    }
+  }
+}
+
+/**
+ * Render the organizations list
+ */
+function renderOrganizationsList(organizations: any[], currentOrgId: string | null): void {
+  const orgList = document.getElementById('org-list');
+  if (!orgList) return;
+  
+  orgList.innerHTML = organizations.map(org => {
+    const isActive = org.uuid === currentOrgId;
+    return `
+      <div class="org-item ${isActive ? 'active' : ''}" data-org-id="${org.uuid}" data-org-name="${escapeHtml(org.name)}">
+        <div class="org-item-info">
+          <div class="org-item-name">${escapeHtml(org.name)}</div>
+          <div class="org-item-meta">${org.capabilities ? `${org.capabilities.length} capabilities` : 'Standard'}</div>
+        </div>
+        ${isActive ? '<span class="org-current">Current</span>' : ''}
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers
+  orgList.querySelectorAll('.org-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const orgId = item.getAttribute('data-org-id');
+      const orgName = item.getAttribute('data-org-name');
+      if (orgId && !item.classList.contains('active')) {
+        await switchOrganization(orgId, orgName || 'Unknown');
+      }
+    });
+  });
+}
+
+/**
+ * Switch to a different organization
+ */
+async function switchOrganization(orgId: string, orgName: string): Promise<void> {
+  showLoading('Switching organization...');
+  
+  try {
+    const response = await browser.runtime.sendMessage({ 
+      action: 'set-current-org',
+      orgId,
+      orgName
+    });
+    
+    if (response.success) {
+      showNotification(`Switched to ${orgName}`);
+      // Reload data
+      await Promise.all([
+        loadOrganizations(),
+        loadProjects(),
+        loadConversations()
+      ]);
+    } else {
+      showNotification('Failed to switch organization: ' + (response.error || 'Unknown error'), 'error');
+    }
+  } catch (error) {
+    console.error('[Eidolon] Failed to switch organization:', error);
+    showNotification('Failed to switch organization', 'error');
+  } finally {
+    hideLoading();
+  }
+}
+
+/**
  * Update the header account avatar with active account
  */
 function updateHeaderAccountAvatar(storage: AccountsStorage | null): void {
@@ -2616,6 +3095,7 @@ async function switchAccount(accountId: string): Promise<void> {
       // Reload data after account switch
       await Promise.all([
         loadAccounts(),
+        loadOrganizations(),
         loadProjects(),
         loadConversations(),
         checkAuthentication()
@@ -2750,27 +3230,304 @@ async function deleteCurrentAccount(): Promise<void> {
 /**
  * Show a simple notification
  */
-function showNotification(message: string, type: 'success' | 'error' | 'info' = 'success'): void {
-  // Use existing activity indicator as a simple notification
-  const indicator = document.getElementById('activity-indicator');
-  const text = document.getElementById('activity-text');
-  
-  if (indicator && text) {
-    text.textContent = message;
-    indicator.classList.remove('hidden');
-    
-    const colors: Record<string, string> = {
-      error: 'var(--error, #ef4444)',
-      success: 'var(--success, #10b981)',
-      info: 'var(--accent-main-100, #3b82f6)'
-    };
-    indicator.style.background = colors[type] || colors.success;
-    
-    setTimeout(() => {
-      indicator.classList.add('hidden');
-      indicator.style.background = '';
-    }, 2000);
+/**
+ * Toast notification options
+ */
+interface ToastOptions {
+  title?: string;
+  message: string;
+  type?: 'success' | 'error' | 'warning' | 'info';
+  duration?: number; // ms, 0 for no auto-dismiss
+  actions?: Array<{
+    label: string;
+    onClick: () => void;
+    primary?: boolean;
+  }>;
+}
+
+/**
+ * Show a toast notification
+ */
+function showToast(options: ToastOptions): HTMLElement {
+  const container = document.getElementById('toast-container');
+  if (!container) {
+    console.warn('[Eidolon] Toast container not found');
+    return document.createElement('div');
   }
+  
+  const { 
+    title, 
+    message, 
+    type = 'info', 
+    duration = 4000,
+    actions 
+  } = options;
+  
+  // Icon SVGs for each type
+  const icons: Record<string, string> = {
+    success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', 'alert');
+  toast.innerHTML = `
+    <div class="toast-icon">${icons[type]}</div>
+    <div class="toast-content">
+      ${title ? `<div class="toast-title">${escapeHtml(title)}</div>` : ''}
+      <div class="toast-message">${escapeHtml(message)}</div>
+      ${actions ? `<div class="toast-actions"></div>` : ''}
+    </div>
+    <button class="toast-close" aria-label="Dismiss notification">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    ${duration > 0 ? `<div class="toast-progress" style="animation-duration: ${duration}ms"></div>` : ''}
+  `;
+  
+  // Add action buttons
+  if (actions && actions.length > 0) {
+    const actionsContainer = toast.querySelector('.toast-actions');
+    actions.forEach(action => {
+      const btn = document.createElement('button');
+      btn.className = `toast-action-btn ${action.primary ? 'primary' : 'secondary'}`;
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        action.onClick();
+        dismissToast(toast);
+      });
+      actionsContainer?.appendChild(btn);
+    });
+  }
+  
+  // Close button handler
+  const closeBtn = toast.querySelector('.toast-close');
+  closeBtn?.addEventListener('click', () => dismissToast(toast));
+  
+  // Add to container
+  container.appendChild(toast);
+  
+  // Auto-dismiss
+  if (duration > 0) {
+    setTimeout(() => dismissToast(toast), duration);
+  }
+  
+  return toast;
+}
+
+/**
+ * Dismiss a toast with animation
+ */
+function dismissToast(toast: HTMLElement): void {
+  if (toast.classList.contains('toast-exiting')) return;
+  
+  toast.classList.add('toast-exiting');
+  setTimeout(() => {
+    toast.remove();
+  }, 200);
+}
+
+/**
+ * Simple notification helper (backwards compatible)
+ */
+function showNotification(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success'): void {
+  showToast({ message, type });
+}
+
+// ========================================================================
+// FOCUS TRAP FOR MODALS (Accessibility)
+// ========================================================================
+
+/**
+ * Create a focus trap for a modal element
+ * Keeps focus within the modal while it's open
+ */
+function createFocusTrap(modal: HTMLElement): { activate: () => void; deactivate: () => void } {
+  const focusableSelectors = [
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    'a[href]',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(', ');
+  
+  let previouslyFocused: HTMLElement | null = null;
+  
+  function getFocusableElements(): HTMLElement[] {
+    return Array.from(modal.querySelectorAll(focusableSelectors)) as HTMLElement[];
+  }
+  
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key !== 'Tab') return;
+    
+    const focusable = getFocusableElements();
+    if (focusable.length === 0) return;
+    
+    const firstEl = focusable[0];
+    const lastEl = focusable[focusable.length - 1];
+    
+    if (e.shiftKey) {
+      // Shift+Tab: if on first element, wrap to last
+      if (document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else {
+      // Tab: if on last element, wrap to first
+      if (document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+  }
+  
+  function activate() {
+    // Store current focus
+    previouslyFocused = document.activeElement as HTMLElement;
+    
+    // Focus first focusable element in modal
+    const focusable = getFocusableElements();
+    if (focusable.length > 0) {
+      // Prefer focusing a close button or first input, not just first element
+      const preferredFocus = modal.querySelector('.close-btn, input, button.btn-primary') as HTMLElement;
+      (preferredFocus || focusable[0]).focus();
+    }
+    
+    // Add keydown listener
+    modal.addEventListener('keydown', handleKeyDown);
+  }
+  
+  function deactivate() {
+    // Remove listener
+    modal.removeEventListener('keydown', handleKeyDown);
+    
+    // Restore focus
+    if (previouslyFocused && previouslyFocused.focus) {
+      previouslyFocused.focus();
+    }
+  }
+  
+  return { activate, deactivate };
+}
+
+/**
+ * Helper to show a modal with focus trap
+ */
+function showModalWithFocusTrap(modal: HTMLElement, onClose?: () => void): void {
+  document.body.appendChild(modal);
+  
+  const trap = createFocusTrap(modal);
+  trap.activate();
+  
+  // Set aria attributes
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  
+  function closeModal() {
+    trap.deactivate();
+    modal.remove();
+    onClose?.();
+  }
+  
+  // Close on Escape
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal();
+    }
+  });
+  
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  
+  // Close button handler
+  const closeBtn = modal.querySelector('.close-btn, #add-project-close, #opencode-instructions-close');
+  closeBtn?.addEventListener('click', closeModal);
+  
+  // Cancel button handler
+  const cancelBtn = modal.querySelector('.btn-secondary, #add-project-cancel');
+  cancelBtn?.addEventListener('click', closeModal);
+}
+
+// ========================================================================
+// HEADER MORE MENU
+// ========================================================================
+
+/**
+ * Close the header more dropdown menu
+ */
+function closeHeaderMoreMenu(): void {
+  const dropdown = document.getElementById('header-more-dropdown');
+  const btn = document.getElementById('header-more-btn');
+  dropdown?.classList.add('hidden');
+  btn?.setAttribute('aria-expanded', 'false');
+}
+
+/**
+ * Show keyboard shortcuts modal
+ */
+function showKeyboardShortcuts(): void {
+  const shortcuts = [
+    { key: 'Ctrl + `', action: 'Toggle terminal' },
+    { key: 'Ctrl + K', action: 'Open command palette' },
+    { key: 'Ctrl + Enter', action: 'Send message' },
+    { key: 'Ctrl + N', action: 'New conversation' },
+    { key: 'Ctrl + Shift + E', action: 'Open in new tab' },
+    { key: 'Escape', action: 'Close panel/menu' },
+    { key: '?', action: 'Show keyboard shortcuts' },
+  ];
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'shortcuts-title');
+  modal.innerHTML = `
+    <div class="modal-content shortcuts-modal">
+      <div class="modal-header">
+        <h3 id="shortcuts-title">Keyboard Shortcuts</h3>
+        <button class="close-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcuts-list">
+          ${shortcuts.map(s => `
+            <div class="shortcut-item">
+              <kbd>${s.key}</kbd>
+              <span>${s.action}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  const focusTrap = createFocusTrap(modal);
+  focusTrap.activate();
+  
+  function closeModal() {
+    focusTrap.deactivate();
+    modal.remove();
+  }
+  
+  modal.querySelector('.close-btn')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal();
+    }
+  });
 }
 
 // ========================================================================
@@ -3335,8 +4092,14 @@ function setupAccountSwitcher(): void {
   settingsBtn?.addEventListener('click', () => {
     // Small delay to ensure panel is visible
     setTimeout(loadAccounts, 100);
+    setTimeout(loadOrganizations, 100);
     setTimeout(loadExportSettings, 100);
     setTimeout(loadOAuthConnections, 100);
+  });
+  
+  const refreshHeaderBtn = document.getElementById('refresh-session-header-btn');
+  refreshHeaderBtn?.addEventListener('click', async () => {
+    await validateSession();
   });
   
   // Setup OAuth event listeners
@@ -3445,6 +4208,18 @@ function setupCommandPaletteListeners() {
   });
 }
 
+/**
+ * Render the chat/blocks area - dispatches to appropriate renderer based on mode
+ */
+function renderChatArea() {
+  if (state.useBlocksUI) {
+    renderBlocks();
+  } else {
+    renderMessages();
+  }
+  updateTuiMode();
+}
+
 function renderMessages() {
   const messagesArea = getElement('messages');
   
@@ -3491,6 +4266,402 @@ function renderMessages() {
   
   // Scroll to bottom
   messagesArea.scrollTop = messagesArea.scrollHeight;
+}
+
+// ========================================================================
+// BLOCK-BASED RENDERING (Warp-style)
+// ========================================================================
+
+/**
+ * Render blocks instead of traditional messages (experimental UI)
+ */
+function renderBlocks() {
+  const container = getElement('messages');
+  
+  if (state.blocks.blocks.length === 0) {
+    // Show welcome message with blocks UI hint
+    container.innerHTML = `
+      <div class="welcome-message">
+        <div class="welcome-icon">🚀</div>
+        <h2>Eidolon Terminal Mode</h2>
+        <p>Use slash commands or type naturally. Try <code>/commands</code> for help.</p>
+        <div class="quick-actions">
+          <button class="quick-action-btn" data-action="run-commands">
+            ⌨️ /commands
+          </button>
+          <button class="quick-action-btn" data-action="summarize-page">
+            📄 Summarize this page
+          </button>
+          <button class="quick-action-btn" data-action="help-browse">
+            🌐 Help me browse
+          </button>
+        </div>
+      </div>
+    `;
+    
+    container.querySelectorAll('.quick-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const action = (e.target as HTMLElement).dataset.action;
+        if (action === 'run-commands') {
+          const input = getElement<HTMLTextAreaElement>('message-input');
+          input.value = '/commands';
+          input.focus();
+        } else {
+          handleQuickAction(action || '');
+        }
+      });
+    });
+    return;
+  }
+  
+  container.innerHTML = state.blocks.blocks.map(block => renderBlock(block)).join('');
+  
+  // Attach event handlers for suggested commands
+  container.querySelectorAll('.block-suggested-command-run').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const command = (e.target as HTMLElement).closest('.block-suggested-command')?.querySelector('.block-suggested-command-text')?.textContent;
+      if (command) {
+        executeBlockCommand(command);
+      }
+    });
+  });
+  
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+/**
+ * Render a single block
+ */
+function renderBlock(block: Block): string {
+  switch (block.type) {
+    case 'chat':
+      return renderChatBlock(block as ChatBlock);
+    case 'command':
+      return renderCommandBlock(block as CommandBlock);
+    case 'system':
+      return renderSystemBlock(block as SystemBlock);
+    case 'error':
+      return renderErrorBlock(block as ErrorBlock);
+    default:
+      return '';
+  }
+}
+
+/**
+ * Render a chat block (user message + AI response)
+ */
+function renderChatBlock(block: ChatBlock): string {
+  const statusClass = block.status;
+  const timestamp = formatBlockTime(block.timestamp);
+  
+  let suggestedCommandsHtml = '';
+  if (block.suggestedCommands && block.suggestedCommands.length > 0) {
+    suggestedCommandsHtml = `
+      <div class="block-suggested-commands">
+        <div class="block-suggested-commands-title">Suggested Commands</div>
+        ${block.suggestedCommands.map(cmd => `
+          <div class="block-suggested-command">
+            <span class="block-suggested-command-text">${escapeHtml(cmd.command)}</span>
+            <button class="block-suggested-command-run">Run</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+  
+  const streamingIndicator = block.isStreaming 
+    ? '<span class="block-streaming-indicator">Thinking</span>' 
+    : '';
+  
+  return `
+    <div class="block block-chat ${block.id === state.blocks.selectedBlockId ? 'block-selected' : ''}" data-block-id="${block.id}">
+      <div class="block-header">
+        <div class="block-header-left">
+          <span class="block-type-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 4a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H6l-4 3V4z"/>
+            </svg>
+          </span>
+          <span>Chat</span>
+        </div>
+        <div class="block-header-right">
+          <span class="block-timestamp">${timestamp}</span>
+          <span class="block-status ${statusClass}">${statusClass}</span>
+        </div>
+      </div>
+      <div class="block-body">
+        <div class="block-user-message">${formatMessageContent(block.userMessage)}</div>
+        ${block.aiResponse ? `
+          <div class="block-ai-response">${formatMessageContent(block.aiResponse)}</div>
+        ` : streamingIndicator}
+        ${suggestedCommandsHtml}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render a command block (terminal command + output)
+ */
+function renderCommandBlock(block: CommandBlock): string {
+  const statusClass = block.status;
+  const timestamp = formatBlockTime(block.timestamp);
+  const duration = block.duration ? formatDuration(block.duration) : '';
+  const exitCodeClass = block.exitCode === 0 ? 'success' : 'error';
+  
+  return `
+    <div class="block block-command ${block.id === state.blocks.selectedBlockId ? 'block-selected' : ''}" data-block-id="${block.id}">
+      <div class="block-header">
+        <div class="block-header-left">
+          <span class="block-type-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="3" width="12" height="10" rx="1"/>
+              <path d="M5 7l2 2-2 2M9 11h2"/>
+            </svg>
+          </span>
+          <span>Command</span>
+        </div>
+        <div class="block-header-right">
+          <span class="block-timestamp">${timestamp}</span>
+          <span class="block-status ${statusClass}">${block.isRunning ? 'running' : statusClass}</span>
+        </div>
+      </div>
+      <div class="block-command-line">
+        <span class="block-cwd">${escapeHtml(block.cwd)}</span>
+        <span class="block-prompt">$</span>
+        <span class="block-command-text">${escapeHtml(block.command)}</span>
+      </div>
+      <div class="block-output">${formatCommandOutput(block.output)}</div>
+      ${!block.isRunning && block.exitCode !== undefined ? `
+        <div class="block-footer">
+          <span class="block-duration">${duration}</span>
+          <span class="block-exit-code ${exitCodeClass}">exit ${block.exitCode}</span>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Render a system block (informational message)
+ */
+function renderSystemBlock(block: SystemBlock): string {
+  const timestamp = formatBlockTime(block.timestamp);
+  
+  return `
+    <div class="block block-system" data-block-id="${block.id}">
+      <div class="block-body">
+        <span class="block-system-icon">${block.icon || 'ℹ️'}</span>
+        <span class="block-system-message">${escapeHtml(block.message)}</span>
+        <span class="block-timestamp">${timestamp}</span>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render an error block
+ */
+function renderErrorBlock(block: ErrorBlock): string {
+  const timestamp = formatBlockTime(block.timestamp);
+  
+  return `
+    <div class="block block-error" data-block-id="${block.id}">
+      <div class="block-header">
+        <div class="block-header-left">
+          <span class="block-type-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="8" cy="8" r="6"/>
+              <path d="M8 5v4M8 11v.5"/>
+            </svg>
+          </span>
+          <span>Error</span>
+        </div>
+        <div class="block-header-right">
+          <span class="block-timestamp">${timestamp}</span>
+        </div>
+      </div>
+      <div class="block-body">
+        <div class="block-error-title">${escapeHtml(block.title)}</div>
+        <div class="block-error-message">${escapeHtml(block.message)}</div>
+        ${block.details ? `<div class="block-error-details">${escapeHtml(block.details)}</div>` : ''}
+        ${block.recoveryAction ? `
+          <button class="block-recovery-action" data-action="${escapeHtml(block.recoveryAction.action)}">
+            ${escapeHtml(block.recoveryAction.label)}
+          </button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Execute a command from a block's suggested commands
+ */
+async function executeBlockCommand(command: string) {
+  // Add command block
+  const commandBlock = createCommandBlock(command, state.blocks.currentCwd);
+  dispatchBlockAction({ type: 'ADD_BLOCK', block: commandBlock });
+  renderBlocks();
+  
+  // Check if terminal is connected for PTY execution
+  if (state.terminal.instance && state.terminal.isOpen) {
+    try {
+      // Send command to the terminal (via xterm.js write)
+      // The terminal WebSocket will handle execution
+      state.terminal.instance.terminal.write(command + '\r');
+      
+      dispatchBlockAction({
+        type: 'UPDATE_BLOCK',
+        id: commandBlock.id,
+        updates: {
+          status: 'success',
+          output: 'Command sent to terminal',
+          isRunning: false
+        }
+      });
+      
+      // Focus terminal to see output
+      focusTerminal(state.terminal.instance.id);
+    } catch (error) {
+      dispatchBlockAction({
+        type: 'UPDATE_BLOCK',
+        id: commandBlock.id,
+        updates: {
+          status: 'error',
+          output: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          isRunning: false
+        }
+      });
+    }
+  } else {
+    // No terminal available - show hint
+    dispatchBlockAction({
+      type: 'UPDATE_BLOCK',
+      id: commandBlock.id,
+      updates: {
+        status: 'error',
+        output: 'Terminal not connected. Open the terminal first (click the terminal icon in the header).',
+        isRunning: false
+      }
+    });
+  }
+  
+  renderBlocks();
+}
+
+/**
+ * Dispatch a block action and update state
+ */
+function dispatchBlockAction(action: Parameters<typeof blocksReducer>[1]) {
+  state.blocks = blocksReducer(state.blocks, action);
+}
+
+/**
+ * Handle input in blocks mode - detect slash commands and input type
+ */
+function handleBlocksInput(input: string): InputAnalysis {
+  return analyzeInput(input);
+}
+
+/**
+ * Render slash command autocomplete dropdown
+ */
+function renderSlashAutocomplete(query: string) {
+  const autocomplete = document.getElementById('slash-autocomplete');
+  if (!autocomplete) return;
+  
+  if (!query.startsWith('/') || query.length < 2) {
+    autocomplete.classList.add('hidden');
+    return;
+  }
+  
+  const searchTerm = query.slice(1).toLowerCase();
+  const allCommands = getAllSlashCommands();
+  const matches = allCommands.filter(cmd => 
+    cmd.name.toLowerCase().includes(searchTerm) ||
+    cmd.aliases?.some(a => a.toLowerCase().includes(searchTerm))
+  );
+  
+  if (matches.length === 0) {
+    autocomplete.classList.add('hidden');
+    return;
+  }
+  
+  autocomplete.innerHTML = matches.map((cmd, idx) => `
+    <div class="slash-command-item ${idx === 0 ? 'selected' : ''}" data-command="/${cmd.name}">
+      <div class="slash-command-item-header">
+        <span class="slash-command-name">/${cmd.name}</span>
+        ${cmd.aliases?.length ? `<span class="slash-command-aliases">(${cmd.aliases.map(a => '/' + a).join(', ')})</span>` : ''}
+      </div>
+      <div class="slash-command-description">${escapeHtml(cmd.description)}</div>
+      <div class="slash-command-usage">${escapeHtml(cmd.usage)}</div>
+    </div>
+  `).join('');
+  
+  autocomplete.classList.remove('hidden');
+  
+  // Add click handlers
+  autocomplete.querySelectorAll('.slash-command-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const command = item.getAttribute('data-command');
+      if (command) {
+        const messageInput = getElement<HTMLTextAreaElement>('message-input');
+        messageInput.value = command + ' ';
+        messageInput.focus();
+        autocomplete.classList.add('hidden');
+      }
+    });
+  });
+}
+
+/**
+ * Toggle between traditional messages and blocks UI
+ */
+function toggleBlocksUI() {
+  state.useBlocksUI = !state.useBlocksUI;
+  localStorage.setItem('eidolon-use-blocks-ui', state.useBlocksUI.toString());
+  
+  if (state.useBlocksUI) {
+    // Convert existing messages to blocks
+    convertMessagesToBlocks();
+    renderBlocks();
+  } else {
+    renderMessages();
+  }
+}
+
+/**
+ * Convert existing messages to blocks (for transitioning)
+ */
+function convertMessagesToBlocks() {
+  // Clear existing blocks
+  state.blocks = createInitialBlocksState();
+  
+  // Group user/assistant messages into chat blocks
+  let currentChatBlock: ChatBlock | null = null;
+  
+  for (const msg of state.messages) {
+    if (msg.role === 'user') {
+      // Start a new chat block
+      currentChatBlock = createChatBlock(msg.content);
+      dispatchBlockAction({ type: 'ADD_BLOCK', block: currentChatBlock });
+    } else if (msg.role === 'assistant' && currentChatBlock) {
+      // Update the current chat block with the response
+      dispatchBlockAction({
+        type: 'UPDATE_BLOCK',
+        id: currentChatBlock.id,
+        updates: {
+          aiResponse: msg.content,
+          status: 'success',
+          isStreaming: false,
+          suggestedCommands: extractSuggestedCommands(msg.content)
+        }
+      });
+      currentChatBlock = null;
+    }
+  }
 }
 
 function renderAttachments() {
@@ -3603,10 +4774,16 @@ async function capturePage() {
     
     if (results && results[0]?.result) {
       const content = results[0].result;
+      const formatted = `URL: ${content.url}\n\n${content.text}`;
+      if (shouldUseTuiInterface()) {
+        await appendAttachmentToTuiPrompt(content.title || 'Page Content', formatted, 'page');
+        hideActivity();
+        return;
+      }
       state.attachments.push({
         type: 'page-content',
         name: content.title || 'Page Content',
-        content: `URL: ${content.url}\n\n${content.text}`
+        content: formatted
       });
       renderAttachments();
     }
@@ -3624,10 +4801,17 @@ async function takeScreenshot() {
   
   try {
     const dataUrl = await browser.tabs.captureVisibleTab();
+    const name = `Screenshot - ${new Date().toLocaleTimeString()}`;
+    
+    if (shouldUseTuiInterface()) {
+      await appendAttachmentToTuiPrompt(name, dataUrl, 'screenshot');
+      hideActivity();
+      return;
+    }
     
     state.attachments.push({
       type: 'screenshot',
-      name: `Screenshot - ${new Date().toLocaleTimeString()}`,
+      name,
       content: dataUrl
     });
     renderAttachments();
@@ -3694,10 +4878,13 @@ async function addCurrentPageToProject() {
  * Send a message via OpenCode server
  */
 async function sendMessageViaOpenCode(content: string, attachments: any[]): Promise<void> {
+  // Get the selected project directory for API calls
+  const projectDir = state.opencode.selectedProjectDir || undefined;
+  
   // Ensure we have a session
   if (!state.opencode.sessionId) {
-    console.log('[Eidolon] Creating new OpenCode session...');
-    const session = await openCodeService.createSession();
+    console.log('[Eidolon] Creating new OpenCode session...', projectDir ? `(project: ${projectDir})` : '');
+    const session = await openCodeService.createSession(undefined, projectDir);
     state.opencode.sessionId = session.id || session.sessionID;
     console.log('[Eidolon] Created OpenCode session:', state.opencode.sessionId);
   }
@@ -3712,13 +4899,25 @@ async function sendMessageViaOpenCode(content: string, attachments: any[]): Prom
   }
   
   try {
-    // Send message to OpenCode
+    // Parse the model selection - format is "provider:modelID" from OpenCode
+    // or just "modelID" from Claude.ai mode
+    let providerID = 'anthropic';
+    let modelID = state.currentModel || 'claude-sonnet-4-20250514';
+    
+    if (state.currentModel && state.currentModel.includes(':')) {
+      const parts = state.currentModel.split(':');
+      providerID = parts[0];
+      modelID = parts.slice(1).join(':'); // Handle models with colons in name
+    }
+    
+    // Send message to OpenCode with project directory
     const response = await openCodeService.sendMessage(
       state.opencode.sessionId!,
       fullPrompt,
       {
-        providerID: 'anthropic',  // TODO: Make this configurable
-        modelID: state.currentModel || 'claude-sonnet-4-20250514'
+        providerID,
+        modelID,
+        directory: projectDir
       }
     );
     
@@ -3761,7 +4960,7 @@ async function sendMessageViaOpenCode(content: string, attachments: any[]): Prom
     };
     
     state.messages.push(assistantMessage);
-    renderMessages();
+    renderChatArea();
     
   } catch (error) {
     console.error('[Eidolon] OpenCode send error:', error);
@@ -3779,6 +4978,13 @@ async function sendMessageViaOpenCode(content: string, attachments: any[]): Prom
 async function sendMessage() {
   const input = getElement<HTMLTextAreaElement>('message-input');
   const content = input.value.trim();
+  
+  if (shouldUseTuiInterface()) {
+    showNotification('Type directly in the terminal to talk to your agent.', 'info');
+    document.getElementById('terminal-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input.value = '';
+    return;
+  }
   
   if (!content && state.attachments.length === 0) return;
   
@@ -3843,7 +5049,7 @@ async function sendMessage() {
   input.style.height = 'auto';
   
   // Render
-  renderMessages();
+  renderChatArea();
   renderAttachments();
   
   // Show activity
@@ -3945,7 +5151,7 @@ async function sendMessage() {
         };
         
         state.messages.push(assistantMessage);
-        renderMessages();
+        renderChatArea();
         
       } finally {
         // Always clean up agent state
@@ -3997,7 +5203,7 @@ async function sendMessage() {
       };
       
       state.messages.push(assistantMessage);
-      renderMessages();
+      renderChatArea();
     }
     
     hideActivity();
@@ -4021,7 +5227,7 @@ async function sendMessage() {
     };
     
     state.messages.push(errorMessage);
-    renderMessages();
+    renderChatArea();
   }
 }
 
@@ -4084,8 +5290,26 @@ async function toggleDarkMode() {
   document.documentElement.setAttribute('data-mode', state.darkMode ? 'dark' : 'light');
   localStorage.setItem('eidolon-dark-mode', state.darkMode.toString());
   
+  // Update terminal theme if open
+  if (state.terminal.instance) {
+    const theme = getThemeFromCSS();
+    state.terminal.instance.terminal.options.theme = theme;
+  }
+  
   // Sync to settings service for cross-context sync
   await settingsService.setUISettings({ darkMode: state.darkMode });
+}
+
+function getThemeFromCSS() {
+  const style = getComputedStyle(document.documentElement);
+  
+  return {
+    background: style.getPropertyValue('--bg-100').trim(),
+    foreground: style.getPropertyValue('--text-100').trim(),
+    cursor: style.getPropertyValue('--text-100').trim(),
+    selectionBackground: style.getPropertyValue('--accent-secondary-100').trim(),
+    selectionForeground: style.getPropertyValue('--text-100').trim(),
+  };
 }
 
 function toggleDebugMode() {
@@ -5569,19 +6793,61 @@ function selectModel(modelId: string) {
 
 /**
  * Render the model menu with current models
+ * Groups models by provider when using OpenCode backend
  */
 function renderModelMenu() {
   const modelMenuItems = document.getElementById('model-menu-items');
   if (!modelMenuItems) return;
   
-  modelMenuItems.innerHTML = AVAILABLE_MODELS.map(model => `
-    <button class="claude-menu-item model-item ${model.id === state.currentModel ? 'selected' : ''}" data-model="${model.id}">
-      <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-        <path d="M2 7l4 4 6-8"/>
-      </svg>
-      <span>${escapeHtml(model.name)}</span>
-    </button>
-  `).join('');
+  // Check if we have multiple providers (OpenCode mode)
+  const providers = [...new Set(AVAILABLE_MODELS.map(m => m.provider).filter(Boolean))];
+  const hasMultipleProviders = providers.length > 1;
+  
+  let html = '';
+  
+  if (hasMultipleProviders) {
+    // Group by provider
+    const byProvider = new Map<string, ModelInfo[]>();
+    
+    for (const model of AVAILABLE_MODELS) {
+      const key = model.provider || 'other';
+      if (!byProvider.has(key)) {
+        byProvider.set(key, []);
+      }
+      byProvider.get(key)!.push(model);
+    }
+    
+    // Render each provider group
+    for (const [providerId, models] of byProvider) {
+      const providerName = models[0]?.providerName || providerId;
+      html += `<div class="model-provider-group">`;
+      html += `<div class="model-provider-header">${escapeHtml(providerName)}</div>`;
+      
+      for (const model of models) {
+        html += `
+          <button class="claude-menu-item model-item ${model.id === state.currentModel ? 'selected' : ''}" data-model="${model.id}">
+            <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M2 7l4 4 6-8"/>
+            </svg>
+            <span>${escapeHtml(model.name)}</span>
+          </button>
+        `;
+      }
+      html += `</div>`;
+    }
+  } else {
+    // Simple list (Claude.ai mode or single provider)
+    html = AVAILABLE_MODELS.map(model => `
+      <button class="claude-menu-item model-item ${model.id === state.currentModel ? 'selected' : ''}" data-model="${model.id}">
+        <svg class="check-icon" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M2 7l4 4 6-8"/>
+        </svg>
+        <span>${escapeHtml(model.name)}</span>
+      </button>
+    `).join('');
+  }
+  
+  modelMenuItems.innerHTML = html;
   
   // Add click handlers
   modelMenuItems.querySelectorAll('.model-item').forEach(item => {
@@ -5823,16 +7089,29 @@ function updateModelIndicator() {
   if (modelNameSpan) {
     // Get display name, or extract short name from model ID
     let displayName = MODEL_NAMES[state.currentModel];
+    
     if (!displayName && state.currentModel) {
+      // Extract the model part (handle provider:model format)
+      const modelPart = state.currentModel.includes(':') 
+        ? state.currentModel.split(':').slice(1).join(':')
+        : state.currentModel;
+      
       // Extract model family name (e.g., "claude-sonnet-4-..." -> "Sonnet 4")
-      if (state.currentModel.includes('sonnet')) {
+      if (modelPart.includes('sonnet')) {
         displayName = 'Sonnet';
-      } else if (state.currentModel.includes('opus')) {
+      } else if (modelPart.includes('opus')) {
         displayName = 'Opus';
-      } else if (state.currentModel.includes('haiku')) {
+      } else if (modelPart.includes('haiku')) {
         displayName = 'Haiku';
+      } else if (modelPart.includes('gpt-4o')) {
+        displayName = 'GPT-4o';
+      } else if (modelPart.includes('gpt-4')) {
+        displayName = 'GPT-4';
+      } else if (modelPart.includes('gemini')) {
+        displayName = 'Gemini';
       } else {
-        displayName = 'Default';
+        // Use the model name directly, but shorten if too long
+        displayName = modelPart.length > 20 ? modelPart.substring(0, 17) + '...' : modelPart;
       }
     }
     modelNameSpan.textContent = displayName || 'Default';
@@ -5843,7 +7122,13 @@ function startNewChat() {
   state.currentConversationId = null;
   state.conversationModel = null; // Reset so next message sets it fresh
   state.messages = [];
-  renderMessages();
+  
+  // Also clear blocks if in blocks mode
+  if (state.useBlocksUI) {
+    state.blocks = createInitialBlocksState();
+  }
+  
+  renderChatArea();
   
   // Focus the input
   const input = getElement<HTMLTextAreaElement>('message-input');
@@ -5960,6 +7245,8 @@ async function checkOpenCodeConnection(): Promise<void> {
     
     if (status.connected) {
       console.log('[Eidolon] OpenCode server connected:', status.info);
+      // Load projects after successful connection
+      await loadOpenCodeProjects();
     } else {
       console.log('[Eidolon] OpenCode server not available:', status.error);
     }
@@ -5971,6 +7258,103 @@ async function checkOpenCodeConnection(): Promise<void> {
   }
   
   updateOpenCodeStatusUI();
+}
+
+function shouldUseTuiInterface(): boolean {
+  return state.chatBackend === 'opencode' && state.opencode.connected;
+}
+
+function updateTuiMode(): void {
+  const enableTui = shouldUseTuiInterface();
+  const body = document.body;
+  const wasEnabled = body.classList.contains('tui-mode');
+  
+  // Toggle TUI mode class - this shows/hides TUI-only buttons
+  body.classList.toggle('tui-mode', enableTui);
+  
+  // Update hint text
+  const hint = document.querySelector('.input-hints .hint') as HTMLElement | null;
+  if (hint && !hint.dataset.defaultHint) {
+    hint.dataset.defaultHint = hint.textContent || '';
+  }
+  if (hint) {
+    hint.textContent = enableTui
+      ? 'Use terminal toggle to open terminal. TUI buttons available.'
+      : (hint.dataset.defaultHint || '');
+  }
+  
+  // Re-render conversation list when TUI mode changes
+  if (enableTui !== wasEnabled) {
+    renderConversationList();
+  }
+}
+
+const TUI_FILE_CHAR_LIMIT = 15000;
+
+function isTuiModeActive(): boolean {
+  return shouldUseTuiInterface() && document.body.classList.contains('tui-mode');
+}
+
+async function performTuiAction(description: string, action: () => Promise<void>): Promise<boolean> {
+  if (!shouldUseTuiInterface()) {
+    showNotification('Connect to OpenCode to use terminal actions.', 'info');
+    return false;
+  }
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    console.error(`[Eidolon] Failed to ${description}:`, error);
+    showNotification(`Failed to ${description}`, 'error');
+    return false;
+  }
+}
+
+async function appendTextToTuiPrompt(text: string, toastMessage?: string): Promise<boolean> {
+  const success = await performTuiAction('add content to the terminal', () => openCodeService.appendPrompt(text));
+  if (success && toastMessage) {
+    showNotification(toastMessage, 'success');
+  }
+  return success;
+}
+
+async function appendAttachmentToTuiPrompt(name: string, content: string, type: 'file' | 'screenshot' | 'page'): Promise<boolean> {
+  if (!shouldUseTuiInterface()) {
+    return false;
+  }
+  try {
+    let payload = '';
+    let wasTruncated = false;
+    const originalLength = content.length;
+    
+    if (type === 'screenshot') {
+      payload = `\n![${name}](${content})\n`;
+    } else {
+      let snippet = content;
+      if (snippet.length > TUI_FILE_CHAR_LIMIT) {
+        wasTruncated = true;
+        snippet = `${snippet.slice(0, TUI_FILE_CHAR_LIMIT)}\n... [${snippet.length - TUI_FILE_CHAR_LIMIT} more characters truncated]`;
+      }
+      payload = `\n# ${name}\n\`\`\`\n${snippet}\n\`\`\`\n`;
+    }
+    await openCodeService.appendPrompt(payload);
+
+    // Show more informative notification for large files
+    if (wasTruncated) {
+      const truncatedKB = Math.round((originalLength - TUI_FILE_CHAR_LIMIT) / 1024);
+      const addedKB = Math.round(TUI_FILE_CHAR_LIMIT / 1024);
+      showNotification(`${name} added (${addedKB}KB of ${Math.round(originalLength / 1024)}KB, ${truncatedKB}KB truncated)`, 'info');
+    } else {
+      const sizeKB = Math.round(originalLength / 1024);
+      const sizeStr = sizeKB > 0 ? ` (${sizeKB}KB)` : '';
+      showNotification(`${name}${sizeStr} added to terminal input`, 'success');
+    }
+    return true;
+  } catch (error) {
+    console.error('[Eidolon] Failed to append attachment to TUI:', error);
+    showNotification(`Failed to add ${name} to terminal`, 'error');
+    return false;
+  }
 }
 
 /**
@@ -6010,10 +7394,409 @@ function updateOpenCodeStatusUI(): void {
     } else {
       openCodeStatus.innerHTML = `
         <span class="status-disconnected">Not running</span>
-        <button class="start-opencode-btn" onclick="showOpenCodeInstructions()">How to start</button>
+        <button class="start-opencode-btn" id="start-opencode-help-btn">How to start</button>
+      `;
+      // Add event listener (can't use inline onclick due to CSP)
+      const helpBtn = openCodeStatus.querySelector('#start-opencode-help-btn');
+      helpBtn?.addEventListener('click', showOpenCodeInstructions);
+    }
+  }
+  
+  // Update project selector visibility
+  updateProjectSelectorUI();
+  updateTuiMode();
+}
+
+
+// ========================================================================
+// OPENCODE PROJECT SELECTOR
+// ========================================================================
+
+/**
+ * Update project selector UI visibility and state
+ */
+function updateProjectSelectorUI(): void {
+  const projectSelector = document.getElementById('opencode-project-selector');
+  
+  if (!projectSelector) return;
+  
+  // Show project selector only when OpenCode backend is active and connected
+  if (state.chatBackend === 'opencode' && state.opencode.connected) {
+    projectSelector.classList.remove('hidden');
+    
+    // Update project name display
+    const projectNameEl = document.getElementById('opencode-project-name');
+    if (projectNameEl) {
+      projectNameEl.textContent = state.opencode.currentProjectName || 'No Project';
+    }
+  } else {
+    projectSelector.classList.add('hidden');
+  }
+}
+
+/**
+ * Load OpenCode projects from server
+ */
+async function loadOpenCodeProjects(): Promise<void> {
+  const projectList = document.getElementById('opencode-project-list');
+  
+  if (!state.opencode.connected) {
+    if (projectList) {
+      projectList.innerHTML = `
+        <div class="project-menu-disconnected">
+          <p>OpenCode server not connected</p>
+          <button onclick="checkOpenCodeConnection()">Reconnect</button>
+        </div>
+      `;
+    }
+    return;
+  }
+  
+  try {
+    // Fetch projects from server
+    const projects = await openCodeService.listProjects();
+    state.opencode.projects = projects;
+    
+    // Load saved project directory preference
+    const savedDir = await openCodeService.getSelectedProjectDir();
+    if (savedDir) {
+      const matchingProject = projects.find(p => p.path === savedDir);
+      if (matchingProject) {
+        state.opencode.selectedProjectDir = savedDir;
+        state.opencode.currentProjectName = matchingProject.name;
+      }
+    }
+    
+    // If no saved project but we have projects, get current project from server
+    if (!state.opencode.selectedProjectDir && projects.length > 0) {
+      const currentProject = await openCodeService.getCurrentProject();
+      if (currentProject) {
+        state.opencode.selectedProjectDir = currentProject.path;
+        state.opencode.currentProjectName = currentProject.name;
+      }
+    }
+    
+    renderProjectList();
+    updateProjectSelectorUI();
+    
+  } catch (error) {
+    console.error('[Eidolon] Failed to load OpenCode projects:', error);
+    if (projectList) {
+      projectList.innerHTML = `
+        <div class="project-menu-empty">Failed to load projects</div>
       `;
     }
   }
+}
+
+/**
+ * Render the project list in the dropdown
+ */
+function renderProjectList(): void {
+  const projectList = document.getElementById('opencode-project-list');
+  if (!projectList) return;
+  
+  const projects = state.opencode.projects;
+  
+  // Always show "Add Project" option at top
+  let html = `
+    <div class="project-menu-item add-project" data-action="add">
+      <div class="project-item-icon add-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 3v10M3 8h10"/>
+        </svg>
+      </div>
+      <div class="project-item-info">
+        <div class="project-item-name">Add Project</div>
+        <div class="project-item-path">Open a local folder</div>
+      </div>
+    </div>
+  `;
+  
+  if (projects.length === 0) {
+    html += `
+      <div class="project-menu-divider"></div>
+      <div class="project-menu-empty">
+        No recent projects.<br>
+        <small style="color: var(--text-400);">Add a project folder to get started.</small>
+      </div>
+    `;
+  } else {
+    html += `<div class="project-menu-divider"></div>`;
+    html += projects.map(project => {
+      const isSelected = project.path === state.opencode.selectedProjectDir;
+      const shortPath = project.path.replace(/^\/home\/[^/]+/, '~');
+      
+      return `
+        <div class="project-menu-item ${isSelected ? 'selected' : ''}" data-path="${escapeHtml(project.path)}">
+          <div class="project-item-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 5A1.5 1.5 0 0 1 3.5 3.5h2l1.5 1.5h5A1.5 1.5 0 0 1 13.5 6.5v5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V5z"/>
+            </svg>
+          </div>
+          <div class="project-item-info">
+            <div class="project-item-name">${escapeHtml(project.name)}</div>
+            <div class="project-item-path">${escapeHtml(shortPath)}</div>
+          </div>
+          ${isSelected ? '<svg class="project-check" width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M2 7l4 4 6-8"/></svg>' : ''}
+        </div>
+      `;
+    }).join('');
+  }
+  
+  projectList.innerHTML = html;
+  
+  // Add click handlers
+  projectList.querySelectorAll('.project-menu-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const action = item.getAttribute('data-action');
+      if (action === 'add') {
+        toggleProjectDropdown(false);
+        showAddProjectModal();
+        return;
+      }
+      
+      const path = item.getAttribute('data-path');
+      if (path) {
+        await selectOpenCodeProject(path);
+      }
+    });
+  });
+}
+
+/**
+ * Show modal to add a new project
+ */
+function showAddProjectModal(): void {
+  // Get saved root folder from settings
+  const rootFolder = localStorage.getItem('eidolon-projects-root') || '~/github';
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'add-project-title');
+  modal.innerHTML = `
+    <div class="modal-content add-project-modal">
+      <div class="modal-header">
+        <h3 id="add-project-title">Add Project</h3>
+        <button class="close-btn" id="add-project-close" aria-label="Close dialog">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Enter the full path to your project folder:</p>
+        
+        <div class="input-group">
+          <label for="project-path-input">Project Path</label>
+          <input type="text" id="project-path-input" class="form-input" 
+                 placeholder="${rootFolder}/my-project" 
+                 value="${rootFolder}/">
+          <small class="input-hint">e.g., ~/github/my-app, C:\\Users\\name\\projects, or /home/user/projects</small>
+        </div>
+        
+        <div class="quick-paths">
+          <span class="quick-paths-label">Quick paths:</span>
+          <button class="quick-path-btn" data-path="~/github/">~/github/</button>
+          <button class="quick-path-btn" data-path="~/projects/">~/projects/</button>
+          <button class="quick-path-btn" data-path="~/">~/</button>
+        </div>
+        
+        <div class="modal-actions">
+          <button class="btn-secondary" id="add-project-cancel">Cancel</button>
+          <button class="btn-primary" id="add-project-submit">Add Project</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Create focus trap
+  const focusTrap = createFocusTrap(modal);
+  focusTrap.activate();
+  
+  // Focus input
+  const input = modal.querySelector('#project-path-input') as HTMLInputElement;
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+  
+  function closeModal() {
+    focusTrap.deactivate();
+    modal.remove();
+  }
+  
+  // Close button handler
+  const closeBtn = modal.querySelector('#add-project-close');
+  closeBtn?.addEventListener('click', closeModal);
+  
+  // Cancel button handler
+  const cancelBtn = modal.querySelector('#add-project-cancel');
+  cancelBtn?.addEventListener('click', closeModal);
+  
+  // Quick path buttons
+  modal.querySelectorAll('.quick-path-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const path = btn.getAttribute('data-path') || '';
+      if (input) {
+        input.value = path;
+        input.focus();
+        input.setSelectionRange(path.length, path.length);
+      }
+    });
+  });
+  
+  // Submit handler
+  const submitBtn = modal.querySelector('#add-project-submit');
+  submitBtn?.addEventListener('click', async () => {
+    const path = input?.value?.trim();
+    if (!path) {
+      showNotification('Please enter a project path', 'error');
+      return;
+    }
+    
+    closeModal();
+    await addNewProject(path);
+  });
+  
+  // Enter key submits
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      submitBtn?.dispatchEvent(new Event('click'));
+    }
+  });
+  
+  // Escape key closes
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal();
+    }
+  });
+  
+  // Click outside closes
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+}
+
+/**
+ * Add a new project by path
+ */
+async function addNewProject(projectPath: string): Promise<void> {
+  try {
+    showNotification('Adding project...', 'info');
+    
+    // The OpenCode server will automatically add the project when we use it
+    // For now, we just select it which will trigger the server to recognize it
+    
+    // Expand ~ to actual home path for display
+    const displayPath = projectPath;
+    const projectName = projectPath.split('/').filter(Boolean).pop() || 'New Project';
+    
+    // Add to local projects list
+    const newProject: OpenCodeProject = {
+      path: projectPath,
+      name: projectName,
+    };
+    
+    // Check if already exists
+    if (!state.opencode.projects.find(p => p.path === projectPath)) {
+      state.opencode.projects.unshift(newProject);
+    }
+    
+    // Select the new project
+    await selectOpenCodeProject(projectPath);
+    
+    showNotification(`Added project: ${projectName}`);
+  } catch (error) {
+    console.error('[Eidolon] Failed to add project:', error);
+    showNotification('Failed to add project. Check the path exists.', 'error');
+  }
+}
+
+/**
+ * Select an OpenCode project
+ */
+async function selectOpenCodeProject(projectPath: string): Promise<void> {
+  const project = state.opencode.projects.find(p => p.path === projectPath);
+  if (!project) return;
+  
+  state.opencode.selectedProjectDir = projectPath;
+  state.opencode.currentProjectName = project.name;
+  
+  // Save preference
+  await openCodeService.setSelectedProjectDir(projectPath);
+  
+  // Close dropdown
+  toggleProjectDropdown(false);
+  
+  // Update UI
+  updateProjectSelectorUI();
+  renderProjectList();
+  
+  // Change terminal directory if terminal is open
+  if (state.terminal.instance && state.terminal.isOpen) {
+    const changed = changeDirectory(state.terminal.instance.id, projectPath);
+    if (changed) {
+      console.log('[Eidolon] Changed terminal directory to:', projectPath);
+    }
+  }
+  
+  // Clear current session when switching projects (forces new session in new project context)
+  state.opencode.sessionId = null;
+  state.currentConversationId = null;
+  
+  console.log('[Eidolon] Selected OpenCode project:', project.name, 'at', projectPath);
+  showNotification(`Switched to ${project.name}`);
+}
+
+/**
+ * Toggle project dropdown visibility
+ */
+function toggleProjectDropdown(show?: boolean): void {
+  const selector = document.getElementById('opencode-project-selector');
+  const menu = document.getElementById('opencode-project-menu');
+  
+  if (!selector || !menu) return;
+  
+  const shouldShow = show ?? menu.classList.contains('hidden');
+  
+  if (shouldShow) {
+    selector.classList.add('open');
+    menu.classList.remove('hidden');
+    // Refresh projects when opening
+    loadOpenCodeProjects();
+  } else {
+    selector.classList.remove('open');
+    menu.classList.add('hidden');
+  }
+}
+
+/**
+ * Setup project selector event listeners
+ */
+function setupProjectSelectorListeners(): void {
+  const projectBtn = document.getElementById('opencode-project-btn');
+  const refreshBtn = document.getElementById('opencode-project-refresh');
+  
+  projectBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleProjectDropdown();
+  });
+  
+  refreshBtn?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    refreshBtn.classList.add('loading');
+    await loadOpenCodeProjects();
+    refreshBtn.classList.remove('loading');
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    const selector = document.getElementById('opencode-project-selector');
+    if (selector && !selector.contains(e.target as Node)) {
+      toggleProjectDropdown(false);
+    }
+  });
 }
 
 /**
@@ -6022,11 +7805,14 @@ function updateOpenCodeStatusUI(): void {
 function showOpenCodeInstructions(): void {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'opencode-instructions-title');
   modal.innerHTML = `
     <div class="modal-content opencode-instructions-modal">
       <div class="modal-header">
-        <h3>Start OpenCode Server</h3>
-        <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+        <h3 id="opencode-instructions-title">Start OpenCode Server</h3>
+        <button class="close-btn" id="opencode-instructions-close" aria-label="Close dialog">✕</button>
       </div>
       <div class="modal-body">
         <p>OpenCode provides a self-hosted AI coding assistant. Run one of these commands:</p>
@@ -6051,7 +7837,7 @@ opencode auth login</pre>
         </div>
         
         <div class="modal-actions">
-          <button class="action-btn" onclick="checkOpenCodeConnection(); this.closest('.modal-overlay').remove();">
+          <button class="action-btn" id="opencode-check-connection-btn">
             Check Connection
           </button>
           <a href="https://opencode.ai/docs/" target="_blank" class="docs-link">View Docs</a>
@@ -6060,8 +7846,38 @@ opencode auth login</pre>
     </div>
   `;
   document.body.appendChild(modal);
+  
+  // Create focus trap
+  const focusTrap = createFocusTrap(modal);
+  focusTrap.activate();
+  
+  function closeModal() {
+    focusTrap.deactivate();
+    modal.remove();
+  }
+  
+  // Close button handler
+  const closeBtn = modal.querySelector('#opencode-instructions-close');
+  closeBtn?.addEventListener('click', closeModal);
+  
+  // Check connection button handler
+  const checkBtn = modal.querySelector('#opencode-check-connection-btn');
+  checkBtn?.addEventListener('click', async () => {
+    await checkOpenCodeConnection();
+    closeModal();
+  });
+  
+  // Click outside closes
   modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.remove();
+    if (e.target === modal) closeModal();
+  });
+  
+  // Escape key closes
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal();
+    }
   });
 }
 
@@ -6083,11 +7899,15 @@ async function switchChatBackend(backend: ChatBackend): Promise<void> {
   
   updateOpenCodeStatusUI();
   
+  // Reload models for the new backend
+  // OpenCode has multi-provider models, Claude.ai only has Anthropic
+  await loadAvailableModels();
+  
   // Clear current conversation when switching backends
   state.currentConversationId = null;
   state.opencode.sessionId = null;
   state.messages = [];
-  renderMessages();
+  renderChatArea();
 }
 
 // Make functions available globally for onclick handlers
@@ -6098,6 +7918,28 @@ async function switchChatBackend(backend: ChatBackend): Promise<void> {
 // ========================================================================
 // TERMINAL PANEL
 // ========================================================================
+
+function interruptTerminalSession(sourceBtn?: HTMLElement): void {
+  if (!state.terminal.instance || !state.terminal.instance.websocket) {
+    showNotification('Terminal is not connected yet.', 'warning');
+    return;
+  }
+  if (state.terminal.instance.websocket.readyState !== WebSocket.OPEN) {
+    showNotification('Terminal connection is unavailable.', 'warning');
+    return;
+  }
+  try {
+    state.terminal.instance.websocket.send('\x03');
+    if (sourceBtn) {
+      sourceBtn.classList.add('pulsing');
+      setTimeout(() => sourceBtn.classList.remove('pulsing'), 350);
+    }
+    focusTerminal(state.terminal.instance.id);
+  } catch (error) {
+    console.error('[Eidolon] Failed to send interrupt:', error);
+    showNotification('Failed to send interrupt signal.', 'error');
+  }
+}
 
 /**
  * Toggle terminal panel visibility
@@ -6197,10 +8039,7 @@ async function initTerminal(): Promise<void> {
       terminalContainer,
       {
         fontSize: 14,
-        theme: {
-          background: '#191515',
-          foreground: '#d4d4d4',
-        }
+        theme: getThemeFromCSS()
       },
       {
         onConnect: () => {
@@ -6208,6 +8047,16 @@ async function initTerminal(): Promise<void> {
           if (terminalStatus) {
             terminalStatus.textContent = 'Connected';
             terminalStatus.className = 'terminal-status connected';
+          }
+          
+          // CD to selected project directory after connection
+          if (state.opencode.selectedProjectDir && state.terminal.instance) {
+            // Small delay to ensure PTY is ready
+            setTimeout(() => {
+              if (state.terminal.instance) {
+                changeDirectory(state.terminal.instance.id, state.opencode.selectedProjectDir!);
+              }
+            }, 100);
           }
         },
         onDisconnect: () => {
@@ -6238,9 +8087,12 @@ async function initTerminal(): Promise<void> {
         <div class="terminal-unavailable-message">
           <h4>Failed to Connect</h4>
           <p>${error instanceof Error ? error.message : 'Unknown error'}</p>
-          <button class="action-btn" onclick="initTerminal()">Retry</button>
+          <button class="action-btn" id="terminal-retry-btn">Retry</button>
         </div>
       `;
+      // Add event listener for retry button (can't use inline onclick due to CSP)
+      const retryBtn = document.getElementById('terminal-retry-btn');
+      retryBtn?.addEventListener('click', initTerminal);
     }
     
     if (terminalStatus) {
@@ -6594,13 +8446,18 @@ function updateSyncPanel() {
     }
   }
   
-  // Update last sync time
-  const lastTime = document.getElementById('sync-last-time');
-  if (lastTime) {
-    if (state.sync.lastSync) {
-      lastTime.textContent = `Last synced ${formatRelativeTime(state.sync.lastSync)}`;
+  // Update connection badge
+  const connectionBadge = document.getElementById('opencode-connection-badge');
+  if (connectionBadge) {
+    if (state.opencode.connected) {
+      connectionBadge.textContent = 'Connected';
+      connectionBadge.className = 'connection-badge connected';
+    } else if (state.opencode.checking) {
+      connectionBadge.textContent = 'Checking...';
+      connectionBadge.className = 'connection-badge checking';
     } else {
-      lastTime.textContent = 'Never synced';
+      connectionBadge.textContent = 'Offline';
+      connectionBadge.className = 'connection-badge offline';
     }
   }
   

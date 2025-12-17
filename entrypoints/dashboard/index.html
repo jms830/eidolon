@@ -12,38 +12,69 @@
       <div class="header-left">
         <img src="/icon-48.png" alt="Eidolon" class="header-logo">
         <h1>Eidolon Dashboard</h1>
+        <button id="account-switcher-btn" class="account-switcher-btn" title="Switch Account">
+          <span id="current-account-avatar" class="account-avatar-small">?</span>
+          <span id="current-account-name">Loading...</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 4l4 4 4-4"/>
+          </svg>
+        </button>
+        <span class="header-separator">|</span>
         <button id="org-switcher-btn" class="org-switcher-btn" title="Switch Organization">
           <span id="current-org-name">Loading...</span>
-          <span class="dropdown-arrow">▾</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 4l4 4 4-4"/>
+          </svg>
+        </button>
+        <button id="refresh-session-btn" class="refresh-session-btn" title="Refresh Claude.ai Session" aria-label="Refresh Claude.ai session">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M1 7a6 6 0 0 1 11-3.2M13 7a6 6 0 0 1-11 3.2"/>
+            <path d="M12 1v3h-3M2 10v3h3"/>
+          </svg>
         </button>
       </div>
       <div class="header-right">
         <div class="search-bar" role="search">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-400); margin-right: 8px;">
+            <circle cx="7" cy="7" r="5"></circle>
+            <path d="M11 11L14.5 14.5"></path>
+          </svg>
           <input
             type="search"
             id="global-search"
-            placeholder="Search projects, files, conversations..."
+            placeholder="Search projects, files..."
             class="global-search-input"
             aria-label="Search projects, files, and conversations"
           >
-          <button id="search-btn" class="search-btn" aria-label="Search">
-            <span aria-hidden="true">🔍</span>
-          </button>
           <span class="keyboard-hint" aria-hidden="true">
             <kbd>/</kbd>
           </span>
         </div>
         <button id="refresh-all-btn" class="icon-btn" title="Refresh Data" aria-label="Refresh all data">
-          <span class="btn-icon" aria-hidden="true">↻</span>
+          <span class="btn-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 12a8 8 0 018-8c4.418 0 8 3.582 8 8s-3.582 8-8 8-4.418 0-8-3.582-8-8"></path>
+              <path d="M12 4v4l-4-4 4-4"></path>
+            </svg>
+          </span>
           <span class="btn-label">Refresh</span>
         </button>
         <button id="auth-btn" class="icon-btn" title="Authentication" aria-label="Manage authentication">
-          <span class="btn-icon" aria-hidden="true">🔐</span>
+          <span class="btn-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0110 0v4"></path>
+            </svg>
+          </span>
           <span class="btn-label">Auth</span>
         </button>
         <button id="dark-mode-toggle" class="icon-btn" title="Toggle Dark Mode" aria-label="Toggle dark mode">
-          <span class="btn-icon" aria-hidden="true">🌙</span>
-          <span class="btn-label">Dark</span>
+          <span class="btn-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+            </svg>
+          </span>
+          <span class="btn-label">Theme</span>
         </button>
       </div>
     </header>
@@ -51,32 +82,63 @@
     <!-- Navigation Tabs -->
     <nav class="dashboard-nav" role="tablist" aria-label="Dashboard sections">
       <button class="nav-tab active" data-tab="projects" role="tab" aria-selected="true" aria-controls="tab-projects">
-        <span class="tab-icon" aria-hidden="true">📁</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
+          </svg>
+        </span>
         <span class="tab-label">Projects</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>1</kbd></span>
       </button>
       <button class="nav-tab" data-tab="files" role="tab" aria-selected="false" aria-controls="tab-files">
-        <span class="tab-icon" aria-hidden="true">📄</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </span>
         <span class="tab-label">Files</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>2</kbd></span>
       </button>
       <button class="nav-tab" data-tab="conversations" role="tab" aria-selected="false" aria-controls="tab-conversations">
-        <span class="tab-icon" aria-hidden="true">💬</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+          </svg>
+        </span>
         <span class="tab-label">Conversations</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>3</kbd></span>
       </button>
       <button class="nav-tab" data-tab="analytics" role="tab" aria-selected="false" aria-controls="tab-analytics">
-        <span class="tab-icon" aria-hidden="true">📊</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+        </span>
         <span class="tab-label">Analytics</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>4</kbd></span>
       </button>
       <button class="nav-tab" data-tab="sync" role="tab" aria-selected="false" aria-controls="tab-sync">
-        <span class="tab-icon" aria-hidden="true">🔄</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+        </span>
         <span class="tab-label">Sync</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>5</kbd></span>
       </button>
       <button class="nav-tab" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
-        <span class="tab-icon" aria-hidden="true">⚙️</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"></path>
+          </svg>
+        </span>
         <span class="tab-label">Settings</span>
         <span class="keyboard-hint" aria-hidden="true"><kbd>6</kbd></span>
       </button>
@@ -98,8 +160,24 @@
               <option value="date">Sort by Date</option>
               <option value="files">Sort by Files</option>
             </select>
-            <button id="view-grid" class="view-btn active" title="Grid View">⊞</button>
-            <button id="view-list" class="view-btn" title="List View">☰</button>
+            <button id="view-grid" class="view-btn active" title="Grid View">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+            </button>
+            <button id="view-list" class="view-btn" title="List View">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+              </svg>
+            </button>
             <button id="select-all-projects" class="action-btn">Select All</button>
             <button id="bulk-actions-projects" class="action-btn">Bulk Actions ▾</button>
             <button id="new-project" class="primary-btn">+ New Project</button>
@@ -110,6 +188,7 @@
           <button class="filter-chip active" data-filter="all">All</button>
           <button class="filter-chip" data-filter="active">Active</button>
           <button class="filter-chip" data-filter="archived">Archived</button>
+          <button class="filter-chip" data-filter="pinned">📌 Pinned</button>
           <button class="filter-chip" data-filter="favorites">⭐ Favorites</button>
         </div>
 
@@ -181,6 +260,7 @@
 
       <!-- Sync Tab -->
       <section id="sync-tab" class="tab-content">
+        <!-- Sync content remains mostly the same, just updated class names handled by css -->
         <div class="tab-header">
           <div class="tab-title">
             <h2>Workspace Sync</h2>
@@ -370,7 +450,7 @@
         </div>
       </section>
 
-      <!-- Settings Tab -->
+      <!-- Settings Tab - COMPLETELY RESTRUCTURED -->
       <section id="settings-tab" class="tab-content">
         <div class="tab-header">
           <div class="tab-title">
@@ -378,179 +458,274 @@
           </div>
         </div>
 
-        <!-- Platform Export Settings -->
-        <div class="settings-section-card">
-          <h3>🌐 Platform Export</h3>
-          <p class="section-description">Enable conversation export buttons on each AI platform</p>
-          
-          <div class="settings-list">
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">🤖</span>
-                  <strong>Claude (claude.ai)</strong>
-                </div>
-                <span class="setting-description">Export conversations from Claude.ai</span>
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="export-claude-toggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
+        <!-- Settings Tabs -->
+        <div class="settings-tabs">
+          <button class="settings-tab-btn active" data-tab="general">General</button>
+          <button class="settings-tab-btn" data-tab="accounts">Accounts</button>
+          <button class="settings-tab-btn" data-tab="appearance">Appearance</button>
+          <button class="settings-tab-btn" data-tab="developer">Developer</button>
+        </div>
 
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">💬</span>
-                  <strong>ChatGPT (chatgpt.com)</strong>
+        <!-- GENERAL TAB -->
+        <div id="settings-tab-general" class="settings-tab-content active">
+          <!-- Platform Export Settings -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <circle cx="8" cy="8" r="6"/>
+                <path d="M8 5v3l2 2"/>
+              </svg>
+              Platform Export
+            </h3>
+            <p class="section-description">Enable conversation export buttons on each AI platform</p>
+            
+            <div class="settings-list">
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">🤖</span>
+                    <strong>Claude (claude.ai)</strong>
+                  </div>
+                  <span class="setting-description">Export conversations from Claude.ai</span>
                 </div>
-                <span class="setting-description">Export conversations from ChatGPT</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="export-claude-toggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="export-chatgpt-toggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
 
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">✨</span>
-                  <strong>Gemini (gemini.google.com)</strong>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">💬</span>
+                    <strong>ChatGPT (chatgpt.com)</strong>
+                  </div>
+                  <span class="setting-description">Export conversations from ChatGPT</span>
                 </div>
-                <span class="setting-description">Export conversations from Google Gemini</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="export-chatgpt-toggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="export-gemini-toggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">✨</span>
+                    <strong>Gemini (gemini.google.com)</strong>
+                  </div>
+                  <span class="setting-description">Export conversations from Google Gemini</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="export-gemini-toggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Management -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M3 3h10v10H3z"/>
+                <path d="M8 3v10M3 8h10"/>
+              </svg>
+              Data Management
+            </h3>
+            
+            <div class="settings-actions-grid">
+              <button id="clear-cache-btn" class="settings-action-btn">
+                <span class="btn-icon">🗑️</span>
+                <span class="btn-text">Clear Cache</span>
+                <span class="btn-desc">Remove cached data to free space</span>
+              </button>
+              <button id="export-settings-btn" class="settings-action-btn">
+                <span class="btn-icon">📤</span>
+                <span class="btn-text">Export Settings</span>
+                <span class="btn-desc">Download all Eidolon settings</span>
+              </button>
+              <button id="import-settings-btn" class="settings-action-btn">
+                <span class="btn-icon">📥</span>
+                <span class="btn-text">Import Settings</span>
+                <span class="btn-desc">Restore from backup file</span>
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- Appearance Settings -->
-        <div class="settings-section-card">
-          <h3>🎨 Appearance</h3>
-          
-          <div class="settings-list">
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">🌙</span>
-                  <strong>Dark Mode</strong>
+        <!-- ACCOUNTS TAB -->
+        <div id="settings-tab-accounts" class="settings-tab-content">
+          <!-- API Connections (OAuth) -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M6 8a2 2 0 104 0 2 2 0 00-4 0z"/>
+                <path d="M2 8a6 6 0 0112 0"/>
+              </svg>
+              API Connections (OAuth)
+            </h3>
+            <p class="section-description">Connect your AI subscriptions for agent mode (no API keys needed)</p>
+            
+            <div id="oauth-connections-list" class="oauth-connections-list">
+              <!-- OAuth connections loaded dynamically with SKELETON -->
+              <div class="oauth-loading skeleton-card">
+                <div class="skeleton skeleton-avatar"></div>
+                <div class="skeleton-lines">
+                  <div class="skeleton skeleton-text w-75"></div>
+                  <div class="skeleton skeleton-text w-50"></div>
                 </div>
-                <span class="setting-description">Use dark theme throughout Eidolon</span>
               </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="settings-dark-mode-toggle">
-                <span class="toggle-slider"></span>
-              </label>
+            </div>
+          </div>
+
+          <!-- Workspace Sync Status (mirrored from Sync tab) -->
+          <div class="settings-section-card" id="workspace-status-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+              </svg>
+              Workspace Sync Status
+            </h3>
+            <div id="settings-workspace-status" class="workspace-status-summary">
+              <div class="workspace-status-row">
+                <span class="workspace-status-indicator not-configured" id="settings-sync-indicator">●</span>
+                <span id="settings-sync-status-text">Not configured</span>
+              </div>
+              <div id="settings-workspace-path-row" class="workspace-path-row" style="display: none;">
+                <span class="label">Folder:</span>
+                <span id="settings-workspace-path" class="workspace-path">-</span>
+              </div>
+              <div id="settings-last-sync-row" class="last-sync-row" style="display: none;">
+                <span class="label">Last synced:</span>
+                <span id="settings-last-sync-time">Never</span>
+              </div>
+            </div>
+            <div class="workspace-quick-actions">
+              <button id="settings-open-sync-tab" class="action-btn secondary">
+                Open Full Sync Settings →
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- API Connections (OAuth) -->
-        <div class="settings-section-card">
-          <h3>🔗 API Connections (OAuth)</h3>
-          <p class="section-description">Connect your AI subscriptions for agent mode (no API keys needed)</p>
-          
-          <div id="oauth-connections-list" class="oauth-connections-list">
-            <div class="oauth-loading">Loading connections...</div>
-          </div>
-        </div>
-
-        <!-- Developer Settings -->
-        <div class="settings-section-card">
-          <h3>🛠️ Developer</h3>
-          
-          <div class="settings-list">
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">🤖</span>
-                  <strong>Agent Mode (Alpha)</strong>
+        <!-- APPEARANCE TAB -->
+        <div id="settings-tab-appearance" class="settings-tab-content">
+          <!-- Appearance Settings -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <circle cx="8" cy="8" r="6"/>
+                <path d="M8 5v6M5 8h6"/>
+              </svg>
+              Theme
+            </h3>
+            
+            <div class="settings-list">
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">🌙</span>
+                    <strong>Dark Mode</strong>
+                  </div>
+                  <span class="setting-description">Use dark theme throughout Eidolon</span>
                 </div>
-                <span class="setting-description">⚠️ Experimental: Allow Claude to control the browser</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="settings-dark-mode-toggle">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="settings-agent-mode-toggle">
-                <span class="toggle-slider"></span>
-              </label>
             </div>
+          </div>
 
-            <div class="setting-item">
-              <div class="setting-info">
-                <div class="setting-label">
-                  <span class="platform-icon">🐛</span>
-                  <strong>Debug Mode</strong>
+          <!-- Advanced Settings -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M4 6l2 2-2 2M8 10h4"/>
+              </svg>
+              Advanced
+            </h3>
+            
+            <div class="settings-list">
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">🔧</span>
+                    <strong>Developer Mode</strong>
+                  </div>
+                  <span class="setting-description">Show Developer tab with advanced options</span>
                 </div>
-                <span class="setting-description">Enable verbose console logging for troubleshooting</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="settings-developer-mode-toggle">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="settings-debug-mode-toggle">
-                <span class="toggle-slider"></span>
-              </label>
             </div>
           </div>
         </div>
 
-        <!-- Data Management -->
-        <div class="settings-section-card">
-          <h3>💾 Data Management</h3>
-          
-          <div class="settings-actions-grid">
-            <button id="clear-cache-btn" class="settings-action-btn">
-              <span class="btn-icon">🗑️</span>
-              <span class="btn-text">Clear Cache</span>
-              <span class="btn-desc">Remove cached data to free space</span>
-            </button>
-            <button id="export-settings-btn" class="settings-action-btn">
-              <span class="btn-icon">📤</span>
-              <span class="btn-text">Export Settings</span>
-              <span class="btn-desc">Download all Eidolon settings</span>
-            </button>
-            <button id="import-settings-btn" class="settings-action-btn">
-              <span class="btn-icon">📥</span>
-              <span class="btn-text">Import Settings</span>
-              <span class="btn-desc">Restore from backup file</span>
-            </button>
-          </div>
-        </div>
+        <!-- DEVELOPER TAB -->
+        <div id="settings-tab-developer" class="settings-tab-content">
+          <!-- Developer Settings -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M8 1l2 2-6 6-3 1 1-3 6-6 2 2z"/>
+                <path d="M5 11l-2 2"/>
+              </svg>
+              Developer Tools
+            </h3>
+            
+            <div class="settings-list">
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">🤖</span>
+                    <strong>Agent Mode (Alpha)</strong>
+                  </div>
+                  <span class="setting-description">⚠️ Experimental: Allow Claude to control the browser</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="settings-agent-mode-toggle">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
 
-        <!-- Workspace Sync Status (mirrored from Sync tab) -->
-        <div class="settings-section-card" id="workspace-status-card">
-          <h3>🔄 Workspace Sync Status</h3>
-          <div id="settings-workspace-status" class="workspace-status-summary">
-            <div class="workspace-status-row">
-              <span class="workspace-status-indicator not-configured" id="settings-sync-indicator">●</span>
-              <span id="settings-sync-status-text">Not configured</span>
-            </div>
-            <div id="settings-workspace-path-row" class="workspace-path-row" style="display: none;">
-              <span class="label">Folder:</span>
-              <span id="settings-workspace-path" class="workspace-path">-</span>
-            </div>
-            <div id="settings-last-sync-row" class="last-sync-row" style="display: none;">
-              <span class="label">Last synced:</span>
-              <span id="settings-last-sync-time">Never</span>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">
+                    <span class="platform-icon">🐛</span>
+                    <strong>Debug Mode</strong>
+                  </div>
+                  <span class="setting-description">Enable verbose console logging for troubleshooting</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="settings-debug-mode-toggle">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-          <div class="workspace-quick-actions">
-            <button id="settings-open-sync-tab" class="action-btn secondary">
-              Open Full Sync Settings →
-            </button>
-          </div>
-        </div>
 
-        <!-- About -->
-        <div class="settings-section-card">
-          <h3>ℹ️ About Eidolon</h3>
-          <div class="about-info">
-            <p><strong>Version:</strong> <span id="eidolon-version">2.2.0</span></p>
-            <p><strong>Author:</strong> Jordan</p>
-            <p class="about-links">
-              <a href="https://github.com/jordan/eidolon" target="_blank">GitHub</a> •
-              <a href="https://github.com/jordan/eidolon/issues" target="_blank">Report Issue</a>
-            </p>
+          <!-- About -->
+          <div class="settings-section-card">
+            <h3 class="settings-header">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <circle cx="8" cy="8" r="7"/>
+                <line x1="8" y1="8" x2="8" y2="4"/>
+                <circle cx="8" cy="11" r="0.5"/>
+              </svg>
+              About Eidolon
+            </h3>
+            <div class="about-info">
+              <p><strong>Version:</strong> <span id="eidolon-version">2.2.0</span></p>
+              <p><strong>Author:</strong> Jordan</p>
+              <p class="about-links">
+                <a href="https://github.com/jordan/eidolon" target="_blank">GitHub</a> •
+                <a href="https://github.com/jordan/eidolon/issues" target="_blank">Report Issue</a>
+              </p>
+            </div>
           </div>
         </div>
 
@@ -567,10 +742,25 @@
       <span id="status-text">Connecting...</span>
     </div>
 
-    <!-- Modals -->
+    <!-- Modals (same as before) -->
     <div id="modal-overlay" class="modal-overlay hidden">
       <div id="modal-content" class="modal-content">
         <!-- Modal content will be injected here -->
+      </div>
+    </div>
+
+    <!-- Account Switcher Modal -->
+    <div id="account-switcher-modal" class="modal-overlay hidden">
+      <div class="modal-content account-switcher-modal">
+        <h2>Switch Account</h2>
+        <p class="modal-description">Select which Claude.ai account to use</p>
+        <div id="account-list" class="account-list">
+          <!-- Accounts will be listed here -->
+        </div>
+        <div class="modal-footer">
+          <button id="add-account-btn" class="action-btn secondary">+ Add Account</button>
+          <button id="close-account-modal" class="action-btn modal-close-btn">Close</button>
+        </div>
       </div>
     </div>
 
@@ -578,11 +768,11 @@
     <div id="org-switcher-modal" class="modal-overlay hidden">
       <div class="modal-content org-switcher-modal">
         <h2>Switch Organization</h2>
-        <p style="color: #718096; margin-bottom: 20px;">Select which organization to manage</p>
+        <p class="modal-description">Select which organization to manage</p>
         <div id="org-list" class="org-list">
           <!-- Organizations will be listed here -->
         </div>
-        <button id="close-org-modal" class="action-btn" style="margin-top: 20px;">Close</button>
+        <button id="close-org-modal" class="action-btn modal-close-btn">Close</button>
       </div>
     </div>
 
@@ -608,7 +798,7 @@
         </div>
 
         <div class="auth-actions">
-          <button id="validate-session-btn" class="action-btn">Validate Session</button>
+          <button id="validate-session-btn" class="action-btn">Refresh Claude.ai Session</button>
           <button id="show-session-key-btn" class="action-btn">Show Session Key</button>
           <button id="close-auth-modal" class="action-btn">Close</button>
         </div>
@@ -650,11 +840,11 @@
             <div id="setup-auth-status" class="setup-status">
               <div class="setup-loading">Checking authentication...</div>
             </div>
-            <button id="setup-validate-auth" class="action-btn">🔐 Validate Session</button>
+            <button id="setup-validate-auth" class="action-btn">🔐 Refresh Session</button>
 
             <!-- Manual Session Key Option -->
             <div class="manual-session-setup">
-              <p class="help-text" style="margin-top: 20px;"><strong>Or manually enter your session key:</strong></p>
+              <p class="help-text manual-session-hint"><strong>Or manually enter your session key:</strong></p>
               <div class="input-group">
                 <input type="text" id="setup-manual-session-key" placeholder="Paste sessionKey cookie value" class="session-key-input" />
                 <button id="setup-save-manual-session-btn" class="primary-btn">Save & Continue</button>

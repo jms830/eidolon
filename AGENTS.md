@@ -26,3 +26,8 @@ npm test -- --run utils/sync/hashUtils.test.ts  # Single test file
 - `utils/` - api/, sync/, search/, tags/, browser/, export/
 - Background handles all API calls via `ClaudeAPIClient`; UI uses message passing
 - Never use raw `fetch()` for Claude API—always go through the client class
+
+## Reference Docs (`references/`)
+- **Naming**: `SUBJECT_CONTEXT_TYPE.md` — be specific about WHAT (e.g., `EIDOLON_VS_CLAUDESYNC_COMPARISON.md` not `FEATURE_GAP_ANALYSIS.md`)
+- **Footer**: End each file with `**Last Modified**: YYYY-MM-DD`
+- Keep planning docs, migration guides, and external research here—not in project root
