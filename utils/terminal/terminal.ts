@@ -1,12 +1,18 @@
 /**
- * Terminal Service using ghostty-web
+ * Terminal Service using xterm.js
  * 
  * Provides a web-based terminal that connects to OpenCode's PTY API.
- * Uses ghostty-web for proper VT100 emulation (same as native Ghostty).
+ * Uses xterm.js (same as VS Code) for reliable terminal emulation.
  */
 
-import { Ghostty, Terminal, FitAddon } from 'ghostty-web';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
 import { ptyService, type PtyInfo } from '../opencode/client';
+
+// Import xterm.js CSS - will be bundled by the build system
+import '@xterm/xterm/css/xterm.css';
 
 // ====================================================================
 // Types
@@ -17,6 +23,7 @@ export interface TerminalInstance {
   ptyInfo: PtyInfo;
   terminal: Terminal;
   fitAddon: FitAddon;
+  searchAddon: SearchAddon;
   websocket: WebSocket | null;
   container: HTMLElement | null;
   isConnected: boolean;
@@ -30,6 +37,22 @@ export interface TerminalOptions {
     foreground?: string;
     cursor?: string;
     selection?: string;
+    black?: string;
+    red?: string;
+    green?: string;
+    yellow?: string;
+    blue?: string;
+    magenta?: string;
+    cyan?: string;
+    white?: string;
+    brightBlack?: string;
+    brightRed?: string;
+    brightGreen?: string;
+    brightYellow?: string;
+    brightBlue?: string;
+    brightMagenta?: string;
+    brightCyan?: string;
+    brightWhite?: string;
   };
   scrollback?: number;
 }
@@ -47,26 +70,6 @@ export interface TerminalEvents {
 // Terminal Manager
 // ====================================================================
 
-// Ghostty WASM instance (loaded once)
-let ghosttyInstance: Ghostty | null = null;
-let ghosttyLoading: Promise<Ghostty> | null = null;
-
-/**
- * Load Ghostty WASM (singleton)
- */
-async function loadGhostty(): Promise<Ghostty> {
-  if (ghosttyInstance) return ghosttyInstance;
-  
-  if (!ghosttyLoading) {
-    ghosttyLoading = Ghostty.load().then(instance => {
-      ghosttyInstance = instance;
-      return instance;
-    });
-  }
-  
-  return ghosttyLoading;
-}
-
 // Active terminal instances
 const terminals = new Map<string, TerminalInstance>();
 
@@ -74,15 +77,34 @@ const terminals = new Map<string, TerminalInstance>();
  * Default terminal theme (matches OpenCode's dark theme)
  */
 const DEFAULT_THEME = {
-  background: '#191515',
+  background: '#1a1a1a',
   foreground: '#d4d4d4',
   cursor: '#d4d4d4',
-  selection: 'rgba(255, 255, 255, 0.2)',
+  cursorAccent: '#1a1a1a',
+  selectionBackground: 'rgba(255, 255, 255, 0.2)',
+  selectionForeground: '#ffffff',
+  // ANSI colors
+  black: '#000000',
+  red: '#cd3131',
+  green: '#0dbc79',
+  yellow: '#e5e510',
+  blue: '#2472c8',
+  magenta: '#bc3fbc',
+  cyan: '#11a8cd',
+  white: '#e5e5e5',
+  brightBlack: '#666666',
+  brightRed: '#f14c4c',
+  brightGreen: '#23d18b',
+  brightYellow: '#f5f543',
+  brightBlue: '#3b8eea',
+  brightMagenta: '#d670d6',
+  brightCyan: '#29b8db',
+  brightWhite: '#ffffff',
 };
 
 const DEFAULT_OPTIONS: TerminalOptions = {
   fontSize: 14,
-  fontFamily: 'JetBrains Mono, Consolas, Monaco, monospace',
+  fontFamily: '"JetBrains Mono", "Fira Code", Consolas, Monaco, "Courier New", monospace',
   theme: DEFAULT_THEME,
   scrollback: 10000,
 };
@@ -95,9 +117,6 @@ export async function createTerminal(
   options: TerminalOptions = {},
   events: TerminalEvents = {}
 ): Promise<TerminalInstance> {
-  // Load Ghostty WASM
-  const ghostty = await loadGhostty();
-  
   // Merge options with defaults
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const theme = { ...DEFAULT_THEME, ...options.theme };
@@ -110,6 +129,7 @@ export async function createTerminal(
   // Create terminal instance
   const terminal = new Terminal({
     cursorBlink: true,
+    cursorStyle: 'block',
     fontSize: opts.fontSize,
     fontFamily: opts.fontFamily,
     allowTransparency: true,
@@ -117,19 +137,47 @@ export async function createTerminal(
       background: theme.background,
       foreground: theme.foreground,
       cursor: theme.cursor,
-      selectionBackground: theme.selection,
+      cursorAccent: theme.cursorAccent || theme.background,
+      selectionBackground: theme.selection || theme.selectionBackground,
+      selectionForeground: theme.selectionForeground,
+      black: theme.black,
+      red: theme.red,
+      green: theme.green,
+      yellow: theme.yellow,
+      blue: theme.blue,
+      magenta: theme.magenta,
+      cyan: theme.cyan,
+      white: theme.white,
+      brightBlack: theme.brightBlack,
+      brightRed: theme.brightRed,
+      brightGreen: theme.brightGreen,
+      brightYellow: theme.brightYellow,
+      brightBlue: theme.brightBlue,
+      brightMagenta: theme.brightMagenta,
+      brightCyan: theme.brightCyan,
+      brightWhite: theme.brightWhite,
     },
     scrollback: opts.scrollback,
-    ghostty,
+    convertEol: true,
+    allowProposedApi: true,
   });
   
-  // Create fit addon for auto-sizing
+  // Create and load addons
   const fitAddon = new FitAddon();
+  const webLinksAddon = new WebLinksAddon();
+  const searchAddon = new SearchAddon();
+  
   terminal.loadAddon(fitAddon);
+  terminal.loadAddon(webLinksAddon);
+  terminal.loadAddon(searchAddon);
   
   // Open terminal in container
   terminal.open(container);
-  fitAddon.fit();
+  
+  // Initial fit after opening
+  requestAnimationFrame(() => {
+    fitAddon.fit();
+  });
   
   // Create instance object
   const instance: TerminalInstance = {
@@ -137,6 +185,7 @@ export async function createTerminal(
     ptyInfo,
     terminal,
     fitAddon,
+    searchAddon,
     websocket: null,
     container,
     isConnected: false,
@@ -154,9 +203,12 @@ export async function createTerminal(
       console.log('[Terminal] WebSocket connected');
       instance.isConnected = true;
       
-      // Send initial size
-      ptyService.update(ptyInfo.id, {
-        size: { cols: terminal.cols, rows: terminal.rows }
+      // Send initial size after connection
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        ptyService.update(ptyInfo.id, {
+          size: { cols: terminal.cols, rows: terminal.rows }
+        });
       });
       
       events.onConnect?.();
@@ -191,7 +243,7 @@ export async function createTerminal(
   
   // Handle resize
   terminal.onResize((size) => {
-    if (instance.isConnected) {
+    if (instance.isConnected && instance.websocket?.readyState === WebSocket.OPEN) {
       ptyService.update(ptyInfo.id, {
         size: { cols: size.cols, rows: size.rows }
       });
@@ -199,16 +251,26 @@ export async function createTerminal(
     events.onResize?.(size.cols, size.rows);
   });
   
-  // Set up resize observer
-  fitAddon.observeResize();
+  // Set up resize observer for container
+  const resizeObserver = new ResizeObserver(() => {
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+    });
+  });
+  resizeObserver.observe(container);
   
   // Handle window resize
-  const handleWindowResize = () => fitAddon.fit();
+  const handleWindowResize = () => {
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+    });
+  };
   window.addEventListener('resize', handleWindowResize);
   
   // Store cleanup handler
   (instance as any)._cleanup = () => {
     window.removeEventListener('resize', handleWindowResize);
+    resizeObserver.disconnect();
   };
   
   return instance;
@@ -306,4 +368,102 @@ export function clearTerminal(id: string): void {
   if (instance) {
     instance.terminal.clear();
   }
+}
+
+/**
+ * Search in terminal
+ */
+export function searchTerminal(id: string, query: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean }): boolean {
+  const instance = terminals.get(id);
+  if (instance) {
+    return instance.searchAddon.findNext(query, {
+      caseSensitive: options?.caseSensitive,
+      wholeWord: options?.wholeWord,
+      regex: options?.regex,
+    });
+  }
+  return false;
+}
+
+/**
+ * Find previous match in terminal
+ */
+export function searchTerminalPrevious(id: string, query: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean }): boolean {
+  const instance = terminals.get(id);
+  if (instance) {
+    return instance.searchAddon.findPrevious(query, {
+      caseSensitive: options?.caseSensitive,
+      wholeWord: options?.wholeWord,
+      regex: options?.regex,
+    });
+  }
+  return false;
+}
+
+/**
+ * Clear search highlighting
+ */
+export function clearTerminalSearch(id: string): void {
+  const instance = terminals.get(id);
+  if (instance) {
+    instance.searchAddon.clearDecorations();
+  }
+}
+
+/**
+ * Send a command to terminal (simulates typing + Enter)
+ * Useful for automated commands like cd, opencode, etc.
+ * 
+ * @param id - Terminal instance ID
+ * @param command - Command to execute
+ * @param clearLine - Whether to clear current line first (Ctrl+U), default true
+ */
+export function sendCommand(id: string, command: string, clearLine: boolean = true): boolean {
+  const instance = terminals.get(id);
+  if (instance && instance.websocket?.readyState === WebSocket.OPEN) {
+    // Clear current line first to avoid appending to existing input
+    // Ctrl+U clears from cursor to beginning of line in bash/zsh
+    // Ctrl+C cancels any current command
+    if (clearLine) {
+      instance.websocket.send('\x15'); // Ctrl+U - clear line
+    }
+    // Small delay to ensure line is cleared before sending command
+    setTimeout(() => {
+      if (instance.websocket?.readyState === WebSocket.OPEN) {
+        instance.websocket.send(command + '\r');
+      }
+    }, 10);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Change directory in terminal
+ * Handles both Unix paths (~/github, /home/user) and Windows paths (C:\Users\name)
+ * 
+ * @param id - Terminal instance ID  
+ * @param path - Directory path (Unix or Windows format)
+ */
+export function changeDirectory(id: string, path: string): boolean {
+  // Normalize path for the shell
+  let normalizedPath = path;
+  
+  // Check if it's a Windows-style path (e.g., C:\Users\name or C:/Users/name)
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(path);
+  
+  if (isWindowsPath) {
+    // For Windows paths in WSL, convert to /mnt/c/... format
+    // C:\Users\name -> /mnt/c/Users/name
+    const driveLetter = path[0].toLowerCase();
+    const restOfPath = path.substring(2).replace(/\\/g, '/');
+    normalizedPath = `/mnt/${driveLetter}${restOfPath}`;
+  }
+  
+  // Escape path for shell (handle spaces, special chars)
+  // Use quotes if path contains spaces or special shell characters
+  const needsQuotes = /[\s$`"'\\!#&*?<>|;(){}[\]]/.test(normalizedPath);
+  const escapedPath = needsQuotes ? `"${normalizedPath}"` : normalizedPath;
+  
+  return sendCommand(id, `cd ${escapedPath}`);
 }

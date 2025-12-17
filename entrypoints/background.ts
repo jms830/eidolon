@@ -454,18 +454,26 @@ export default defineBackground(() => {
       try {
         const orgs = await apiClient.getOrganizations();
         if (orgs.length > 0) {
-          currentOrg = orgs[0];
+          // Try to restore the account's saved org preference, otherwise use first org
+          const savedOrgId = account.organizationId;
+          const savedOrg = savedOrgId ? orgs.find((o: Organization) => o.uuid === savedOrgId) : null;
+          currentOrg = savedOrg || orgs[0];
+          
+          debugLog('[Accounts] Switched account, restored org:', currentOrg.name, 'saved was:', savedOrgId);
           
           // Update storage
           storage.accounts.forEach(a => { a.isActive = a.id === accountId; });
           storage.activeAccountId = accountId;
           
-          // Update lastUsedAt
+          // Update lastUsedAt (but don't overwrite saved org if we just restored it)
           const accountIndex = storage.accounts.findIndex(a => a.id === accountId);
           if (accountIndex >= 0) {
             storage.accounts[accountIndex].lastUsedAt = new Date().toISOString();
-            storage.accounts[accountIndex].organizationId = currentOrg.uuid;
-            storage.accounts[accountIndex].organizationName = currentOrg.name;
+            // Only update org if it wasn't already saved or if it changed
+            if (!savedOrg) {
+              storage.accounts[accountIndex].organizationId = currentOrg.uuid;
+              storage.accounts[accountIndex].organizationName = currentOrg.name;
+            }
           }
           
           await saveAccounts(storage);
@@ -1569,6 +1577,17 @@ IMPORTANT:
                 if (selectedOrg) {
                   currentOrg = selectedOrg;
                   await browser.storage.local.set({ currentOrg });
+                  
+                  // Save org selection to the current active account
+                  const storage = await getAccounts();
+                  const activeAccountIndex = storage.accounts.findIndex(a => a.isActive || a.id === storage.activeAccountId);
+                  if (activeAccountIndex >= 0) {
+                    storage.accounts[activeAccountIndex].organizationId = selectedOrg.uuid;
+                    storage.accounts[activeAccountIndex].organizationName = selectedOrg.name;
+                    await saveAccounts(storage);
+                    debugLog('[Accounts] Saved org selection for account:', storage.accounts[activeAccountIndex].name);
+                  }
+                  
                   sendResponse({ success: true, data: currentOrg });
                 } else {
                   sendResponse({ success: false, error: 'Organization not found' });
@@ -2336,8 +2355,8 @@ IMPORTANT:
           case 'get-sync-stats':
             try {
               // Try to get real counts from Claude API using the module-level sessionKey
-              const orgResult = await browser.storage.local.get('currentOrganization');
-              const orgId = orgResult.currentOrganization?.uuid;
+              const orgResult = await browser.storage.local.get('currentOrg');
+              const orgId = orgResult.currentOrg?.uuid;
               
               if (sessionKey && orgId) {
                 const statsApiClient = new ClaudeAPIClient(sessionKey);

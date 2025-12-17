@@ -1,4 +1,5 @@
 import './style.css';
+import { db } from '../../utils/db/database';
 import {
   getSearchService,
   projectToSearchableItem,
@@ -2787,33 +2788,54 @@ function updatePinnedFilterCount(): void {
 
 async function loadFavorites(): Promise<void> {
   try {
-    const result = await chrome.storage.local.get('eidolon_favorites');
-    const favoritesArray = result.eidolon_favorites || [];
-    state.favorites = new Set(favoritesArray);
+    const favoriteHeaders = await db.headers.where('isFavorite').equals(1).toArray();
+    state.favorites = new Set(favoriteHeaders.map(h => h.id));
   } catch (error) {
     console.error('Failed to load favorites:', error);
-  }
-}
-
-async function saveFavorites(): Promise<void> {
-  try {
-    await chrome.storage.local.set({ 
-      eidolon_favorites: Array.from(state.favorites) 
-    });
-  } catch (error) {
-    console.error('Failed to save favorites:', error);
+    state.favorites = new Set();
   }
 }
 
 async function toggleFavorite(uuid: string): Promise<void> {
-  if (state.favorites.has(uuid)) {
-    state.favorites.delete(uuid);
-    toast.info('Removed from favorites');
-  } else {
-    state.favorites.add(uuid);
-    toast.success('Added to favorites');
+  const isFavorite = state.favorites.has(uuid);
+  const now = Date.now();
+  
+  try {
+    const existing = await db.headers.get(uuid);
+    if (existing) {
+      await db.headers.update(uuid, {
+        isFavorite: !isFavorite,
+        favoritedAt: isFavorite ? undefined : now,
+        modifiedAt: now,
+      });
+    } else {
+      await db.headers.add({
+        id: uuid,
+        serviceId: 'claude',
+        title: '',
+        createTime: now,
+        updateTime: now,
+        isFavorite: true,
+        favoritedAt: now,
+        isPinned: false,
+        isArchived: false,
+        labelIds: [],
+        modifiedAt: now,
+      });
+    }
+    
+    if (isFavorite) {
+      state.favorites.delete(uuid);
+      toast.info('Removed from favorites');
+    } else {
+      state.favorites.add(uuid);
+      toast.success('Added to favorites');
+    }
+  } catch (error) {
+    console.error('Failed to toggle favorite:', error);
+    toast.error('Failed to update favorite');
   }
-  await saveFavorites();
+  
   renderProjects();
   updateFavoritesFilterCount();
 }

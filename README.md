@@ -10,7 +10,7 @@ A powerful Chrome extension that enhances your Claude.ai experience with seamles
 - 📚 **Knowledge Management** - Upload text, pages, and files directly to projects
 - 💬 **Quick Chat** - Start conversations with project context from anywhere
 - 🔍 **Search & Filter** - Find projects and conversations instantly
-- ⭐ **Favorites** - Pin frequently used projects for quick access
+- 📌 **Pinned** - Pin frequently used projects for quick access
 
 ### Browser Integration
 - Right-click context menu for quick uploads

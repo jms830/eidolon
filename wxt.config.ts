@@ -32,6 +32,10 @@ export default defineConfig({
       'https://gemini.google.com/*',
       'https://perplexity.ai/*',
       '*://*.perplexity.ai/*',
+      'https://chat.deepseek.com/*',
+      '*://*.deepseek.com/*',
+      'https://openrouter.ai/*',
+      '*://*.openrouter.ai/*',
       '<all_urls>', // Needed for page capture and browser interaction
     ],
     optional_permissions: ['clipboardWrite', 'nativeMessaging'],
