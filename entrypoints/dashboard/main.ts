@@ -2737,33 +2737,54 @@ function toggleSelectAllProjects() {
 
 async function loadPinned(): Promise<void> {
   try {
-    const result = await chrome.storage.local.get('eidolon_pinned');
-    const pinnedArray = result.eidolon_pinned || [];
-    state.pinned = new Set(pinnedArray);
+    const pinnedHeaders = await db.headers.where('isPinned').equals(1).toArray();
+    state.pinned = new Set(pinnedHeaders.map(h => h.id));
   } catch (error) {
     console.error('Failed to load pinned:', error);
-  }
-}
-
-async function savePinned(): Promise<void> {
-  try {
-    await chrome.storage.local.set({ 
-      eidolon_pinned: Array.from(state.pinned) 
-    });
-  } catch (error) {
-    console.error('Failed to save pinned:', error);
+    state.pinned = new Set();
   }
 }
 
 async function togglePinned(uuid: string): Promise<void> {
-  if (state.pinned.has(uuid)) {
-    state.pinned.delete(uuid);
-    toast.info('Unpinned');
-  } else {
-    state.pinned.add(uuid);
-    toast.success('Pinned');
+  const isPinned = state.pinned.has(uuid);
+  const now = Date.now();
+  
+  try {
+    const existing = await db.headers.get(uuid);
+    if (existing) {
+      await db.headers.update(uuid, {
+        isPinned: !isPinned,
+        pinnedAt: isPinned ? undefined : now,
+        modifiedAt: now,
+      });
+    } else {
+      await db.headers.add({
+        id: uuid,
+        serviceId: 'claude',
+        title: '',
+        createTime: now,
+        updateTime: now,
+        isFavorite: false,
+        isPinned: true,
+        pinnedAt: now,
+        isArchived: false,
+        labelIds: [],
+        modifiedAt: now,
+      });
+    }
+    
+    if (isPinned) {
+      state.pinned.delete(uuid);
+      toast.info('Unpinned');
+    } else {
+      state.pinned.add(uuid);
+      toast.success('Pinned');
+    }
+  } catch (error) {
+    console.error('Failed to toggle pinned:', error);
+    toast.error('Failed to update pin');
   }
-  await savePinned();
+  
   renderProjects();
   updatePinnedFilterCount();
 }

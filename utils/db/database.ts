@@ -4,7 +4,8 @@ import type {
   ConversationContent, 
   Label, 
   Account, 
-  AppMetadata 
+  AppMetadata,
+  ServiceId 
 } from './types';
 
 export class EidolonDatabase extends Dexie {
