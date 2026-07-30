@@ -60,3 +60,4 @@ oauth.secrets.ts
 # Reports & Examples
 reports/
 example-extensions/
+.sbh-protect
